@@ -1,0 +1,5 @@
+conda install numpy scipy 
+conda install -c conda-forge hilbertcurve nglview py3dmol jupyterlab openmm  mdanalysis
+pip install numpy-hilbert-curve
+conda install -c conda-forge ambertools=21 compilers
+
