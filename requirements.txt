@@ -1,8 +1,8 @@
-#
-conda install numpy scipy 
-conda install -c conda-forge hilbertcurve nglview py3dmol jupyterlab openmm  mdanalysis
-pip install numpy-hilbert-curve
-conda install -c conda-forge ambertools=21 compilers
+conda install -c conda-forge hilbertcurve nglview jupyterlab openmm openff-toolkit openmmforcefields compilers rdkit 
+conda install -c conda-forge mdanalysis  py3dmol
 
+# conda install -c conda-forge ambertools=21 compilers rdkit
+
+# conda install numpy scipy 
+# pip install numpy-hilbert-curve
 # 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
-
