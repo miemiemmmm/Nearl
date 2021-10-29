@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 mnist/
+*.nc
 # C extensions
 *.so
 *.log
