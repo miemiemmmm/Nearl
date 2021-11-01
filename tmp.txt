@@ -1,0 +1,22 @@
+ALA	alanine	0	View Structure		
+ARG	arginine	1	View Structure		
+ASN	asparagine	0	View Structure		
+ASP	aspartic acid	-1	View Structure		
+CYS	cysteine	0	View Structure		
+GLN	glutamine	0	View Structure		
+GLU	glutamic acid	-1	View Structure		
+GLY	glycine	0	View Structure		
+HSD	neutral histidine, proton on ND1	0	View Structure		
+HSE	neutral histidine, proton on NE2	0	View Structure		
+HSP	protonated histidine	1	View Structure		
+ILE	isoleucine	0	View Structure		
+LEU	leucine	0	View Structure		
+LYS	lysine	1	View Structure		
+MET	methionine	0	View Structure		
+PHE	phenylalanine	0	View Structure		
+PRO	proline	0	View Structure		
+SER	serine	0	View Structure		
+THR	threonine	0	View Structure		
+TRP	tryptophan	0	View Structure		
+TYR	tyrosine	0	View Structure		
+VAL	valine	0	View Structure
