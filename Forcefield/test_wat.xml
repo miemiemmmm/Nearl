@@ -1,0 +1,32 @@
+<ForceField>
+	<!-- CHARMM_TIP3P -->
+	<Residue name="T3P" source="CHARMM">
+		<Atom name="OW" type="TIP3-OW" charge="-0.834"/>
+		<Atom name="H1" type="TIP3-H1" charge="0.417"/>
+		<Atom name="H2" type="TIP3-H2" charge="0.417"/>
+	</Residue>
+	<!-- CHARMM_SPC -->
+	<Residue name="SPC" source="CHARMM">
+		<Atom name="OW" type="SPC-OW" charge="-0.8068"/>
+		<Atom name="H1" type="SPC-H1" charge="0.4034"/>
+		<Atom name="H2" type="SPC-H2" charge="0.4034"/>
+	</Residue>
+	<!-- CHARMM_SPC-E -->
+	<Residue name="SPE" source="CHARMM">
+		<Atom name="OW" type="SPCE-OW" charge="-0.8476"/>
+		<Atom name="H1" type="SPCE-H1" charge="0.4238"/>
+		<Atom name="H2" type="SPCE-H2" charge="0.4238"/>
+    </Residue>
+	<!-- AMBER_TIP3P -->
+	<Residue name="T3P" source="AMBER">
+		<Atom name="OW" type="tip3p-O" charge="-0.834"/>
+		<Atom name="H1" type="tip3p-H" charge="0.417"/>
+		<Atom name="H2" type="tip3p-H" charge="0.417"/>
+	</Residue>
+	<!-- AMBER_SPC-E -->
+	<Residue name="SPE" source="AMBER">
+		<Atom name="OW" type="spce-O" charge="-0.8476"/>
+		<Atom name="H1" type="spce-H" charge="0.4238"/>
+		<Atom name="H2" type="spce-H" charge="0.4238"/>
+	</Residue>
+</ForceField>
