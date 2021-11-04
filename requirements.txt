@@ -1,5 +1,12 @@
-conda install -c conda-forge hilbertcurve nglview jupyterlab openmm openff-toolkit openmmforcefields compilers rdkit 
-conda install -c conda-forge mdanalysis  py3dmol
+# software
+conda install -c bioconda gromacs
+conda install -c conda-forge vmd pymol-open-source
+# python packages
+conda install -c conda-forge hilbertcurve nglview openmm openff-toolkit openmmforcefields
+
+conda install -c conda-forge jupyterlab 
+
+conda install -c conda-forge mdanalysis  py3dmol   # not Using py3Dmol
 
 # conda install -c conda-forge ambertools=21 compilers rdkit
 
