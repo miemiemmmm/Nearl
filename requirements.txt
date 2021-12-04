@@ -12,4 +12,4 @@ conda install -c conda-forge mdanalysis  py3dmol   # not Using py3Dmol
 
 # conda install numpy scipy 
 # pip install numpy-hilbert-curve
-# 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
+# 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
