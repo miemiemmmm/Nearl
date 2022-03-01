@@ -10,6 +10,7 @@ __pycache__/
 mnist/
 *.nc
 *.pkl
+*.pickle
 # C extensions
 *.so
 *.log
