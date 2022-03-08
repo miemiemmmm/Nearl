@@ -1,9 +1,10 @@
 <ForceField>
+  <Residue>
 	<!-- CHARMM_TIP3P -->
 	<Residue name="T3P" source="CHARMM">
 		<Atom name="OW" type="TIP3-OW" charge="-0.834"/>
-		<Atom name="H1" type="TIP3-H1" charge="0.417"/>
-		<Atom name="H2" type="TIP3-H2" charge="0.417"/>
+		<Atom name="HW1" type="TIP3-H1" charge="0.417"/>
+		<Atom name="HW2" type="TIP3-H2" charge="0.417"/>
 	</Residue>
 	<!-- CHARMM_SPC -->
 	<Residue name="SPC" source="CHARMM">
@@ -29,4 +30,5 @@
 		<Atom name="H1" type="spce-H" charge="0.4238"/>
 		<Atom name="H2" type="spce-H" charge="0.4238"/>
 	</Residue>
+  </Residue>
 </ForceField>
