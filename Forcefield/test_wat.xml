@@ -1,5 +1,5 @@
 <ForceField>
-  <Residue>
+  <Residues>
 	<!-- CHARMM_TIP3P -->
 	<Residue name="T3P" source="CHARMM">
 		<Atom name="OW" type="TIP3-OW" charge="-0.834"/>
@@ -30,5 +30,29 @@
 		<Atom name="H1" type="spce-H" charge="0.4238"/>
 		<Atom name="H2" type="spce-H" charge="0.4238"/>
 	</Residue>
-  </Residue>
+	<Residue name="CL">
+      <Atom name="CL" type="tip3p_standard-Cl-" charge="-1.0"/>
+    </Residue>
+	<Residue name="CL-">
+      <Atom name="CL" type="tip3p_standard-Cl-" charge="-1.0"/>
+    </Residue>
+	<Residue name="K">
+      <Atom name="K" type="tip3p_standard-K+" charge="1.0"/>
+    </Residue>
+	<Residue name="K+">
+      <Atom name="K" type="tip3p_standard-K+" charge="1.0"/>
+    </Residue>
+	<Residue name="NA">
+      <Atom name="NA" type="tip3p_standard-Na+" charge="1.0"/>
+    </Residue>
+	<Residue name="NA+">
+      <Atom name="NA" type="tip3p_standard-Na+" charge="1.0"/>
+    </Residue>
+	<Residue name="MG">
+      <Atom name="MG" type="tip3p_standard-Mg2+" charge="2.0"/>
+    </Residue>
+	<Residue name="ZN">
+      <Atom name="ZN" type="tip3p_standard-Zn2+" charge="2.0"/>
+    </Residue>
+  </Residues>
 </ForceField>
