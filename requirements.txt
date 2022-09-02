@@ -2,14 +2,31 @@
 conda install -c bioconda gromacs
 conda install -c conda-forge vmd pymol-open-source
 # python packages
-conda install -c conda-forge hilbertcurve nglview openmm openff-toolkit openmmforcefields
+conda install -c conda-forge hilbertcurve nglview openmm 
+
+# openff-toolkit openmmforcefields
 
 conda install -c conda-forge jupyterlab 
 
-conda install -c conda-forge mdanalysis  py3dmol   # not Using py3Dmol
+# conda install -c conda-forge mdanalysis  py3dmol   # not Using py3Dmol
 
 # conda install -c conda-forge ambertools=21 compilers rdkit
 
 # conda install numpy scipy 
 # pip install numpy-hilbert-curve
 # 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
+
+# Package sets
+pytorch 
+pytraj ambertool
+
+# Stand-alone packages
+rdkit 
+nglview
+openmm
+notebook 
+
+# Small packages: 
+hilbertcurve
+
+
