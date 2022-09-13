@@ -41,3 +41,14 @@ def conflictfactor(pdbfile, ligname, cutoff=5):
   factor = 1 - ((cclash/2)/((ccontact/2)/atomnr))
   print(f"Clashing factor: {round(factor,3)}; Atom selected: {atomnr}; Contact number: {ccontact}; Clash number: {cclash}");
   return factor
+
+def getprotein(traj):
+  reslst = []
+  for i in traj.top.atoms:
+    if i.name=="CA":
+      reslst.append(i.resid+1)
+  mask = ":"+",".join([str(i) for i in reslst])
+  return traj.top.select(mask)
+
+
+
