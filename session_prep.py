@@ -28,8 +28,9 @@ def submitpdb(pdbfile, jobid, pdbcode="USER", water="T3P"):
   }
   response = requests.post('http://130.60.168.149/fcgi-bin/ACyang.fcgi', data=data)
   if response.status_code == 200: 
+    dic = json.loads(response.text)
     print("Finished the submission of PDB: ", response.status_code,  response.url, response.text); 
-    return response
+    return dic
   else: 
     return False 
 
@@ -39,8 +40,9 @@ def submitmol2(mol2file, jobid):
   data = f'cmd=depositligand&ligandmol2={mol2str}&JOBID={jobid}'; 
   response = requests.post('http://130.60.168.149/fcgi-bin/ACyang.fcgi', data=data); 
   if response.status_code == 200: 
+    dic = json.loads(response.text)
     print("Finished the submission of MOL2: ", response.status_code,  response.url, response.text); 
-    return response
+    return dic
   else: 
     return False 
 
@@ -55,7 +57,6 @@ def prepare_session(jobid, parms={}):
      'sc_polar': '1.0', 'sc_impsolv': '1.0', 'pdb_tolerance_a': '20.0', 'pdb_tolerance_b': '0.75+1.25', 
      'appendix': '# comment', 'unsuppres': '', 'OBpH': '7.4', 'OBpercept': '5'
     }
-    # Update other parameters
     for i in parms.keys():
       if i in datadict.keys():
         datadict[i] = parms[i]; 
@@ -66,8 +67,10 @@ def prepare_session(jobid, parms={}):
 
     response = requests.post('http://130.60.168.149/fcgi-bin/ACyang.fcgi', data=data); 
     if response.status_code == 200: 
-      print(response.status_code,  response.url); 
-      return response
+      dic = json.loads(response.text)
+      status = dic["status"]; 
+      print(f"System preparation exit status is {status}", response.status_code,  response.url, ); 
+      return dic
     else: 
       return False 
   else: 
@@ -77,9 +80,9 @@ def prepare_session(jobid, parms={}):
 def newsession(parms):
   """
   >>> parms={
-    "jobid" : "C4001CTU",
-    "pdbcode" : "1CTU",
-    "pdbfile" : "/home/miemie/Dropbox/PhD/project_MD_ML/PDBbind_v2020_refined/1ctu/1ctu_protein.pdb",
+    "jobid" : "C4001CTU", 
+    "pdbcode" : "1CTU", 
+    "pdbfile" : "/home/miemie/Dropbox/PhD/project_MD_ML/PDBbind_v2020_refined/1ctu/1ctu_protein.pdb", 
     "mol2file" : "/home/miemie/Dropbox/PhD/project_MD_ML/PDBbind_v2020_refined/1ctu/1ctu_ligand.mol2",
     "nrsteps":1000,
   }
@@ -89,22 +92,20 @@ def newsession(parms):
     pdbcode = parms["pdbcode"]
   else:
     pdbcode = "USER"
-  pdb_state = submitpdb(parms["pdbfile"], parms["jobid"], pdbcode=pdbcode, water="T3P");
-  if isinstance(pdb_state, bool) and pdb_state == False:
+  pdb_state = submitpdb(parms["pdbfile"], parms["jobid"], pdbcode=pdbcode, water="T3P"); 
+  if isinstance(pdb_state, bool) and pdb_state == False: 
     return
-  mol2_state = submitmol2(parms["mol2file"], parms["jobid"]);
-  if isinstance(mol2_state, bool) and mol2_state == False:
+  mol2_state = submitmol2(parms["mol2file"], parms["jobid"]); 
+  if isinstance(mol2_state, bool) and mol2_state == False: 
     return
   prep_keys = ['cmd', 'water', 'nwaters', 'fullpdb', 'JOBID', 'waterchoice', 'hischoice', 'chainsel', 'ligand', 'ligmol2', 'ligsdf', 'maxloopl', 'nrsteps', 'mini_mode', 'mini_grms', 'sc_polar', 'sc_impsolv', 'pdb_tolerance_a', 'pdb_tolerance_b', 'appendix', 'unsuppres', 'OBpH', 'OBpercept']
   prep_parms = {}
   for i in parms.keys():
     if i in prep_keys:
       prep_parms[i] = parms[i]
-
+  
   prep_state = prepare_session(parms["jobid"], parms=prep_parms)
-  if isinstance(prep_state, bool) and prep_state == False:
+  if isinstance(prep_state, bool) and prep_state == False: 
     return
   print("Finished the preparation of session ", parms["jobid"])
-
-
 
