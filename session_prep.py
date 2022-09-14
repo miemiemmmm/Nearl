@@ -1,0 +1,110 @@
+import requests
+import json 
+
+def recallsession(jobid):
+  data = {
+      'cmd': 'recallSession',
+      'JOBID': jobid,
+  }
+  response = requests.post('http://130.60.168.149/fcgi-bin/ACyang.fcgi', data=data)
+  if response.status_code==200: 
+    return json.loads(response.text)
+  else: 
+    return false
+
+def submitpdb(pdbfile, jobid, pdbcode="USER", water="T3P"):
+  with open(pdbfile, "r") as file1: 
+    pdbstr = file1.read(); 
+  data = {
+      'cmd': 'deposittarget',
+      'water': water,
+      'hisdef': 'HID',
+      'ligpdb': '',
+      'ligname': '',
+      'target': pdbstr,
+      'targetname': pdbcode,
+      'JOBID': jobid,
+      'unsuppres': '',
+  }
+  response = requests.post('http://130.60.168.149/fcgi-bin/ACyang.fcgi', data=data)
+  if response.status_code == 200: 
+    print("Finished the submission of PDB: ", response.status_code,  response.url, response.text); 
+    return response
+  else: 
+    return False 
+
+def submitmol2(mol2file, jobid):
+  with open(mol2file, "r") as file1: 
+    mol2str = file1.read(); 
+  data = f'cmd=depositligand&ligandmol2={mol2str}&JOBID={jobid}'; 
+  response = requests.post('http://130.60.168.149/fcgi-bin/ACyang.fcgi', data=data); 
+  if response.status_code == 200: 
+    print("Finished the submission of MOL2: ", response.status_code,  response.url, response.text); 
+    return response
+  else: 
+    return False 
+
+def prepare_session(jobid, parms={}):
+  session_info = recallsession(jobid); 
+  if isinstance(session_info, dict):
+    pdbfile = session_info["pdbfile"]; 
+    molfile = session_info["molfile"]; 
+    datadict = {'cmd': 'preptarget', 'water': '', 'nwaters': '0', 'fullpdb': pdbfile, 'JOBID': jobid, 
+     'waterchoice': 'T3P', 'hischoice': 'HID', 'chainsel': 'none', 'ligand': 'none', 'ligmol2': molfile, 
+     'ligsdf': '', 'maxloopl': '0', 'nrsteps': '5000', 'mini_mode': '3', 'mini_grms': '0.01', 
+     'sc_polar': '1.0', 'sc_impsolv': '1.0', 'pdb_tolerance_a': '20.0', 'pdb_tolerance_b': '0.75+1.25', 
+     'appendix': '# comment', 'unsuppres': '', 'OBpH': '7.4', 'OBpercept': '5'
+    }
+    # Update other parameters
+    for i in parms.keys():
+      if i in datadict.keys():
+        datadict[i] = parms[i]; 
+    data = "";
+    for key, val in datadict.items():
+      data += f"{key}={val}&";
+    data = data.strip("&"); 
+
+    response = requests.post('http://130.60.168.149/fcgi-bin/ACyang.fcgi', data=data); 
+    if response.status_code == 200: 
+      print(response.status_code,  response.url); 
+      return response
+    else: 
+      return False 
+  else: 
+    print("Fatal: Failed to query the session info")
+    return False 
+
+def newsession(parms):
+  """
+  >>> parms={
+    "jobid" : "C4001CTU",
+    "pdbcode" : "1CTU",
+    "pdbfile" : "/home/miemie/Dropbox/PhD/project_MD_ML/PDBbind_v2020_refined/1ctu/1ctu_protein.pdb",
+    "mol2file" : "/home/miemie/Dropbox/PhD/project_MD_ML/PDBbind_v2020_refined/1ctu/1ctu_ligand.mol2",
+    "nrsteps":1000,
+  }
+  >>> newsession(parms)
+  """
+  if "pdbcode" in parms.keys():
+    pdbcode = parms["pdbcode"]
+  else:
+    pdbcode = "USER"
+  pdb_state = submitpdb(parms["pdbfile"], parms["jobid"], pdbcode=pdbcode, water="T3P");
+  if isinstance(pdb_state, bool) and pdb_state == False:
+    return
+  mol2_state = submitmol2(parms["mol2file"], parms["jobid"]);
+  if isinstance(mol2_state, bool) and mol2_state == False:
+    return
+  prep_keys = ['cmd', 'water', 'nwaters', 'fullpdb', 'JOBID', 'waterchoice', 'hischoice', 'chainsel', 'ligand', 'ligmol2', 'ligsdf', 'maxloopl', 'nrsteps', 'mini_mode', 'mini_grms', 'sc_polar', 'sc_impsolv', 'pdb_tolerance_a', 'pdb_tolerance_b', 'appendix', 'unsuppres', 'OBpH', 'OBpercept']
+  prep_parms = {}
+  for i in parms.keys():
+    if i in prep_keys:
+      prep_parms[i] = parms[i]
+
+  prep_state = prepare_session(parms["jobid"], parms=prep_parms)
+  if isinstance(prep_state, bool) and prep_state == False:
+    return
+  print("Finished the preparation of session ", parms["jobid"])
+
+
+
