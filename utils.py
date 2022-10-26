@@ -181,3 +181,38 @@ def EmbeddingFactor(basepath, pdbcode, mask=":LIG"):
   print(f"Surface contribution: {slig_0}; Surface pure: {slig_1}")
   return 1-slig_0/slig_1
 
+
+def cgenff2dic(filename):
+  with open(filename) as file1:
+    lst = list(filter(lambda i: re.match(r"^ATOM.*!", i), file1))
+  theatom  = [i.strip("\n").split()[1] for i in lst]
+  atomtype = [i.strip("\n").split()[2] for i in lst]
+  charge   = [float(i.strip("\n").split()[3]) for i in lst]
+  penalty  = [float(i.strip("\n").split()[-1]) for i in lst]
+  return {"name":theatom, "type":atomtype, "charge":charge, "penalty":penalty}
+
+def cgenff2xmls(cgenffname):
+  cgenffdic = cgenff2dic(cgenffname); 
+  root = ET.Element('ForceField')
+  info = ET.SubElement(root, 'Info')
+  info_date = ET.SubElement(info, "date")
+  info_date.text = datetime.datetime.now().strftime('%y-%m-%dT%H:%M:%S');
+  data_lig = ET.SubElement(root, 'LIG')
+  for i in range(len(cgenffdic["name"])):
+    tmpattrib={
+      "name":cgenffdic["name"][i], 
+      "type": cgenffdic["type"][i], 
+      "charge": str(cgenffdic["charge"][i]), 
+      'penalty': str(cgenffdic["penalty"][i]),
+    }
+    tmpatom = ET.SubElement(data_lig, 'ATOM', attrib = tmpattrib)
+  ligxml_str = ET.tostring(root , encoding="unicode")
+  ligxml_str = minidom.parseString(ligxml_str).toprettyxml(indent="  ")
+  return ligxml_str
+
+def cgenff2xml(cgenffname, outfile):
+  xmlstr = cgenff2xmls(cgenffname); 
+  with open(outfile, "w") as file1: 
+    file1.write(xmlstr)
+  return 
+
