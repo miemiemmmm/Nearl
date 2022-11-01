@@ -181,3 +181,31 @@ def EmbeddingFactor(basepath, pdbcode, mask=":LIG"):
   print(f"Surface contribution: {slig_0}; Surface pure: {slig_1}")
   return 1-slig_0/slig_1
 
+
+
+def fetch(code):
+  import requests; 
+  pdb = code.lower();
+  response = requests.post(f'http://files.rcsb.org/download/{pdb}.pdb'); 
+  return response.text
+
+def PRO_nha(pdbfile):
+  traj = pt.load(pdbfile, top=pdbfile)
+  atomic_numbers = np.array([i.atomic_number for i in traj.top.atoms])
+  nha = np.count_nonzero(atomic_numbers > 1)
+  return nha
+
+def PRO_nhydrogen(pdbfile):
+  traj = pt.load(pdbfile, top=pdbfile)
+  atomic_numbers = np.array([i.atomic_number for i in traj.top.atoms])
+  nh = np.count_nonzero(atomic_numbers == 1)
+  return nh
+
+def LIG_nha(pdbfile, mask=":LIG"):
+  traj = pt.load(pdbfile, top=pdbfile, mask=mask)
+  atomic_numbers = np.array([i.atomic_number for i in traj.top.atoms])
+  nha = np.count_nonzero(atomic_numbers > 1)
+  return nha
+
+
+
