@@ -2,6 +2,7 @@ from hilbertcurve.hilbertcurve import HilbertCurve
 import os
 import imageio
 import numpy as np
+import pytraj as pt
 import pandas as pd
 import nglview as nv
 import matplotlib.pyplot as plt
