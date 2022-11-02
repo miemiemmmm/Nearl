@@ -1,5 +1,7 @@
 import requests
 import json 
+import tempfile
+import numpy as np 
 
 def RecallSession(jobid):
   """
@@ -134,4 +136,57 @@ def PrepNewSession(parms):
     return
   print("Finished the preparation of session ", parms["jobid"])
 
+def getSeqCoord(filename):
+  """
+    Extract residue CA <coordinates> and <sequence> from PDB chain
+  """
+  from Bio.PDB.Polypeptide import three_to_one
+  import pytraj as pt 
+  
+  traj = pt.load(filename)
+  resnames = [i.name for i in traj.top.residues]; 
+  trajxyz = traj.xyz[0]; 
+  retxyz = [];
+  retseq = ""; 
+  for atom in traj.top.atoms: 
+    if atom.name == "CA":
+      try: 
+        resname = resnames[atom.resid]
+        resxyz = trajxyz[atom.index]
+        retseq += three_to_one(resname)
+        retxyz.append(resxyz)
+      except: 
+        pass
+  return np.array(retxyz), retseq
 
+def CompareStructures(pdbcode, sessexp=None):
+  """
+    Compare the PDB structure before and after then session preparation
+    Functions: 
+      Extract residue <coordinates> and <sequence> from PDB chain
+        Uses the coordinates of the CA atom as the center of the residue
+        Skip unknown residues
+  """
+  from tmtools import tm_align; 
+  from . import utils
+  pdbcode = pdbcode.lower(); 
+  with tempfile.NamedTemporaryFile("w", suffix=".pdb") as file1: 
+    file1.write(utils.fetch(pdbcode))
+    coord1, seq1 = getSeqCoord(file1.name); 
+  if sessexp != None:
+    sessioncode = sessexp(pdbcode)
+    print(f"The session ID is : {sessioncode}")
+  else: 
+    sessioncode = f"C400{pdbcode.upper()}"
+  with tempfile.NamedTemporaryFile("w", suffix=".pdb") as file1: 
+    file1.write(RecallSession(sessioncode)["pdbfile"])
+    coord2, seq2 = getSeqCoord(file1.name); 
+  print(f"Coordinate set 1 shaped {coord1.shape} ; Sequence shape {len(seq1)}")
+  print(f"Coordinate set 2 shaped {coord2.shape} ; Sequence shape {len(seq2)}")
+  result = tm_align(coord1, coord2, seq1, seq2)
+  print(f"TM_Score: Chain1 {result.tm_norm_chain1} ; Chain2 {result.tm_norm_chain2}")
+  if max([result.tm_norm_chain1, result.tm_norm_chain2]) > 0.8:
+    print("TM_Score: Good match")
+  else: 
+    print("TM_Score: Bad match")
+  return max([result.tm_norm_chain1, result.tm_norm_chain2]); 
