@@ -1,32 +1,37 @@
-# software
-conda install -c bioconda gromacs
-conda install -c conda-forge vmd pymol-open-source
-# python packages
-conda install -c conda-forge hilbertcurve nglview openmm 
+# General purpose packages
+# numpy=1.22.3      # 3.8 3.9
+# pytorch=1.11      # 3.8 3.9
+# matplotlib=3.5.1  # 3.8 3.9
+# scipy=1.9.1       # 3.8 3.9
+# notebook=6.1.4    # 3.8
+# pandas=1.4.2      # 3.8 3.9
+# h5py=2.10         # 3.8 3.9
+# imageio=2.22      # noarch
+# bs4=4.9.3         # noarch
+# scikit-learn=1.0.2 # 3.8 3.9
+# requests
 
-# openff-toolkit openmmforcefields
 
-conda install -c conda-forge jupyterlab 
+# Specific packages
+# ambertools=21           $$$ Trajectory processing  3.8 3.9
+# biopython=1.79          $$$ General biological operation 3.8 3.9
+# rdkit=2021.09           $$$ General biological/chemical operation 3.8 3.9
+# nglview=3.0.3           $$$ Visualization | noarch | 
+# hilbertcurve=2.0.5
+# sgt                     $$$ Embed features in a finite dimensional space | pip install sgt
 
-# conda install -c conda-forge mdanalysis  py3dmol   # not Using py3Dmol
 
-# conda install -c conda-forge ambertools=21 compilers rdkit
+# Non emergent packages
+# openmmforcefields openmm openff-toolkit
+# mdanalysis 
 
-# conda install numpy scipy 
-# pip install numpy-hilbert-curve
-# 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
+# Commands 
+conda create -n mlprod2 -c nvidia -c conda-forge -c anaconda python=3.8.10 ambertools=21 compilers rdkit=2021.09 numpy=1.22.3 matplotlib=3.5.1 scipy=1.9.1 notebook=6.1.4 scikit-learn=1.0.2 h5py=2.10 pandas=1.4.2 bs4=4.9.3 biopython=1.79 requests nglview=3.0.3 imageio=2.22 hilbertcurve=2.0.5 cuda-toolkit=11.7
+conda install -c pytorch -c nvidia pytorch torchvision torchaudio pytorch-cuda=11.7 
+# pip install sgt
+# pip install git+https://github.com/jvkersch/tmtools.git#egg=tmtools   # Evaluate the structure after preparation
 
-# Package sets
-pytorch 
-pytraj ambertool
+# conda install -c conda-forge hilbertcurve openmm openff-toolkit openmmforcefields
 
-# Stand-alone packages
-rdkit 
-nglview
-openmm
-notebook 
-
-# Small packages: 
-hilbertcurve
-
+# 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  key
 

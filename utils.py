@@ -240,3 +240,53 @@ def cgenff2xml(cgenffname, outfile):
     file1.write(xmlstr)
   return 
 
+def DistanceLigPro(theid, mode="session", ligname="LIG"):
+  """
+    Calculate the COM distance from protein to ligand
+    Protein uses CA atoms ; Ligand use ALL atoms
+    Have 2 modes: session/file
+  """
+  import pytraj as pt
+  import tempfile
+  from . import session_prep
+  if mode == "session":
+    from rdkit import Chem
+    from scipy.spatial import distance_matrix
+    import re
+    import numpy as np 
+    if len(theid) != 8: 
+      print("Session ID length not equil to 8");
+      return
+    with tempfile.NamedTemporaryFile("w", suffix=".pdb") as file1, tempfile.NamedTemporaryFile("w", suffix=".mol2") as file2:
+      session = session_prep.RecallSession(theid)
+      file1.write(session["pdbfile"]); 
+      protcom = pt.center_of_mass(pt.load(file1.name), "@CA"); 
+      try:
+        # Mol2 could successfully be parsed in pytraj
+        file2.write(session["molfile"]); 
+        traj = pt.load(file2.name)
+        ligcom = pt.center_of_mass(pt.load(file2.name)); 
+      except Exception as e: 
+        # Directly calculate the COM of the ligand 
+        print(f"Error occurred while calculating the Ligand COM: {e}")
+        atoms = session["molfile"].split("@<TRIPOS>ATOM\n")[1].split("@<TRIPOS>")[0]; 
+        atoms = [i.strip().split() for i in atoms.strip("\n").split("\n")]; 
+        coord = np.array([i[2:5] for i in atoms]).astype(np.float32); 
+        atomtypes = [re.sub(r"[0-9]", "", i[1]) for i in atoms]; 
+        masses = []; 
+        for i in atomtypes:
+          try: 
+            m = Chem.Atom(i).GetMass()
+            masses.append(m); 
+          except: 
+            masses.append(0); 
+        com = np.average(coord, axis=0, weights=masses)
+        ligcom = np.array([com])
+      return distance_matrix(ligcom, protcom).item(); 
+  elif mode == "file": 
+    traj = pt.load(theid); 
+    dist = pt.distance(traj, f"@CA  :{ligname}")
+    return dist.item()
+  else:
+    return None
+
