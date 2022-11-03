@@ -1,22 +1,31 @@
-from sklearn.cluster import AgglomerativeClustering
+from sklearn.cluster import AgglomerativeClustering, KMeans, MiniBatchKMeans
 import numpy as np 
 import time
 import pandas as pd
 from sgt import SGT
 
-def ClusterAgglomerative(pdist, clusternr, return_cluster=False):
+def Agglomerative(data, clusternr, return_cluster=False):
   """
     Cluster the distance values to {clusternr} classes
     [0 0 3 ... 2 3 2]  # 10 classes
   """
   hc = AgglomerativeClustering(n_clusters=clusternr, affinity = 'euclidean', linkage = 'ward', compute_distances=True);
-  y_hc = hc.fit_predict(pdist.T);
-  print(f"Predictions: {len(y_hc)} ; Cluster Number: {len(set(y_hc))}")
+  y_hc = hc.fit_predict(data);
+  # print(f"Predictions: {len(y_hc)} ; Cluster Number: {len(set(y_hc))}")
   if return_cluster:
     return y_hc, hc
   else:
     return y_hc
 
+def _KMeans(data, clusternr):
+  spectral = KMeans(n_clusters=clusternr);
+  labels = spectral.fit_predict(data);
+  return labels
+
+def MBKMeans(data, clusternr):
+  spectral = MiniBatchKMeans(n_clusters=clusternr);
+  labels = spectral.fit_predict(data);
+  return labels
 
 def RandomPerCluster(cluster, number=1):
   """

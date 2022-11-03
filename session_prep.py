@@ -3,6 +3,129 @@ import json
 import tempfile
 import numpy as np 
 
+class MDPostData:
+  def __init__(self):
+    self.__data = {
+      'cmd': 'runsmdsim',
+      'JOBID': 'XXXXXXXX',
+      'sim_ifexp': 'true',
+      'sim_ifequil': 'false',
+      'sim_ifimp': 'false',
+      'sim_nrcopy': '1',
+      'prod_outputformat': 'netcdf',
+      'prod_outputgroup': 'all',
+      'prod_nrsteps': '5000000',
+      'prod_outinterval': '5000',
+      'prod_prodeng': 'gmxmd',
+      'prod_ensemble': 'npt',
+      'prod_temp': '298',
+      'prod_pressure': '1.00',
+      'prod_timestep': '0.002',
+      'sim_ifrestart': 'false',
+      'sim_rstfrom': 'false',
+      'sim_haslig': 'true',
+      'sim_ifreconly': 'false',
+      'sim_slotsel': '0',
+      'sim_initbox': '-1',
+      'sim_neuiontype': 'kcl',
+      'sim_solmod': 'tip3p',
+      'sim_ionconc': '0.15',
+      'sim_forcefield': 'charmm36',
+      'sim_equilnr': '6',
+      'equil0_ensemble': 'em',
+      'equil0_eng': 'gmxem',
+      'equil0_temp': '0',
+      'equil0_timestep': '0',
+      'equil0_nrsteps': '5000',
+      'equil1_ensemble': 'nvt',
+      'equil1_eng': 'gmxmd',
+      'equil1_temp': '150',
+      'equil1_timestep': '0.002',
+      'equil1_nrsteps': '5000',
+      'equil1_tctime': '0.1',
+      'equil2_ensemble': 'nvt',
+      'equil2_eng': 'gmxmd',
+      'equil2_temp': '200',
+      'equil2_timestep': '0.002',
+      'equil2_nrsteps': '5000',
+      'equil2_tctime': '0.1',
+      'equil3_ensemble': 'nvt',
+      'equil3_eng': 'gmxmd',
+      'equil3_temp': '249',
+      'equil3_timestep': '0.002',
+      'equil3_nrsteps': '5000',
+      'equil3_tctime': '0.1',
+      'equil4_ensemble': 'nvt',
+      'equil4_eng': 'gmxmd',
+      'equil4_temp': '298',
+      'equil4_timestep': '0.002',
+      'equil4_nrsteps': '5000',
+      'equil4_tctime': '0.1',
+      'equil5_ensemble': 'npt',
+      'equil5_eng': 'gmxmd',
+      'equil5_temp': '298',
+      'equil5_timestep': '0.002',
+      'equil5_nrsteps': '20000',
+      'equil5_tctime': '0.1',
+    }
+  def __str__(self):
+    return self.__data.__str__()
+  @property
+  def data(self):
+    return self.__data
+  @property
+  def jobid(self):
+    return self.__data["JOBID"]
+  @jobid.setter
+  def jobid(self, val):
+    val = str(val).strip().replace(" ", ""); 
+    if len(val) != 8:
+      print(f"Not a valid jobid: 12 characters rather than {len(val)}")
+      return 
+    else: 
+      self.__data["JOBID"] = val; 
+  @property
+  def nrsteps(self):
+    return self.__data["prod_nrsteps"]
+  @nrsteps.setter
+  def nrsteps(self, val):
+    if int(val): 
+      self.__data["prod_nrsteps"] = val
+    else: 
+      print(f"Please use a valid number as the number of steps")
+  @property
+  def interval(self):
+    return self.__data["prod_outinterval"]
+  @interval.setter
+  def interval(self, val):
+    if int(val): 
+      self.__data["prod_outinterval"] = val
+    else: 
+      print(f"Please use a valid number as the trajectory output interval")
+  @property
+  def nrcopy(self):
+    return self.__data["sim_nrcopy"]
+  @nrcopy.setter
+  def nrcopy(self, val):
+    if int(val): 
+      self.__data["sim_nrcopy"] = val
+    else: 
+      print(f"Please use a valid number as the parallel execution")
+  @property
+  def timestep(self):
+    return self.__data["prod_timestep"]
+  @timestep.setter
+  def timestep(self, val, force=False):
+    if float(val) > 0.1 and not force:
+      print(f"The unit of the timestep is in ps and the given value seems extremely high. Use data.timestep = ({val}, force=True) to force skipping the value check. ")
+    elif float(val): 
+      self.__data["prod_timestep"] = val
+    else: 
+      print(f"Please use a valid number as the timestep")      
+
+
+
+
 def RecallSession(jobid):
   """
   Primarily to obtain the session ligand and protein structure
