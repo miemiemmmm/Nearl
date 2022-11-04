@@ -1,31 +1,10 @@
-from sklearn.cluster import AgglomerativeClustering, KMeans, MiniBatchKMeans
-import numpy as np 
 import time
+import numpy as np 
 import pandas as pd
-from sgt import SGT
 
-def Agglomerative(data, clusternr, return_cluster=False):
-  """
-    Cluster the distance values to {clusternr} classes
-    [0 0 3 ... 2 3 2]  # 10 classes
-  """
-  hc = AgglomerativeClustering(n_clusters=clusternr, affinity = 'euclidean', linkage = 'ward', compute_distances=True);
-  y_hc = hc.fit_predict(data);
-  # print(f"Predictions: {len(y_hc)} ; Cluster Number: {len(set(y_hc))}")
-  if return_cluster:
-    return y_hc, hc
-  else:
-    return y_hc
-
-def _KMeans(data, clusternr):
-  spectral = KMeans(n_clusters=clusternr);
-  labels = spectral.fit_predict(data);
-  return labels
-
-def MBKMeans(data, clusternr):
-  spectral = MiniBatchKMeans(n_clusters=clusternr);
-  labels = spectral.fit_predict(data);
-  return labels
+from sklearn import metrics
+from sklearn import mixture
+from sklearn.cluster import AgglomerativeClustering, KMeans, MiniBatchKMeans; 
 
 def RandomPerCluster(cluster, number=1):
   """
@@ -121,6 +100,7 @@ def SequenceEmbed(seqs):
   """
     Convert the sequence to the a fixed length vector
   """
+  from sgt import SGT
   st_time = time.perf_counter();
   listseq=[[idx,[j for j in i]] for idx,i in enumerate(seqs)];
   listseq = pd.DataFrame(listseq, columns=['id', 'sequence']);
@@ -143,4 +123,61 @@ def SentenceEmbed(sents):
   print(f"Sentence Embedding takes {time.perf_counter() - st_time:.3f} seconds with shape of {embedding.shape}")
   return retvec
 
+"""  Cluster the {data} to {clusternr} classes  """
+def agglomerative(data, clusternr, return_cluster=False):
+  clf = AgglomerativeClustering(n_clusters=clusternr, affinity = 'euclidean', linkage = 'ward', compute_distances=True);
+  labels = clf.fit_predict(data);
+  if return_cluster:
+    return labels, hc
+  else:
+    return labels
+def kmeans(data, clusternr):
+  clf = KMeans(n_clusters=clusternr);
+  labels = clf.fit_predict(data);
+  return labels
+def minibatchkmeans(data, clusternr):
+  clf = MiniBatchKMeans(n_clusters=clusternr);
+  labels = clf.fit_predict(data);
+  return labels
+def gaussianmixture(data, clusternr):
+  clf = mixture.GaussianMixture(n_components=clusternr, covariance_type="tied")
+  labels = clf.fit_predict(data)
+  return labels
+def bayesiangaussianmixture(data, clusternr):
+  clf = mixture.BayesianGaussianMixture(n_components=clusternr, covariance_type="tied")
+  labels = clf.fit_predict(data)
+  return labels
+
+
+def OptimalCluster(data, cfunc, iters, method="db"):
+  """
+    Example: 
+    >>> func = cluster.Agglomerative
+    >>> OptimalCluster(embed_df, func, range(10,90,3), method="ch")
+  """
+  cluster_best = 2; 
+  if method == "db":
+    score_best = 1;
+    metric = metrics.davies_bouldin_score
+    comp = np.min
+  elif method == "hc":
+    score_best = -1;
+    metric = metrics.silhouette_score
+    comp = np.max
+  elif method == "ch":
+    score_best = 1;
+    metric = metrics.calinski_harabasz_score
+    comp = np.max
+  else: 
+    return 
+  iters = np.array(iters).astype(int);
+  data = np.array(data);
+  for i in iters:
+    clusters = cfunc(data, i);
+    score = metric(data, clusters);
+    if score_best != comp([score_best, score]):
+      score_best = score;
+      cluster_best = i;
+  print(f"Best clustering performance ({score_best}) is achieved when clusters number is {cluster_best}")
+  return cluster_best
 
