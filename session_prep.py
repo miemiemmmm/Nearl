@@ -3,11 +3,11 @@ import json
 import tempfile
 import numpy as np 
 
-class MDPostData:
+class MDPost:
   def __init__(self):
     self.__data = {
       'cmd': 'runsmdsim',
-      'JOBID': 'XXXXXXXX',
+      'JOBID': '',
       'sim_ifexp': 'true',
       'sim_ifequil': 'false',
       'sim_ifimp': 'false',
@@ -78,38 +78,38 @@ class MDPostData:
     return self.__data["JOBID"]
   @jobid.setter
   def jobid(self, val):
-    val = str(val).strip().replace(" ", ""); 
+    val = str(val).strip().replace(" ", "");
     if len(val) != 8:
       print(f"Not a valid jobid: 12 characters rather than {len(val)}")
-      return 
-    else: 
-      self.__data["JOBID"] = val; 
+      return
+    else:
+      self.__data["JOBID"] = val;
   @property
   def nrsteps(self):
     return self.__data["prod_nrsteps"]
   @nrsteps.setter
   def nrsteps(self, val):
-    if int(val): 
+    if int(val):
       self.__data["prod_nrsteps"] = val
-    else: 
+    else:
       print(f"Please use a valid number as the number of steps")
   @property
   def interval(self):
     return self.__data["prod_outinterval"]
   @interval.setter
   def interval(self, val):
-    if int(val): 
+    if int(val):
       self.__data["prod_outinterval"] = val
-    else: 
+    else:
       print(f"Please use a valid number as the trajectory output interval")
   @property
   def nrcopy(self):
     return self.__data["sim_nrcopy"]
   @nrcopy.setter
   def nrcopy(self, val):
-    if int(val): 
+    if int(val):
       self.__data["sim_nrcopy"] = val
-    else: 
+    else:
       print(f"Please use a valid number as the parallel execution")
   @property
   def timestep(self):
@@ -118,11 +118,45 @@ class MDPostData:
   def timestep(self, val, force=False):
     if float(val) > 0.1 and not force:
       print(f"The unit of the timestep is in ps and the given value seems extremely high. Use data.timestep = ({val}, force=True) to force skipping the value check. ")
-    elif float(val): 
+    elif float(val):
       self.__data["prod_timestep"] = val
-    else: 
-      print(f"Please use a valid number as the timestep")      
+    else:
+      print(f"Please use a valid number as the timestep")
 
+  def print_(self, *args, color="r", **kwarg):
+    text = " ".join(args); 
+    if color == "r":
+      print(f'\033[91m{text}', **kwarg); 
+    elif color == "g":
+      print(f'\033[92m{text}', **kwarg); 
+    elif color == "b":
+      print(f'\033[94m{text}', **kwarg); 
+    else:
+      print(f'{text}', **kwarg);      
+ 
+  def submit(self, url="http://130.60.168.149/fcgi-bin/ACyang.fcgi"):
+    if len(self.__data["JOBID"]) != 8: 
+      self.print_(f"Please set a proper job ID with a fixed length 8. Found <{self.jobid}>")
+      return
+    else: 
+      print(f"Submitting the MD simulation job: {self}"); 
+      response = requests.post(url, data = self.__data); 
+      if response.status_code == 200: 
+        self.result = json.loads(response.text);
+        if self.result["status"] == 1: 
+          self.print_(f"The simulation job {self.jobid} is finished. ", end="", color="g"); 
+          if "traj_id" in self.result.keys():
+            traj_id = self.result["traj_id"]; 
+            self.print_(f"The latest trajectory ID is {traj_id}", color="g"); 
+          else:
+            self.print_("");
+          msg = self.result["msg"]; 
+          self.print_(f"The return message is: \n{msg}", color="g"); 
+        else: 
+          self.print_(f"The simulation job {self.jobid} is failed due to the following reason: "); 
+          self.print_(self.result["msg"]); 
+      else: 
+        self.print_(f"The job seems to failed due to the request problem. Please manually view the {self.jobid}"); 
 
 
 
