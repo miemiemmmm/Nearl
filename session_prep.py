@@ -151,6 +151,11 @@ class MDPost:
   def print_(self, *args, color="r", **kwarg):
     text = " ".join(args);
     print(f'{text}', **kwarg);
+
+  def update(self, parms):
+    for key, value in parms.items():
+      if key in self.data.keys():
+        self.data[key] = value;
  
   def submit(self, url="http://130.60.168.149/fcgi-bin/ACyang.fcgi"):
     time.sleep(int(time.perf_counter().__str__()[-3:])/3000); 
