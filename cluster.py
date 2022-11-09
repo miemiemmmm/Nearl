@@ -157,7 +157,7 @@ def OptimalCluster(data, cfunc, iters, method="db"):
   """
   cluster_best = 2; 
   if method == "db":
-    score_best = 1;
+    score_best = 100;
     metric = metrics.davies_bouldin_score
     comp = np.min
   elif method == "hc":

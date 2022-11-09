@@ -2,6 +2,8 @@ import requests
 import json 
 import tempfile
 import numpy as np 
+import datetime
+import time
 
 class MDPost:
   def __init__(self):
@@ -122,7 +124,19 @@ class MDPost:
       self.__data["prod_timestep"] = val
     else:
       print(f"Please use a valid number as the timestep")
+  @property
+  def date(self):
+    time_now = datetime.datetime.now().strftime('%y-%m-%dT%H:%M:%S'); 
+    # self.date = time_now; 
+    return time_now; 
 
+  def log(func):
+    def func_(self, *args, **kwarg):
+      print(f"{self.date} : Simulation {self.jobid} - ", end="")
+      func(self, *args, **kwarg)
+    return func_
+
+  @log
   def print_(self, *args, color="r", **kwarg):
     text = " ".join(args); 
     if color == "r":
@@ -132,32 +146,36 @@ class MDPost:
     elif color == "b":
       print(f'\033[94m{text}', **kwarg); 
     else:
-      print(f'{text}', **kwarg);      
+      print(f'{text}', **kwarg); 
+  @log
+  def print_(self, *args, color="r", **kwarg):
+    text = " ".join(args);
+    print(f'{text}', **kwarg);
  
   def submit(self, url="http://130.60.168.149/fcgi-bin/ACyang.fcgi"):
+    time.sleep(int(time.perf_counter().__str__()[-3:])/3000); 
     if len(self.__data["JOBID"]) != 8: 
       self.print_(f"Please set a proper job ID with a fixed length 8. Found <{self.jobid}>")
       return
     else: 
-      print(f"Submitting the MD simulation job: {self}"); 
+      # print(f"Submitting the MD simulation job: {self}"); 
       response = requests.post(url, data = self.__data); 
       if response.status_code == 200: 
         self.result = json.loads(response.text);
         if self.result["status"] == 1: 
-          self.print_(f"The simulation job {self.jobid} is finished. ", end="", color="g"); 
+          self.print_(f"Simulation job is successfully complete. ", end="", color="g"); 
           if "traj_id" in self.result.keys():
             traj_id = self.result["traj_id"]; 
-            self.print_(f"The latest trajectory ID is {traj_id}", color="g"); 
+            print(f"The latest trajectory ID is {traj_id}"); 
           else:
-            self.print_("");
+            print("");
           msg = self.result["msg"]; 
-          self.print_(f"The return message is: \n{msg}", color="g"); 
+          self.print_(f"The return message is: <{msg}>", color="g"); 
         else: 
-          self.print_(f"The simulation job {self.jobid} is failed due to the following reason: "); 
-          self.print_(self.result["msg"]); 
+          self.print_(f"Simulation job is failed due to the following reason: ", end=""); 
+          print(self.result["msg"]); 
       else: 
-        self.print_(f"The job seems to failed due to the request problem. Please manually view the {self.jobid}"); 
-
+        self.print_(f"Simulation {self.jobid}: The job seems to failed due to the network problem. "); 
 
 
 def RecallSession(jobid):

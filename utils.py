@@ -178,7 +178,7 @@ def EmbeddingFactor(basepath, pdbcode, mask=":LIG"):
     print(f"Cannot find the ligand file in the database {pdbcode} ({ligfile})")
   elif not os.path.isfile(pdbfile):
     print(f"Cannot find the protein file in the database {pdbcode} ({pdbfile})")
-  print(f"Surface contribution: {slig_0}; Surface pure: {slig_1}")
+  # print(f"Surface contribution: {slig_0}; Surface pure: {slig_1}")
   return 1-slig_0/slig_1
 
 
@@ -290,3 +290,58 @@ def DistanceLigPro(theid, mode="session", ligname="LIG"):
   else:
     return None
 
+def getPdbTitle(pdbcode):
+  pdb = pdbcode.lower().strip().replace(" ", ""); 
+  assert len(pdb) == 4, "Please enter a valid PDB name";
+  pdbstr = fetch(pdb);
+  title = " ".join([i.strip("TITLE").strip() for i in pdbstr.split("\n") if "TITLE" in i]); 
+  return title
+  
+  
+  
+def getPdbSeq(pdbcode):
+  from Bio.SeqUtils import seq1; 
+  import re
+  pdb = pdbcode.lower().strip().replace(" ", ""); 
+  assert len(pdb) == 4, "Please enter a valid PDB name";
+  pdbstr = fetch(pdb);
+  
+  chainids = [i[11] for i in pdbstr.split("\n") if re.search(r"SEQRES.*[A-Z].*[0-9]", i)];
+  chainid = chainids[0];
+  title = " ".join([i[19:] for i in pdbstr.split("\n") if re.search(f"SEQRES.*{chainid}.*[0-9]", i)]); 
+  seqstr = "".join(title.split());
+  seqstr = seq1(seqstr); 
+  if len(seqstr) > 4:
+    return seqstr
+  else: 
+    print("Not found a proper single chain")
+    title = " ".join([i[19:] for i in pdbstr.split("\n") if re.search(r"SEQRES", i)])
+    seqstr = "".join(title.split());
+    seqstr = seq1(seqstr); 
+    return seqstr
+
+
+
+def getAxisIndex(idx, colnr):
+  x = np.floor(idx/colnr).astype(int); 
+  y = idx%colnr ; 
+  return (x,y)
+
+def smartsSupplier(smarts):
+  from rdkit import Chem
+  mols = []; 
+  for idx, m in enumerate(smarts): 
+    mol = Chem.MolFromSmarts(m); 
+    mols.append(mol); 
+  return mols
+
+def DrawGridMols(axes, mols, colnr):
+  from rdkit.Chem import Draw
+  for axis in axes.reshape((-1,1)):
+    axis[0].axis("off"); 
+  for idx, mol in enumerate(mols): 
+    figi = Draw.MolToImage(mol); 
+    figi.thumbnail((100, 100)); 
+    index = getAxisIndex(idx, colnr); 
+    axes[index].imshow(figi); 
+    axes[index].set_title(f"SubStruct {idx+1}"); 
