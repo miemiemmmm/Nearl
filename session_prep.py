@@ -167,6 +167,7 @@ class MDPost:
       response = requests.post(url, data = self.__data); 
       if response.status_code == 200: 
         self.result = json.loads(response.text);
+        self.data["result"] = self.result; 
         if self.result["status"] == 1: 
           self.print_(f"Simulation job is successfully complete. ", end="", color="g"); 
           if "traj_id" in self.result.keys():
@@ -179,9 +180,11 @@ class MDPost:
         else: 
           self.print_(f"Simulation job is failed due to the following reason: ", end=""); 
           print(self.result["msg"]); 
+        return self.data
       else: 
+        self.data["result"] = "Failed"
         self.print_(f"Simulation {self.jobid}: The job seems to failed due to the network problem. "); 
-
+        return self.data
 
 def RecallSession(jobid):
   """
