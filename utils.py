@@ -73,7 +73,6 @@ def PairwiseDistance(traj, mask1, mask2, use_mean=False):
   Get the pairwise distance between two masks
   Usually they are the heavy atoms of ligand and protein within the pocket
   """
-  print("Calculating pairwise distance")
   selmask1 = traj.top.select(mask1);
   selmask2 = traj.top.select(mask2);
   atom_names = np.array([i.name for i in traj.top.atoms])
@@ -345,3 +344,11 @@ def DrawGridMols(axes, mols, colnr):
     index = getAxisIndex(idx, colnr); 
     axes[index].imshow(figi); 
     axes[index].set_title(f"SubStruct {idx+1}"); 
+
+def getmask(traj, mask): 
+  selected = traj.top.select(mask)
+  selected_str = [f"{i+1}," for i in selected]
+  finalmask = "@"+"".join(selected_str).strip(",")
+  return finalmask
+
+
