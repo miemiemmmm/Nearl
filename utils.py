@@ -351,4 +351,41 @@ def getmask(traj, mask):
   finalmask = "@"+"".join(selected_str).strip(",")
   return finalmask
 
+def NormalizePDB(refpdb, testpdb, outpdb):
+  """
+  Priority, output all of the protein part and prefereably keep the cofactors in the reference PDB
+  There might be mismatches between the reference and test PDB file 
+  """
+  trajref = pt.load(refpdb)
+  trajtest = pt.load(testpdb)
+
+  ref_prot_atoms = trajref.top.select("@CA,C,N,O,:FOR,NME,ACE,NH2")
+  ref_prot_res = np.array([i.resid for i in trajref.top.atoms])[ref_prot_atoms]
+  other_parts = [i.name for i in trajref.top.residues][max(ref_prot_res)+1:]
+  test_other_res = [i for i in trajtest.top.residues][max(ref_prot_res)+1:]
+  other_indexes = []
+  for i in test_other_res:
+    if len(other_parts) > 0 and i.name == other_parts[0]:
+      other_parts.pop(0)
+      other_indexes += [i for i in range(i.first,i.last)]
+    elif len(other_parts) == 0:
+      break
+  other_indexes = [i+1 for i in other_indexes]
+  prot_part_index = [i for i in trajref.top.residues][max(ref_prot_res)].last
+  all_indexes = [i+1 for i in range(prot_part_index)] + other_indexes
+  finalstr = ''
+  with open(testpdb, "r") as file1:
+    raw =[i for i in file1.read().split("\n") if len(i) > 0]
+    for i in raw:
+      if "ATOM" in i or "HETATM" in i:
+        residx = int(i[6:11].strip())
+        if residx in all_indexes:
+          finalstr += i+"\n"
+      else:
+        finalstr += i+"\n"
+  with open(outpdb, 'w') as file1:
+    file1.write(finalstr)
+
+
+
 
