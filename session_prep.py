@@ -1,9 +1,5 @@
-import requests
-import json 
-import tempfile
+import json, re, requests, tempfile, time, datetime
 import numpy as np 
-import datetime
-import time
 
 class MDPost:
   def __init__(self):
@@ -220,7 +216,7 @@ def SubmitPDB(pdbfile, jobid, pdbcode="USER", water="T3P", mode="file"):
   response = requests.post('http://130.60.168.149/fcgi-bin/ACyang.fcgi', data=data)
   if response.status_code == 200: 
     dic = json.loads(response.text)
-    print("Finished the submission of PDB: ", response.status_code,  response.url, response.text.strip("\n")); 
+    # print("Finished the submission of PDB: ", response.status_code,  response.url, response.text.strip("\n")); 
     return dic
   else: 
     return False 
@@ -235,7 +231,7 @@ def SubmitMOL2(mol2file, jobid, mode="file"):
   response = requests.post('http://130.60.168.149/fcgi-bin/ACyang.fcgi', data=data); 
   if response.status_code == 200: 
     dic = json.loads(response.text)
-    print("Finished the submission of MOL2: ", response.status_code,  response.url, response.text.strip("\n")); 
+    # print("Finished the submission of MOL2: ", response.status_code,  response.url, response.text.strip("\n")); 
     return dic
   else: 
     return False 
@@ -301,6 +297,7 @@ def RunSimpleEquil(sessid, nrsteps=3000):
     return {}
 
 def EquilToSession(sessid, nrsteps=10000):
+  from . import utils
   equilmol2 = GetEquilMOL2(sessid);
   equilpdb  = GetEquilPDB(sessid); 
   sessionpdb = GetSessionPDB(sessid); 
@@ -487,3 +484,6 @@ def CompareStructures(pdbcode, sessexp=None):
   else: 
     print("TM_Score: Bad match")
   return max([result.tm_norm_chain1, result.tm_norm_chain2]); 
+
+
+

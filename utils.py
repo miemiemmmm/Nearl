@@ -246,7 +246,6 @@ def DistanceLigPro(theid, mode="session", ligname="LIG"):
     Have 2 modes: session/file
   """
   import pytraj as pt
-  import tempfile
   from . import session_prep
   if mode == "session":
     from rdkit import Chem
@@ -267,7 +266,7 @@ def DistanceLigPro(theid, mode="session", ligname="LIG"):
         ligcom = pt.center_of_mass(pt.load(file2.name)); 
       except Exception as e: 
         # Directly calculate the COM of the ligand 
-        print(f"Error occurred while calculating the Ligand COM: {e}")
+        # print(f"Error occurred while calculating the Ligand COM: {e}")
         atoms = session["molfile"].split("@<TRIPOS>ATOM\n")[1].split("@<TRIPOS>")[0]; 
         atoms = [i.strip().split() for i in atoms.strip("\n").split("\n")]; 
         coord = np.array([i[2:5] for i in atoms]).astype(np.float32); 
@@ -288,6 +287,54 @@ def DistanceLigPro(theid, mode="session", ligname="LIG"):
     return dist.item()
   else:
     return None
+
+def getSeqCoord(filename):
+  """
+    Extract residue CA <coordinates> and <sequence> from PDB chain
+  """
+  from Bio.PDB.Polypeptide import three_to_one
+  import pytraj as pt
+
+  traj = pt.load(filename)
+  resnames = [i.name for i in traj.top.residues];
+  trajxyz = traj.xyz[0];
+  retxyz = [];
+  retseq = "";
+  for atom in traj.top.atoms:
+    if atom.name == "CA":
+      try:
+        resname = resnames[atom.resid]
+        resxyz = trajxyz[atom.index]
+        retseq += three_to_one(resname)
+        retxyz.append(resxyz)
+      except:
+        pass
+  return np.array(retxyz), retseq
+
+def CompareStructures(pdbcode, sessexp=None):
+  """
+    Compare the PDB structure before and after then session preparation
+    Functions: 
+      Extract residue <coordinates> and <sequence> from PDB chain
+        Uses the coordinates of the CA atom as the center of the residue
+        Skip unknown residues
+  """
+  from tmtools import tm_align;
+  from . import session_prep
+  pdbcode = pdbcode.lower();
+  with tempfile.NamedTemporaryFile("w", suffix=".pdb") as file1:
+    file1.write(fetch(pdbcode))
+    coord1, seq1 = getSeqCoord(file1.name);
+  if sessexp != None:
+    sessioncode = sessexp(pdbcode)
+  else:
+    sessioncode = f"C400{pdbcode.upper()}"
+  with tempfile.NamedTemporaryFile("w", suffix=".pdb") as file1:
+    file1.write(session_prep.RecallSession(sessioncode)["pdbfile"])
+    coord2, seq2 = getSeqCoord(file1.name);
+  result = tm_align(coord1, coord2, seq1, seq2)
+  # print(f"{sessioncode}: CoorSet 1 {coord1.shape}:{result.tm_norm_chain1:.3f} ; CoorSet 2 {coord2.shape}:{result.tm_norm_chain2:.3f}; ")
+  return max([result.tm_norm_chain1, result.tm_norm_chain2]);
 
 def getPdbTitle(pdbcode):
   pdb = pdbcode.lower().strip().replace(" ", ""); 
