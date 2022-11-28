@@ -200,9 +200,12 @@ def RecallSession(jobid):
   else: 
     return false
 
-def SubmitPDB(pdbfile, jobid, pdbcode="USER", water="T3P"):
-  with open(pdbfile, "r") as file1: 
-    pdbstr = file1.read(); 
+def SubmitPDB(pdbfile, jobid, pdbcode="USER", water="T3P", mode="file"):
+  if mode == "str":
+    pdbstr = pdbfile; 
+  else: 
+    with open(pdbfile, "r") as file1: 
+      pdbstr = file1.read(); 
   data = {
       'cmd': 'deposittarget',
       'water': water,
@@ -217,19 +220,22 @@ def SubmitPDB(pdbfile, jobid, pdbcode="USER", water="T3P"):
   response = requests.post('http://130.60.168.149/fcgi-bin/ACyang.fcgi', data=data)
   if response.status_code == 200: 
     dic = json.loads(response.text)
-    print("Finished the submission of PDB: ", response.status_code,  response.url, response.text); 
+    print("Finished the submission of PDB: ", response.status_code,  response.url, response.text.strip("\n")); 
     return dic
   else: 
     return False 
 
-def SubmitMOL2(mol2file, jobid):
-  with open(mol2file, "r") as file1: 
-    mol2str = file1.read(); 
+def SubmitMOL2(mol2file, jobid, mode="file"):
+  if mode == "str": 
+    mol2str = mol2file; 
+  else: 
+    with open(mol2file, "r") as file1: 
+      mol2str = file1.read(); 
   data = f'cmd=depositligand&ligandmol2={mol2str}&JOBID={jobid}'; 
   response = requests.post('http://130.60.168.149/fcgi-bin/ACyang.fcgi', data=data); 
   if response.status_code == 200: 
     dic = json.loads(response.text)
-    print("Finished the submission of MOL2: ", response.status_code,  response.url, response.text); 
+    print("Finished the submission of MOL2: ", response.status_code,  response.url, response.text.strip("\n")); 
     return dic
   else: 
     return False 
@@ -269,13 +275,121 @@ def PrepareSession(jobid, parms={}):
     print("Fatal: Failed to query the session info")
     return False 
 
+def RunSimpleEquil(sessid, nrsteps=3000):
+  """
+    A simple equilibration process
+  """
+  data = {
+    'cmd': 'runsmdsim',
+    'JOBID': sessid,
+    'sim_ifequil': 'true',
+    'sim_ifimp': 'false',
+    'sim_ifexp': 'false',
+    'sim_ifrestart': 'false',
+    'sim_equilsteps': nrsteps,
+    'sim_eqsctor': '0',
+    'sim_neuiontype': 'kcl',
+    'sim_ionconc': '0.15',
+    'sim_eqslotsel': '0'
+  }
+  response = requests.post('http://130.60.168.149/fcgi-bin/ACyang.fcgi', data=data); 
+  if response.status_code == 200:
+    dic = json.loads(response.text); 
+    print("Finished the running of equilibration job: ", response.status_code,  response.url);
+    return dic
+  else:
+    return {}
+
+def EquilToSession(sessid, nrsteps=10000):
+  equilmol2 = GetEquilMOL2(sessid);
+  equilpdb  = GetEquilPDB(sessid); 
+  sessionpdb = GetSessionPDB(sessid); 
+  if not isinstance(equilpdb, str) or len(equilpdb) <= 0: 
+    return
+  if not isinstance(sessionpdb, str) or len(sessionpdb) <= 0: 
+    return
+  with tempfile.NamedTemporaryFile(suffix=".pdb") as file1, tempfile.NamedTemporaryFile(suffix=".pdb") as file2: 
+    file1.write(bytes(equilpdb, encoding="utf-8")); 
+    file2.write(bytes(sessionpdb, encoding="utf-8")); 
+    utils.NormalizePDB(file2.name, file1.name, file1.name); 
+    with open(file1.name, "r") as normpdb: 
+      equilpdb = normpdb.read(); 
+      
+  equilpdb = equilpdb.replace("HSD", "HID"); 
+  equilpdb = equilpdb.replace("HSE", "HIE"); 
+  equilpdb = equilpdb.replace("HSP", "HIP"); 
+  equilpdb = re.sub(".*LIG.*\n", "", equilpdb); 
+  
+  pdb_state = SubmitPDB(equilpdb, sessid, water="T3P", mode="str");
+  if isinstance(pdb_state, bool) and pdb_state == False:
+    return
+  mol2_state = SubmitMOL2(equilmol2, sessid, mode="str");
+  if isinstance(mol2_state, bool) and mol2_state == False:
+    return
+  parms={
+    "JOBID" : sessid,
+    "nrsteps" : nrsteps, 
+  }
+  if "T3P" in equilpdb: 
+    wat_str = [i for i in equilpdb.split("\n") if re.search("HETATM.*T3P.*", i)]
+    wat_str = "\n".join(wat_str)
+    wat_result = re.findall("OW.*T3P", equilpdb)
+    parms["nwaters"] = len(wat_result); 
+    parms["water"] = wat_str
+    
+  prep_keys = ['water', 'nwaters', 'fullpdb', 'JOBID', 'waterchoice', 'hischoice',
+               'chainsel', 'ligand', 'ligmol2', 'ligsdf', 'maxloopl', 'nrsteps',
+               'mini_mode', 'mini_grms', 'sc_polar', 'sc_impsolv', 'pdb_tolerance_a', 'pdb_tolerance_b',
+               'appendix', 'unsuppres', 'OBpH', 'OBpercept']
+  prep_parms = {}; 
+  for i in parms.keys():
+    if i in prep_keys:
+      prep_parms[i] = parms[i]; 
+  prep_state = PrepareSession(sessid, parms=prep_parms)
+  if isinstance(prep_state, bool) and prep_state == False:
+    return
+  print(f"Finished the re-preparation of session {sessid}")
+
 def GetSessionPDB(jobid):
   session_info = RecallSession(jobid);
   return session_info["pdbfile"]
 def GetSessionMOL2(jobid):
   session_info = RecallSession(jobid);
   return session_info["molfile"]
-  
+def GetEquil(sessionID):
+  if len(sessionID) != 8: 
+    print(f"The length of the session should be 8 rather then the given {len(sessionID)}")
+    return {}
+  data = { 'cmd': 'sendtraj', 'JOBID': sessionID, 'querymode': '4', }; 
+  response = requests.post('http://130.60.168.149/fcgi-bin/ACyang.fcgi', data=data); 
+  if response.status_code == 200:
+    try: 
+      result = json.loads(response.text); 
+      status = result["status"];
+      if status == 1:
+        print(f"Equilbrated structure retrieval exit status is {status}", response.status_code,  response.url);
+        return result
+      else: 
+        print("Error Message from the server: ", result["msg"])
+        return result
+    except: 
+      print("Failed to parse string as json. Please make sure that the target session has gone through anequilibrated process")
+      return {}
+  else:
+    return {}
+def GetEquilPDB(sessionID): 
+  ret = GetEquil(sessionID); 
+  if "PDBFile" in ret.keys():
+    return ret["PDBFile"]; 
+  else: 
+    return {}; 
+def GetEquilMOL2(sessionID):
+  ret = GetEquil(sessionID);
+  if "MOL2File" in ret.keys():
+    return ret["MOL2File"];
+  else:
+    return {};
+
 def PrepNewSession(parms):
   """
   Wrapper of PrepareSession function to submit a request to prepare a new session. 
