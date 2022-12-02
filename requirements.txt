@@ -24,6 +24,7 @@
 # Non emergent packages
 # openmmforcefields openmm openff-toolkit
 # mdanalysis 
+# conda install -c conda-forge pdbfixer selenium geckodriver
 
 # Commands 
 conda create -n mlprod2 -c nvidia -c conda-forge -c anaconda python=3.8.10 ambertools=21 compilers rdkit=2021.09 numpy=1.22.3 matplotlib=3.5.1 scipy=1.9.1 notebook=6.1.4 scikit-learn=1.0.2 h5py=2.10 pandas=1.4.2 bs4=4.9.3 biopython=1.79 requests nglview=3.0.3 imageio=2.22 hilbertcurve=2.0.5 cuda-toolkit=11.7
@@ -34,5 +35,10 @@ conda install -c anaconda -c pytorch -c nvidia pytorch torchvision torchaudio py
 
 # conda install -c conda-forge hilbertcurve openmm openff-toolkit openmmforcefields
 
+
+
+
 # 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  key
+
+# http://130.60.168.169:8888/tree?
 
