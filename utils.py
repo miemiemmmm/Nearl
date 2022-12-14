@@ -311,7 +311,8 @@ def getSeqCoord(filename):
         pass
   return np.array(retxyz), retseq
 
-def CompareStructures(pdbcode, sessexp=None):
+
+def CompareStructures(tokens, modes, url="http://130.60.168.149/fcgi-bin/ACyang.fcgi"):
   """
     Compare the PDB structure before and after then session preparation
     Functions: 
@@ -320,21 +321,41 @@ def CompareStructures(pdbcode, sessexp=None):
         Skip unknown residues
   """
   from tmtools import tm_align;
-  from . import session_prep
-  pdbcode = pdbcode.lower();
-  with tempfile.NamedTemporaryFile("w", suffix=".pdb") as file1:
-    file1.write(fetch(pdbcode))
-    coord1, seq1 = getSeqCoord(file1.name);
-  if sessexp != None:
-    sessioncode = sessexp(pdbcode)
-  else:
-    sessioncode = f"C400{pdbcode.upper()}"
-  with tempfile.NamedTemporaryFile("w", suffix=".pdb") as file1:
-    file1.write(session_prep.RecallSession(sessioncode)["pdbfile"])
-    coord2, seq2 = getSeqCoord(file1.name);
-  result = tm_align(coord1, coord2, seq1, seq2)
-  # print(f"{sessioncode}: CoorSet 1 {coord1.shape}:{result.tm_norm_chain1:.3f} ; CoorSet 2 {coord2.shape}:{result.tm_norm_chain2:.3f}; ")
-  return max([result.tm_norm_chain1, result.tm_norm_chain2]);
+  from BetaPose.test import ACGUIKIT_REQUESTS
+  if isinstance(tokens, list) and isinstance(modes, list):
+    results = []
+    for token, mode in zip(tokens, modes): 
+      if mode == "traj":
+        acg_kit = ACGUIKIT_REQUESTS(url); 
+        acg_kit.recall(token[4:]); 
+        pdbstr = acg_kit.recallTraj(token)["PDBFile"]; 
+      elif mode == "str":
+        pdbstr = token; 
+      elif mode == "fetch":
+        assert len(token) == 4, "PDB with length of 4";
+        pdbstr = fetch(token); 
+      elif mode == "file":
+        with open(token, "r") as file1: 
+          pdbstr = file1.read(); 
+      elif mode == "session":
+        acg_kit = ACGUIKIT_REQUESTS(url); 
+        pdbstr = acg_kit.recall(token)["pdbfile"]; 
+      if token == tokens[0]: 
+        with tempfile.NamedTemporaryFile("w", suffix=".pdb") as file1:
+          file1.write(pdbstr); 
+          coord_ref, seq_ref = getSeqCoord(file1.name);
+        continue; 
+      else: 
+        with tempfile.NamedTemporaryFile("w", suffix=".pdb") as file1:
+          file1.write(pdbstr); 
+          coord_i, seq_i = getSeqCoord(file1.name);
+        
+        result = tm_align(coord_ref, coord_i, seq_ref, seq_i)
+        results.append(max([result.tm_norm_chain1, result.tm_norm_chain2])); 
+        # print(f"CoorSet 1 {coord_ref.shape}:{result.tm_norm_chain1:.3f} ; CoorSet 2 {coord_i.shape}:{result.tm_norm_chain2:.3f}; ")
+  else: 
+    print("Please provide a list of PDB structure of interest")
+  return results  
 
 def getPdbTitle(pdbcode):
   pdb = pdbcode.lower().strip().replace(" ", ""); 
