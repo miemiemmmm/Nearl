@@ -37,8 +37,5 @@ conda install -c anaconda -c pytorch -c nvidia pytorch torchvision torchaudio py
 
 
 
-
-# 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  key
-
 # http://130.60.168.169:8888/tree?
 
