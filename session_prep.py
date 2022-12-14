@@ -453,7 +453,7 @@ def getSeqCoord(filename):
         pass
   return np.array(retxyz), retseq
 
-def CompareStructures(pdbcode, sessexp=None):
+def CompareStructures_Obs(pdbcode, sessexp=None):
   """
     Compare the PDB structure before and after then session preparation
     Functions: 
