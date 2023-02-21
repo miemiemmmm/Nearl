@@ -419,6 +419,36 @@ def getmask(traj, mask):
   finalmask = "@"+"".join(selected_str).strip(",")
   return finalmask
 
+def getmaskbyidx(traj, idxs):
+  idxs = np.array(idxs);
+  aids = [i.index for i in np.array(list(traj.top.atoms))[idxs]]; 
+  aids = list(set(aids)); 
+  aids.sort(); 
+  selected_str = [f"{i+1}," for i in aids]; 
+  finalmask = "@"+"".join(selected_str).strip(","); 
+  return finalmask
+
+def getresmask(traj, mask):
+  selected = traj.top.select(mask); 
+  rids = [i.resid for i in np.array(list(traj.top.atoms))[selected]]; 
+  rids = list(set(rids)); 
+  selected_str = [f"{i+1}," for i in rids]; 
+  finalmask = ":"+"".join(selected_str).strip(","); 
+  return finalmask
+
+def boxfilter(thearr, grid_center, grid_length): 
+  thearr = np.array(thearr); 
+  diff = np.abs(thearr - np.array(grid_center)); 
+  result = np.prod(diff < (grid_length/2), axis = 1).astype(bool); 
+  return thearr[result]
+
+def ordersegments(lst):
+  from collections import Counter
+  counter = Counter(lst)
+  sorted_elements = sorted(counter, key=lambda x: counter[x], reverse=True)
+  sorted_elements.remove(0)
+  return sorted_elements
+
 def NormalizePDB(refpdb, testpdb, outpdb):
   """
   Priority, output all of the protein part and prefereably keep the cofactors in the reference PDB

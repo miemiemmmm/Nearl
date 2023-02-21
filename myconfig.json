@@ -2,5 +2,6 @@
   "user": "yang",
   "dbname": "testfeatures",
   "host": "localhost",
-  "password": "testyang"
+  "password": "testyang",
+  "msms":"/home/yzhang/Downloads/msms_i86_64Linux2_2.6.1/msms.x86_64Linux2.2.6.1"
 }
