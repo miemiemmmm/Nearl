@@ -438,15 +438,31 @@ def getresmask(traj, mask):
 
 def boxfilter(thearr, grid_center, grid_length): 
   thearr = np.array(thearr); 
-  diff = np.abs(thearr - np.array(grid_center)); 
-  result = np.prod(diff < (grid_length/2), axis = 1).astype(bool); 
-  return thearr[result]
+  center = np.array(grid_center); 
+  upperbound = np.array(center) + grid_length/2; 
+  lowerbound = np.array(center) - grid_length/2; 
+  ubstate = np.array([np.prod(i) for i in thearr < upperbound]); 
+  lbstate = np.array([np.prod(i) for i in thearr > lowerbound]); 
+  state = [bool(i) for i in ubstate*lbstate]; 
+  # diff = np.abs(thearr - np.array(grid_center)); 
+  # result = np.prod(diff < (grid_length/2), axis = 1).astype(bool); 
+  # return thearr[result]
+  return thearr[state]
+
+def coordfilter(coord, refcoord): 
+  refcoord = [tuple(i) for i in np.array(refcoord).round(2)];
+  _coord   = [tuple(i) for i in np.array(coord).round(2)];
+  ret = [];
+  for idx, c in enumerate(_coord): 
+    if c in refcoord: 
+      ret.append(coord[idx]);
+  return np.array(ret)
 
 def ordersegments(lst):
   from collections import Counter
-  counter = Counter(lst)
-  sorted_elements = sorted(counter, key=lambda x: counter[x], reverse=True)
-  sorted_elements.remove(0)
+  counter = Counter(lst);
+  sorted_elements = sorted(counter, key=lambda x: counter[x], reverse=True);
+  sorted_elements.remove(0);
   return sorted_elements
 
 def NormalizePDB(refpdb, testpdb, outpdb):
