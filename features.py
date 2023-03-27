@@ -6,9 +6,9 @@ class feature:
     self.top = featurizer.traj.top
   def run(self, trajectory):
     """
-      update interval
-      self.traj.superpose arguments. 
-      updatesearchlist arguments. 
+    update interval
+    self.traj.superpose arguments. 
+    updatesearchlist arguments. 
     """
     sttime = time.perf_counter();
     self.traj = trajectory.traj; 
