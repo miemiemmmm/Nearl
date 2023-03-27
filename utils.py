@@ -387,7 +387,14 @@ def getPdbSeq(pdbcode):
     seqstr = seq1(seqstr); 
     return seqstr
 
-
+def colorgradient(mapname, gradient, cmin=0.1, cmax=0.9): 
+  import matplotlib.pyplot as plt
+  cmap = plt.get_cmap(mapname);
+  # Define N equally spaced values between 0.1 and 0.9
+  values = np.linspace(cmin, cmax, gradient);
+  # Get the RGB values for each of the 6 values
+  colors = cmap(values); 
+  return colors[:,:3].tolist()
 
 def getAxisIndex(idx, colnr):
   x = np.floor(idx/colnr).astype(int); 
@@ -436,7 +443,7 @@ def getresmask(traj, mask):
   finalmask = ":"+"".join(selected_str).strip(","); 
   return finalmask
 
-def boxfilter(thearr, grid_center, grid_length): 
+def boxfilter(thearr, grid_center, grid_length, return_state=False): 
   thearr = np.array(thearr); 
   center = np.array(grid_center); 
   upperbound = np.array(center) + grid_length/2; 
@@ -444,10 +451,10 @@ def boxfilter(thearr, grid_center, grid_length):
   ubstate = np.array([np.prod(i) for i in thearr < upperbound]); 
   lbstate = np.array([np.prod(i) for i in thearr > lowerbound]); 
   state = [bool(i) for i in ubstate*lbstate]; 
-  # diff = np.abs(thearr - np.array(grid_center)); 
-  # result = np.prod(diff < (grid_length/2), axis = 1).astype(bool); 
-  # return thearr[result]
-  return thearr[state]
+  if return_state: 
+    return state 
+  else: 
+    return thearr[state]
 
 def coordfilter(coord, refcoord): 
   refcoord = [tuple(i) for i in np.array(refcoord).round(2)];
