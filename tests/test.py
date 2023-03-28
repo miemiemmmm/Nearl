@@ -1,57 +1,88 @@
+import requests
+import time, json, os, tempfile
+
+import pandas as pd 
 import pytraj as pt 
 import numpy as np 
+import open3d as o3d
+
+from BetaPose import representations
 from BetaPose import utils, cluster
 
-class TRAJ:
-  def __init__(self, trajfile, pdbfile):
-    # print("Generate a new traj")
-    self.traj = pt.load(trajfile, top=pdbfile);
-    self.traj.top.set_reference(self.traj[0])
+print("!!! TODO: Needs to modify the path to the test PDB file")
+testpdb = '/home/yzhang/Documents/Personal_documents/BetaPose/rec.pdb'
 
-  def cluster_pairwise(self, mask, **kwarg):
-    if "countermask" in kwarg.keys():
-      countermask = kwarg["kwarg"]
-      pdist, y = utils.PairwiseDistance(self.traj, f"{mask}&!@H=", f"{countermask}&!@H=", use_mean=True);
-    else:
-      pdist, y = utils.PairwiseDistance(self.traj, f"{mask}&!@H=", f"{mask}<@6&!{mask}&@C,CA,CB,N,O", use_mean=True);
-    clusters = cluster.ClusterAgglomerative(pdist, 10);
-    cluster_rand = cluster.RandomPerCluster(clusters, number=1);
-    self.frames = cluster_rand;
-    return self.frames
-
-  def cluster_rmsd(self):
-    self.traj = self.traj;
-
-  def slicetraj(self, frameindices):
-    frameindices = np.array(frameindices).astype(int)
-    self.traj = pt.Trajectory(self.traj[frameindices])
-
-  def cluster(self, method="", **kwarg):
-    if len(method) == 0:
-      self.cluster_pairwise(**kwarg);
-    elif (method == "distance"):
-      pass
-    return self.frames
-
-  def updatesearchlist(self, mask, cutoff):
-    self.searchlist = self.traj.top.select(f"{mask}<@{cutoff}");
-    return self.searchlist;
+def VECTORIZE(): 
+  st = time.perf_counter(); 
+  traj = pt.load(testpdb); 
+  repres = representations.generator(traj); 
+  repres.center = np.mean(traj.xyz[0], axis=0); 
+  repres.length = [8,8,8]; 
+  repres.frame = 0; 
+  slices, segments = repres.slicebyframe(); 
+  feature_vector, mesh_obj, fpfh = repres.vectorize(segments); 
+  print(f"Vectorization Success: used {time.perf_counter()-st:.3f} seconds"); 
 
 
-class TrajectoryLoader: 
-  def __init__(self, trajs, tops):
-    if isinstance(trajs, str):
-      self.trajs = [trajs]; 
-      self.tops  = [tops]; 
-    elif isinstance(trajs, list):
-      self.trajs = trajs; 
-      self.tops  = tops; 
-  def __iter__(self):
-    return self.__loadtrajs(self.trajs, self.tops); 
+def BENCHMARK(rounds=100): 
+  from BetaPose import chemtools
+  import timeit, functools
+  st = time.perf_counter();
+  traj = pt.load(testpdb);
   
-  def __loadtrajs(self, trajs, tops):
-    for traj, top in zip(trajs, tops):
-      yield TRAJ(traj, top)
+  repres = representations.generator(traj);
+  repres.center = np.mean(traj.xyz[0], axis=0);
+  repres.length = [8,8,8];
+  repres.frame = 0;
+  
+  slices, segments = repres.slicebyframe();
+  seg1 = utils.ordersegments(segments)[0]
+  idxs = np.where(segments == seg1)[0];
+  
+  repres.resmask = utils.getresmask(repres.traj, utils.getmaskbyidx(repres.traj, idxs));
+  repres.charges = chemtools.Chargebytraj(repres.traj, repres.frame, repres.resmask);
+  
+  tmp_comb = functools.partial(repres.atom_type_count, idxs); 
+  t1 = timeit.timeit(tmp_comb, number = int(rounds)); 
+
+  
+  tmp_comb = functools.partial(repres.partial_charge, idxs); 
+  t2 = timeit.timeit(tmp_comb, number = int(rounds)); 
+  
+  tmp_comb = functools.partial(repres.partial_charge, idxs); 
+  t3 = timeit.timeit(tmp_comb, number = int(rounds)); 
+  
+  tmp_comb = functools.partial(repres.pseudo_energy, idxs); 
+  t4 = timeit.timeit(tmp_comb, number = int(rounds)); 
+  
+  repres.mesh = repres.segment2mesh(idxs)
+  tmp_comb = functools.partial(repres.segment2mesh, idxs); 
+  t5 = timeit.timeit(tmp_comb, number = int(rounds)); 
+  
+  tmp_comb = functools.partial(repres.volume, repres.mesh); 
+  t6 = timeit.timeit(tmp_comb, number = int(rounds)); 
+  
+  tmp_comb = functools.partial(repres.surface, repres.mesh); 
+  t7 = timeit.timeit(tmp_comb, number = int(rounds)); 
+  
+  tmp_comb = functools.partial(repres.mean_radius, repres.mesh); 
+  t8 = timeit.timeit(tmp_comb, number = int(rounds)); 
+  
+  tmp_comb = functools.partial(repres.convex_hull_ratio, repres.mesh); 
+  t9 = timeit.timeit(tmp_comb, number = int(rounds)); 
+
+  print(f"{'Atom Types':15s}: {t1:6.3f}")
+  print(f"{'Donor/Acceptor':15s}: {t2:6.3f}")
+  print(f"{'Partial charge':15s}: {t3:6.3f}")
+  print(f"{'Pseudo energy':15s}: {t4:6.3f}")
+
+  print(f"{'Meshify':15s}: {t5:6.3f}")
+
+  print(f"{'Volume':15s}: {t6:6.3f}")
+  print(f"{'Surface':15s}: {t7:6.3f}")
+  print(f"{'Mean Radius':15s}: {t8:6.3f}")   
+  print(f"{'Convex Hull':15s}: {t9:6.3f}")   
+  print(f"Totally used {time.perf_counter() - st:6.3f} seconds ({(time.perf_counter() - st)/rounds:6.4f} per frame)")
 
 
 class feature:
@@ -89,9 +120,6 @@ class feature:
     self.feature_array = np.array(self.feature_array);
     return self.feature_array;
 
-
-import pandas as pd 
-import requests, json, os, tempfile
 
 class ACGUIKIT_REQUESTS:
   def __init__(self, url): 

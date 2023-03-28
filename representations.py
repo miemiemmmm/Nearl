@@ -19,39 +19,9 @@ CMAP6 = [
   [0.974176, 0.53678, 0.048392], [0.964394, 0.843848, 0.273391]
 ];
 
-def genslices(traj, center, cube_length, threshold=2): 
-  """
-  Generate a slice from all frame of a trajectory (Each frame takes one dimension)
-  Returned results are the atomic coordinates and the atomic indices
-  """
-  center = np.array(center); 
-  upperbound = np.array(center) + cube_length/2; 
-  lowerbound = np.array(center) - cube_length/2; 
-  ret_arr = []; 
-  idx_arr = []; 
-  atoms = [a for a in traj.top.atoms]; 
-  for xyz in traj.xyz: 
-    ubstate = np.array([np.prod(i) for i in xyz < upperbound]); 
-    lbstate = np.array([np.prod(i) for i in xyz > lowerbound]); 
-    state = [bool(i) for i in ubstate*lbstate]; 
-    s_final = []; 
-    lastres = -999; 
-    seg_counter = 0; 
-    for idx, state in enumerate(state): 
-      if state: 
-        if atoms[idx].resid - lastres > threshold: 
-          seg_counter += 1; 
-        s_final.append(seg_counter)
-        lastres = atoms[idx].resid; 
-        # print("resid", atoms[idx].resid, state, "; Diff:",atoms[idx].resid-lastres, "; segment: ", seg_counter)
-      else: 
-        s_final.append(0); 
-    # print(np.count_nonzero(s_final))
-    ret_arr.append(xyz[np.array([bool(i) for i in s_final])])
-    idx_arr.append(s_final)
-  return ret_arr, np.array(idx_arr)
-
-
+####################################################################################################
+################################# Generate Open3D readable object ##################################
+####################################################################################################
 def getRadius(atom="", residue="", exp=False):
   atom = atom.replace(" ", "")
   residue = residue.replace(" ", "")
@@ -135,59 +105,9 @@ def traj2msms(msms, traj, frame, indice, out_prefix="/tmp/test", force=False, d=
       file1.write(xyzrline);
     ret = runmsms(msms, file1.name, out_prefix, d=d, r=r);
     if ret: 
-      # print(f"{traj2msms.__name__:15s}: Successfully generated the MSMS output")
       pass
     else: 
       print(f"{traj2msms.__name__:15s}: Failed to generate the MSMS output")
-
-####################################################################################################
-################## 3D object processing after the MSMS vertex/triangle generation ##################
-####################################################################################################
-def vert2array(vertfile):
-  """
-  Convert the MSMS vertex file to numpy array (xyz and normals)
-  """
-  with open(vertfile, "r") as file1:
-    c = 0;
-    verticenr = 0;
-    xyzs = [];
-    normals = [];
-    for line in file1:
-      if "#" in line:
-        # Skip comment lines; 
-        continue
-      elif verticenr > 0 and c <= verticenr:
-        verti = [float(i) for i in line.strip().split()]
-        xyzs.append(verti[:3]);
-        normals.append(verti[3:6]);
-        c += 1
-      elif c == 0:
-        # Read the title of the vertice file 
-        verticenr = int(line.strip().split()[0]);
-  return np.asarray(xyzs), np.asarray(normals)
-
-def face2array(facefile): 
-  """
-  Read the MSMS triangle faces file for the generation of triangle mesh
-  """
-  # Read MSMS face file
-  with open(facefile, "r") as file1:
-    c = 0;
-    facenr = 0;
-    faces = [];
-    for line in file1:
-      if "#" in line:
-        # Skip comment lines; 
-        continue
-      elif facenr > 0 and c <= facenr:
-        # NOTE: open3d index start from 0 and hence minus 1; 
-        facei = [float(i)-1 for i in line.strip().split()]
-        faces.append(facei[:3]);
-        c += 1
-      elif c == 0:
-        # Read the title of the face file 
-        facenr = int(line.strip().split()[0]);
-  return np.array(faces).astype(int)
 
 def msms2pcd(vertfile, filename=""):
   """
@@ -224,7 +144,6 @@ def msms2pcd(vertfile, filename=""):
     print(f"{msms2pcd.__name__:15s}: Failed to convert the MSMS output files to triangle mesh, please check the MSMS output files");
     return o3d.geometry.TriangleMesh();
 
-
 def msms2mesh(vertfile, facefile, filename=""):
   """
   Convert the MSMS output (vertex and triangle faces) to a triangle mesh readable by Open3D
@@ -233,7 +152,7 @@ def msms2mesh(vertfile, facefile, filename=""):
     raise Exception(f"{msms2mesh.__name__:15s}: Cannot find the MSMS output files (.vert"); 
   elif not os.path.isfile(facefile): 
     raise Exception(f"{msms2mesh.__name__:15s}: Cannot find the MSMS output files (.face)");
-  # Read MSMS vertice file
+  ################## Convert the MSMS vertex file to numpy array (xyz and normals) ###################
   with open(vertfile, "r") as file1:
     c = 0;
     verticenr = 0; 
@@ -251,7 +170,7 @@ def msms2mesh(vertfile, facefile, filename=""):
       elif c == 0:
         # Read the title of the vertice file 
         verticenr = int(line.strip().split()[0]); 
-  # Read MSMS face file
+  ############## Read the MSMS triangle faces file for the generation of triangle mesh ###############
   with open(facefile, "r") as file1:
     c = 0;
     facenr = 0; 
@@ -282,30 +201,26 @@ def msms2mesh(vertfile, facefile, filename=""):
     print(f"{msms2mesh.__name__:15s}: Failed to convert the MSMS output files to triangle mesh, please check the MSMS output files"); 
     return o3d.geometry.TriangleMesh();
 
-# Pseudo LJ
+####################################################################################################
+################################# Representation vector generator ##################################
+####################################################################################################
 def pseudo_lj(r, epsilon=1, sigma=1):
   """
   Calculates the Lennard-Jones potential for a given distance
   """
   return 4 * epsilon * ((sigma/r)**12 - (sigma/r)**6)
-
-# Pseudo Elec
 def pseudo_elec(q1, q2, r):
   """
   Calculates the Coulombic interaction energy between two atoms
   """
-  # k = 8.9875517923*1e29   # Coulomb constant in N·m^2·C^-2
   k = 8.98
-  # print(q1, q1, r)
   return k*q1*q2/r
 
 def pseudo_energy(traj, frame, idxs, mode, charges=[]): 
   # Using the following code for distance calculation, speeds up a bit
-  # dist = math.sqrt(sum((p1-p2)**2)); 
   mode = mode.lower(); 
   pairs = list(combinations(idxs, 2)); 
   xyz = traj.xyz[frame]; 
-  #   print(f"{pseudo_energy.__name__:15s}: Obtained {len(pairs)} atom pairs from the following list({len(theidxi)} elements): {list(theidxi)}")
   energy_final = 0; 
   if mode == "lj": 
     for p in pairs: 
@@ -321,7 +236,6 @@ def pseudo_energy(traj, frame, idxs, mode, charges=[]):
         raise Exception(f"The length of the charge ({len(charges)}) does not equal to the dimension of atoms({len(xyz)})")
       else: 
         charges = np.array(charges); 
-    # print(charges)
     for p in pairs: 
       q1 = charges[p[0]];
       q2 = charges[p[1]];
@@ -331,7 +245,6 @@ def pseudo_energy(traj, frame, idxs, mode, charges=[]):
       energy_final += pseudo_elec(q1, q2, dist);
   else: 
     raise Exception(f"{pseudo_energy.__name__:15s}: Only two pseudo-energy evaluation modes are supported: Lenar-jones (lj) and Electrostatic (elec)")
-  # print(f"{pseudo_energy.__name__:15s}: Energy {mode:>4s} -> {energy_final:>10.6f} (based on {len(pairs)} atom pairs)")
   return energy_final
 
 def chargedict2array(traj, frame, charges): 
@@ -343,115 +256,6 @@ def chargedict2array(traj, frame, charges):
       chargelst[idx] = _charge[coord]
   return chargelst
 
-def displayfiles(plyfiles, outfile="", add=[]): 
-  #if len(plyfiles) == 0: 
-  #  return []
-  cmap = CMAP6;
-  objs = []; 
-  finalobj = 0; 
-  for obji, plyfile in enumerate(plyfiles): 
-    color = cmap[obji]; 
-    mesh = o3d.io.read_triangle_mesh(plyfile); 
-    mesh.compute_vertex_normals(); 
-    mesh.paint_uniform_color(color); 
-    objs.append(mesh);
-    if obji == 0: 
-      finalobj = mesh; 
-    else: 
-      finalobj += mesh;
-#  if len(outfile) > 0: 
-#    finalobj = objs[0];
-#    for i in range(1, len(objs)): 
-#      finalobj = finalobj + objs[i]; 
-#    o3d.io.write_triangle_mesh(outfile, finalobj, write_ascii=True); 
-  write(finalobj, outfile=outfile); 
-  display(objs, add=add); 
-  return objs
-
-def write(objs, outfile=""):
-  if len(outfile) > 0:
-    o3d.io.write_triangle_mesh(outfile, objs, write_ascii=True); 
-    if os.path.isfile(outfile): 
-      return True 
-  else: 
-    return False
-
-def display(objects, add=[]):
-  if len(objects) == 0 and len(add)==0:
-    return []
-  else: 
-    objs = copy.deepcopy(objects); 
-    cmap = CMAP6; 
-    for i in range(1, len(objs)):
-      color = cmap[i];
-      objs[i].paint_uniform_color(color);
-      if isinstance(objs[i], o3d.geometry.TriangleMesh): 
-        objs[i].compute_vertex_normals();
-    o3d.visualization.draw_geometries(add+objs, width=1200, height=1000);
-
-def display_registration(source, target, transformation=np.eye(4)):
-  source_temp = copy.deepcopy(source); 
-  target_temp = copy.deepcopy(target); 
-  source_temp.paint_uniform_color(CMAP6[1]); 
-  target_temp.paint_uniform_color(CMAP6[-1]); 
-  source_temp.transform(transformation)
-  display([source_temp, target_temp])
-
-def displayconvex(obj, n_points=600):
-  hulls = computeconvex(obj, n_points=600)
-  display([], add=hulls)
-
-def voxelize(obj, show=True):
-  if isinstance(obj, o3d.geometry.TriangleMesh):
-    pcd = obj.sample_points_uniformly(600)
-  elif isinstance(obj, o3d.geometry.PointCloud):
-    pcd = obj.voxel_down_sample(0.01);
-  pcd.colors = o3d.utility.Vector3dVector(np.random.uniform(0, 1, size=(600, 3)))
-  # fit to unit cube
-  pcd.scale(1 / np.max(pcd.get_max_bound() - pcd.get_min_bound()),
-          center=pcd.get_center())  
-  voxel_grid = o3d.geometry.VoxelGrid.create_from_point_cloud(pcd, voxel_size=0.05)
-  if show: 
-    display([voxel_grid]); 
-  return voxel_grid 
- 
-def computeconvex(obj, n_points=600):
-  if isinstance(obj, o3d.geometry.TriangleMesh):
-    pcd = obj.sample_points_uniformly(n_points); 
-  elif isinstance(obj, o3d.geometry.PointCloud):
-    pcd = obj.voxel_down_sample(0.01); 
-  hull, _ = pcd.compute_convex_hull(); 
-  hull_ls = o3d.geometry.LineSet.create_from_triangle_mesh(hull); 
-  hull_ls.paint_uniform_color([0.77, 0, 1])
-  return [pcd, hull_ls]
-
-
-def NewCuboid(center=[0,0,0], length=6): 
-  points = np.array([
-    [0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0],
-    [0, 0, 1], [1, 0, 1], [0, 1, 1], [1, 1, 1],
-  ])
-  points = points*length; 
-  points = points + np.array(center)-(length/2); 
-  lines = np.array([
-    [0, 1], [0, 2], [1, 3], [2, 3],
-    [4, 5], [4, 6], [5, 7], [6, 7],
-    [0, 4], [1, 5], [2, 6], [3, 7],
-  ]); 
-  colors = [[0, 0, 0] for i in range(len(lines))]
-  line_set = o3d.geometry.LineSet(
-    points=o3d.utility.Vector3dVector(points),
-    lines=o3d.utility.Vector2iVector(lines),
-  ); 
-  line_set.colors = o3d.utility.Vector3dVector(colors); 
-  return line_set
-
-def NewCoordFrame(center=[0,0,0], scale=1): 
-  coord_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(); 
-  coord_frame.scale(scale=scale, center=center)
-  coord_frame.translate(center, relative=False)
-  return coord_frame
- 
 def fpfh_similarity(fp1, fp2): 
   """
   Calculate the FPFH similarity between fpfh features 
@@ -468,136 +272,6 @@ def fpfh_similarity2(fp1, fp2):
   similarity = 1 / (1 + np.abs(np.mean(dist_matrix)))
   return similarity
 
-
-##########################################
-def vectorizemolblock(traj, whichframe, segments, grid_center, grid_length, clear=True, msms=""): 
-  """
-  NOTE: voxel_down_sample might be a better solution to keep most feature during down-sampling
-  >>> pcd_new = o3d.geometry.PointCloud( points=o3d.utility.Vector3dVector(finalobj.vertices))
-  >>> pcd_new.normals = o3d.utility.Vector3dVector(mesh.vertex_normals)
-  >>> finalobj_down = pcd_new.voxel_down_sample(0.8); 
-  >>> finalobj_down.estimate_normals(ktree); 
-  """
-  fpfhs = []; 
-  objfiles = []; 
-  framefeature = np.zeros(12*6).reshape((6,12)); 
-  # Order the segments from the most abundant to least ones
-  segcounter = 0; 
-  fpfh_samples = 600; 
-  for segi in utils.ordersegments(segments[whichframe])[:6]: 
-    print(f"{datetime.datetime.now().time().__str__():15s}: Processing segment {segi} (Frame {whichframe:6d})"); 
-    theidxi = np.where(segments[whichframe] == segi)[0]; 
-
-    # Descriptor 1 and 2: Atom number and Carbon number
-    atomic_numbers = np.array([i.atomic_number for i in np.array(list(traj.top.atoms))[theidxi]]); 
-    atom_number   = len(theidxi); 
-    carbon_number = np.count_nonzero(atomic_numbers-6==0); 
-    N_number = np.count_nonzero(atomic_numbers-7==0); 
-    O_number = np.count_nonzero(atomic_numbers-8==0); 
-    H_number = np.count_nonzero(atomic_numbers-1==0); 
-    print(f"{datetime.datetime.now().time().__str__():15s}: {'Atom Number':15s} {atom_number:10d} | {'Carbon atoms':15s} {carbon_number:10d} |");
-    print(f"{datetime.datetime.now().time().__str__():15s}: {'Hydrogen Atoms':15s} {H_number:10d} | {'Nitrogen atoms':15s} {N_number:10d} | {'Oxygen atoms':15s} {O_number:10d}");
-    # Generate the triangle mesh for the segment of molecule
-    # Trajectory is only used in the first MSMS step
-    with tempfile.NamedTemporaryFile(suffix=f"_frame{whichframe}_seg{segi}") as file1: 
-      if len(theidxi) == 0: 
-        raise Exception(f"{'INFO':15s}: No index available");
-      traj2msms(msms, traj, whichframe, theidxi, out_prefix=file1.name, force=True, d=4,r=1.4); 
-      mesh = msms2mesh(f"{file1.name}.vert", f"{file1.name}.face", filename=f"{file1.name}.ply");
-      if mesh.is_empty(): 
-        try: 
-          mesh = o3d.io.read_triangle_mesh(f"{file1.name}.ply"); 
-          mesh.remove_degenerate_triangles(); 
-          mesh.compute_vertex_normals(); 
-        except:
-          raise Exception("Failed to generate the 3d object"); 
-
-      # Descriptor 9 and 10: Surface area and volume of the mesh
-      try: 
-        SA  = mesh.get_surface_area(); 
-        VOL = mesh.get_volume(); 
-        print(f"{datetime.datetime.now().time().__str__():15s}: {'Volume':15s} {VOL:10.3f} | {'Surface Area':15s} {SA:10.3f} |");
-      except: 
-        # If first attemp fails, try reducing the point density and reducing probe radius, and generate grids again
-        traj2msms(msms, traj, whichframe, theidxi, out_prefix=file1.name, force=True, d=3, r=1.2); 
-        mesh = msms2mesh(f"{file1.name}.vert", f"{file1.name}.face", filename=f"{file1.name}.ply"); 
-        mesh = o3d.io.read_triangle_mesh(f"{file1.name}.ply"); 
-        mesh.compute_vertex_normals(); 
-        mesh.remove_degenerate_triangles(); 
-        try: 
-          SA  = mesh.get_surface_area(); 
-          VOL = mesh.get_volume(); 
-          print(f"{datetime.datetime.now().time().__str__():15s}: {'Volume':15s} {VOL:10.3f} | {'Surface Area':15s}: {SA:10.3f} | NOTE: Second attempt to calculate volume");
-        except: 
-          # NOTE: this pathway might be able to improve eg. voxelization
-          SA  = mesh.get_surface_area(); 
-          VOL = mesh.get_surface_area()/1.5; 
-          print(f"{'INFO':15s}: Error: Failed to compute object volume (Using default value SA/2); Please manually check the file: {file1.name}.ply");
-
-      # Descriptor 11, 12: Mean radius and Convex hull ratio 
-      pcd = mesh.sample_points_uniformly(fpfh_samples); 
-      hull, _ = pcd.compute_convex_hull(); 
-      hull_ratio = len(hull.vertices)/fpfh_samples; 
-      mean_radius = np.linalg.norm(np.asarray(pcd.points) - pcd.get_center(), axis=1).mean()
-      fpfh = o3d.pipelines.registration.compute_fpfh_feature(pcd, o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30))
-      print(f"{datetime.datetime.now().time().__str__():15s}: {'Ratio convex':15s} {hull_ratio:10.3f} | {'Mean radius':15s} {mean_radius:10.3f} |"); 
-      # print(f"{'INFO':15s}: The shape of the fpfh feature is {fpfh.data.shape}")
-      fpfhs.append(fpfh.data)
-      if clear: 
-        if os.path.exists(f"{file1.name}.ply"): os.remove(f"{file1.name}.ply");
-        if os.path.exists(f"{file1.name}.face"): os.remove(f"{file1.name}.face");
-        if os.path.exists(f"{file1.name}.vert"): os.remove(f"{file1.name}.vert");
-      else: 
-        if os.path.exists(f"{file1.name}.ply"):
-          print(f"{datetime.datetime.now().time().__str__():15s}: Writing segment {segi} triangle mesh to {file1.name}.ply");
-          objfile = f"{file1.name}.ply"; 
-          objfiles.append(objfile); 
-        else: 
-          print(f"{'INFO':15s}: Failed to write segment mesh");
-
-    # Descriptor 3 and 4: Counter hydrogen bond donor and acceptors. 
-    resmask = utils.getresmask(traj, utils.getmaskbyidx(traj, theidxi)); 
-    coord_d, coord_a = chemtools.DACbytraj(traj, whichframe, resmask); 
-    withinbox_d = utils.boxfilter(coord_d, grid_center, grid_length);
-    withinbox_a = utils.boxfilter(coord_a, grid_center, grid_length);
-    number_d = len(withinbox_d);
-    number_a = len(withinbox_a);
-    print(f"{datetime.datetime.now().time().__str__():15s}: {'HB Donor(s)':15s} {number_d:10d} | {'HB Acceptor(s)':15s} {number_a:10d} |");
-
-    # Descriptor 5 and 6: Counter positive partial charge and negative partial charge.
-    charges = chemtools.Chargebytraj(traj, whichframe, resmask); 
-    withinbox = utils.boxfilter(np.array([i for i in charges.keys()]), grid_center, grid_length);
-    charge_p = sum([charges[tuple(i)] for i in withinbox if charges[tuple(i)]>0]);
-    charge_n = sum([charges[tuple(i)] for i in withinbox if charges[tuple(i)]<0]);
-    print(f"{datetime.datetime.now().time().__str__():15s}: {'Positive charge':15s} {charge_p:10.3f} | {'Negative charge':15s} {charge_n:10.3f} |"); 
-
-    # Descriptor 7 and 8: Compute the pseudo-lj and pseudo-elec potential. 
-    # Need trajectory
-    charge_arr = chargedict2array(traj, whichframe, charges); 
-    pp_lj = pseudo_energy(traj, whichframe, theidxi, "lj"); 
-    pp_elec = pseudo_energy(traj, whichframe, theidxi, "elec", charges=charge_arr); 
-    print(f"{datetime.datetime.now().time().__str__():15s}: {'Pseudo_LJ':15s} {pp_lj:10.3f} | {'Pseudo_ELEC':15s} {pp_elec:10.3f} |"); 
-    featurevector = [
-      atom_number, carbon_number, number_d, number_a, charge_p, charge_n,
-      pp_lj, pp_elec, SA, VOL, mean_radius, hull_ratio
-    ]
-    framefeature[segcounter, :] = featurevector
-    print(f"{datetime.datetime.now().time().__str__():15s}: Final vector:", np.array(featurevector).astype(float).round(3).tolist())
-    mesh.paint_uniform_color(CMAP6[segcounter]); 
-    if segcounter == 0: 
-      finalobj = mesh; 
-    else: 
-      finalobj += mesh; 
-    segcounter += 1
-    
-  # Translate the Center of the shape to the origin point; 
-  finalobj.translate([0,0,0], relative=False); 
-  # Down sample it and calculate the FPFH
-  ktree = o3d.geometry.KDTreeSearchParamHybrid(radius=1.5, max_nn=20);
-  finalobj_down = finalobj.sample_points_uniformly(fpfh_samples); 
-  finalobj_down.estimate_normals(ktree); 
-  finalobj_fpfh = o3d.pipelines.registration.compute_fpfh_feature(finalobj_down, ktree); 
-  return framefeature.reshape((-1)), finalobj, finalobj_fpfh 
 
 def write_ply(coords, normals=[], triangles=[], filename=""):
   header = ["ply", "format ascii 1.0", "comment author: Yang Zhang (y.zhang@bioc.uzh.ch)", f"element vertex {len(coords)}"]
@@ -628,7 +302,6 @@ def write_ply(coords, normals=[], triangles=[], filename=""):
     # Write the triangle data
     for tri in triangles:
       finalstr += (f"3 {tri[0]:4d} {tri[1]:4d} {tri[2]:4d}\n")
-
   if len(filename) == 0:
     return finalstr
   else:
@@ -636,11 +309,28 @@ def write_ply(coords, normals=[], triangles=[], filename=""):
       file1.write(finalstr)
       return True
 
+class generator: 
+  """
+  NOTE: Test function of the generator
+  >>> traj = pt.load(traj, top=top, mask=":1-151,:LIG", stride=100); 
+  >>> repres = repr_generator(traj)
+  >>> repres.center = [30,35,30]
+  >>> repres.length = [8,8,8]
+  >>> repres.frame = 5
+  >>> slices, segments = repres.slicebyframe(); 
+  >>> feature_vector, mesh_obj, fpfh = repres.vectorize(segments); 
 
-class repr_generator: 
+  NOTE: voxel_down_sample might be a better solution to keep most feature during down-sampling
+  >>> pcd_new = o3d.geometry.PointCloud( points=o3d.utility.Vector3dVector(finalobj.vertices))
+  >>> pcd_new.normals = o3d.utility.Vector3dVector(mesh.vertex_normals)
+  >>> finalobj_down = pcd_new.voxel_down_sample(0.8); 
+  >>> finalobj_down.estimate_normals(ktree); 
+  """
   def __init__(self, traj, msms=""): 
-    self.atoms = np.array(list(traj.top.atoms)); 
+    self.atoms = np.asarray(list(traj.top.atoms)); 
     self.traj = traj; 
+    self.SEGMENT_LIMIT = 6
+    self.FPFH_DOWN_SAMPLES = 600; 
     
     if len(msms) > 0: 
       self.MSMS_EXE = msms
@@ -679,8 +369,13 @@ class repr_generator:
   def frame(self, framei):
     assert isinstance(framei, int), "Frame index should be int"
     self._frame = framei
+
     
   def slicebyframe(self, threshold=2): 
+    """
+    Generate a slice from all frame of a trajectory (Each frame takes one dimension)
+    Returned results are the atomic coordinates and the atomic indices
+    """
     xyz = self.traj.xyz[self._frame]; 
     idx_arr = []; 
     s_final = [];
@@ -734,13 +429,11 @@ class repr_generator:
   def vectorize(self, segment, clear=True, msms=""): 
     """
     """
-    self.SEG_LIMIT = 6
-    framefeature = np.zeros(12*self.SEG_LIMIT).reshape((6,12)); 
+    framefeature = np.zeros((self.SEGMENT_LIMIT,12)) #12 * self.SEGMENT_LIMIT).reshape(); 
     # Order the segments from the most abundant to least ones
     segcounter = 0; 
-    fpfh_samples = 600; 
     """ ITERATE the at maximum 6 segments """
-    for segi in utils.ordersegments(segment)[:self.SEG_LIMIT]: 
+    for segi in utils.ordersegments(segment)[:self.SEGMENT_LIMIT]: 
       # print(f"Segment: {segi}")
       # ATOM types counts
       theidxi = np.where(segment == segi)[0];
@@ -772,7 +465,7 @@ class repr_generator:
       rad = self.mean_radius(self.mesh)
       h_ratio = self.convex_hull_ratio(self.mesh); 
       # print(f"Radius ({rad})/Convex Ratio({h_ratio})")
-      
+      self.mesh.paint_uniform_color(CMAP6[segcounter]); 
       if segcounter == 0:
         finalobj = copy.deepcopy(self.mesh);
       else:
@@ -847,7 +540,7 @@ class repr_generator:
   # Descriptor 9 and 10: Surface area and volume of the mesh
   def volume(self, mesh): 
     """
-    Volume computation is not robust enought
+    Volume computation is not robust enough
     """
     try: 
       VOL = mesh.get_volume();
@@ -870,6 +563,9 @@ class repr_generator:
     return hull_ratio
   
   def fpfh_down(self, mesh, samples=600, origin=True): 
+    """
+    TODO: add support for the voxel-base down sampling 
+    """
     relative = bool(not origin); 
     mesh_copy = copy.deepcopy(mesh); 
     mesh_copy.translate([0,0,0], relative=relative);
@@ -879,5 +575,119 @@ class repr_generator:
     fpfh_down = o3d.pipelines.registration.compute_fpfh_feature(mesh_down, ktree);
     return fpfh_down.data
 
+def object_meta(obj):
+  points = np.asarray(obj.vertices).round(3);
+  normals = np.asarray(obj.vertex_normals).round(3);
+  colors = np.asarray(obj.vertex_colors)*256;
+  colors = colors.astype(int); 
+  triangles = np.asarray(obj.triangles).astype(int); 
+  return points.reshape(-1), normals.reshape(-1), colors.reshape(-1), triangles.reshape(-1)
 
+
+####################################################################################################
+###################################### Open3D object display #######################################
+####################################################################################################
+def displayfiles(plyfiles, outfile="", add=[]): 
+  cmap = CMAP6;
+  objs = []; 
+  finalobj = 0; 
+  for obji, plyfile in enumerate(plyfiles): 
+    color = cmap[obji]; 
+    mesh = o3d.io.read_triangle_mesh(plyfile); 
+    mesh.compute_vertex_normals(); 
+    mesh.paint_uniform_color(color); 
+    objs.append(mesh);
+    if obji == 0: 
+      finalobj = mesh; 
+    else: 
+      finalobj += mesh;
+  write(finalobj, outfile=outfile); 
+  display(objs, add=add); 
+  return objs
+
+def write(objs, outfile=""):
+  if len(outfile) > 0:
+    o3d.io.write_triangle_mesh(outfile, objs, write_ascii=True); 
+    if os.path.isfile(outfile): 
+      return True 
+  else: 
+    return False
+
+def display(objects, add=[]):
+  if len(objects) == 0 and len(add)==0:
+    return []
+  else: 
+    objs = copy.deepcopy(objects); 
+    cmap = CMAP6; 
+    for i in range(1, len(objs)):
+      color = cmap[i];
+      objs[i].paint_uniform_color(color);
+      if isinstance(objs[i], o3d.geometry.TriangleMesh): 
+        objs[i].compute_vertex_normals();
+    o3d.visualization.draw_geometries(add+objs, width=1200, height=1000);
+
+def display_registration(source, target, transformation=np.eye(4)):
+  source_temp = copy.deepcopy(source); 
+  target_temp = copy.deepcopy(target); 
+  source_temp.paint_uniform_color(CMAP6[1]); 
+  target_temp.paint_uniform_color(CMAP6[-1]); 
+  source_temp.transform(transformation)
+  display([source_temp, target_temp])
+
+def displayconvex(obj, n_points=600):
+  hulls = computeconvex(obj, n_points=600)
+  display([], add=hulls)
+
+def computeconvex(obj, n_points=600):
+  if isinstance(obj, o3d.geometry.TriangleMesh):
+    pcd = obj.sample_points_uniformly(n_points); 
+  elif isinstance(obj, o3d.geometry.PointCloud):
+    pcd = obj.voxel_down_sample(0.01); 
+  hull, _ = pcd.compute_convex_hull(); 
+  hull_ls = o3d.geometry.LineSet.create_from_triangle_mesh(hull); 
+  hull_ls.paint_uniform_color([0.77, 0, 1])
+  return [pcd, hull_ls]
+
+def voxelize(obj, show=True):
+  if isinstance(obj, o3d.geometry.TriangleMesh):
+    pcd = obj.sample_points_uniformly(600)
+  elif isinstance(obj, o3d.geometry.PointCloud):
+    pcd = obj.voxel_down_sample(0.01);
+  pcd.colors = o3d.utility.Vector3dVector(np.random.uniform(0, 1, size=(600, 3)))
+  # fit to unit cube
+  pcd.scale(1 / np.max(pcd.get_max_bound() - pcd.get_min_bound()),
+          center=pcd.get_center())  
+  voxel_grid = o3d.geometry.VoxelGrid.create_from_point_cloud(pcd, voxel_size=0.05)
+  if show: 
+    display([voxel_grid]); 
+  return voxel_grid 
+
+####################################################################################################
+####################################### Open3D accessory div #######################################
+####################################################################################################
+def NewCuboid(center=[0,0,0], length=6): 
+  points = np.array([
+    [0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0],
+    [0, 0, 1], [1, 0, 1], [0, 1, 1], [1, 1, 1],
+  ])
+  points = points*length; 
+  points = points + np.array(center)-(length/2); 
+  lines = np.array([
+    [0, 1], [0, 2], [1, 3], [2, 3],
+    [4, 5], [4, 6], [5, 7], [6, 7],
+    [0, 4], [1, 5], [2, 6], [3, 7],
+  ]); 
+  colors = [[0, 0, 0] for i in range(len(lines))]
+  line_set = o3d.geometry.LineSet(
+    points=o3d.utility.Vector3dVector(points),
+    lines=o3d.utility.Vector2iVector(lines),
+  ); 
+  line_set.colors = o3d.utility.Vector3dVector(colors); 
+  return line_set
+
+def NewCoordFrame(center=[0,0,0], scale=1): 
+  coord_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(); 
+  coord_frame.scale(scale=scale, center=center)
+  coord_frame.translate(center, relative=False)
+  return coord_frame
 
