@@ -4,6 +4,11 @@ class feature:
   def hook(self, featurizer):
     self.featurizer = featurizer
     self.top = featurizer.traj.top
+  def getbox(self): 
+    return self.featurizer.__points3d
+  def getcenter(self): 
+    return self.featurizer.center; 
+  
   def run(self, trajectory):
     """
     update interval
