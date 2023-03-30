@@ -70,19 +70,40 @@ def BENCHMARK(rounds=100):
   
   tmp_comb = functools.partial(repres.convex_hull_ratio, repres.mesh); 
   t9 = timeit.timeit(tmp_comb, number = int(rounds)); 
-
-  print(f"{'Atom Types':15s}: {t1:6.3f}")
-  print(f"{'Donor/Acceptor':15s}: {t2:6.3f}")
-  print(f"{'Partial charge':15s}: {t3:6.3f}")
-  print(f"{'Pseudo energy':15s}: {t4:6.3f}")
-
-  print(f"{'Meshify':15s}: {t5:6.3f}")
-
-  print(f"{'Volume':15s}: {t6:6.3f}")
-  print(f"{'Surface':15s}: {t7:6.3f}")
-  print(f"{'Mean Radius':15s}: {t8:6.3f}")   
-  print(f"{'Convex Hull':15s}: {t9:6.3f}")   
+  tt = time.perf_counter() - st; 
+  print(f"{'Atom Types':15s}: {t1:6.3f} {t1/tt*100:8.3f}%")
+  print(f"{'Donor/Acceptor':15s}: {t2:6.3f} {t2/tt*100:8.3f}%")
+  print(f"{'Partial charge':15s}: {t3:6.3f} {t3/tt*100:8.3f}%")
+  print(f"{'Pseudo energy':15s}: {t4:6.3f} {t4/tt*100:8.3f}%")
+  print(f"{'Meshify':15s}: {t5:6.3f} {t5/tt*100:8.3f}%")
+  print(f"{'Volume':15s}: {t6:6.3f} {t6/tt*100:8.3f}%")
+  print(f"{'Surface':15s}: {t7:6.3f} {t7/tt*100:8.3f}%")
+  print(f"{'Mean Radius':15s}: {t8:6.3f} {t8/tt*100:8.3f}%")
+  print(f"{'Convex Hull':15s}: {t9:6.3f} {t9/tt*100:8.3f}%")
   print(f"Totally used {time.perf_counter() - st:6.3f} seconds ({(time.perf_counter() - st)/rounds:6.4f} per frame)")
+
+def CONVEXRATIO(): 
+  shapes = {
+    'arrow': o3d.geometry.TriangleMesh.create_arrow(),
+    'box': o3d.geometry.TriangleMesh.create_box(),
+    'cone':o3d.geometry.TriangleMesh.create_cone(),
+    'coord_frame':o3d.geometry.TriangleMesh.create_coordinate_frame(),
+    'cylinder':o3d.geometry.TriangleMesh.create_cylinder(),
+    'icosahedron':o3d.geometry.TriangleMesh.create_icosahedron(),
+    'mobius':o3d.geometry.TriangleMesh.create_mobius(),
+    'octahedron':o3d.geometry.TriangleMesh.create_octahedron(),
+    'sphere':o3d.geometry.TriangleMesh.create_sphere(),
+    'tetrahedron':o3d.geometry.TriangleMesh.create_tetrahedron(),
+    'torus':o3d.geometry.TriangleMesh.create_torus(),
+    'icosahedron':o3d.geometry.TriangleMesh.create_icosahedron(),
+  }
+
+  for sname, mesh in shapes.items(): 
+    mesh.compute_vertex_normals(); 
+    mesh.scale(10, center=mesh.get_center())
+    convex = representations.computeconvex(mesh)
+    ratio_c_p = len(convex[1].points)/len(convex[0].points)
+    print(f"Ratio(C/S) {sname:15}: {ratio_c_p:6.3f} ({len(convex[1].points):>4d}/{len(convex[0].points):<4d})")
 
 
 class feature:

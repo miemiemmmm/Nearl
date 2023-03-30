@@ -635,9 +635,9 @@ def display_registration(source, target, transformation=np.eye(4)):
   display([source_temp, target_temp])
 
 def displayconvex(obj, n_points=600):
-  hulls = computeconvex(obj, n_points=600)
-  display([], add=hulls)
-
+  pcd, hulls = computeconvex(obj, n_points=600)
+  display([pcd, hulls])
+  
 def computeconvex(obj, n_points=600):
   if isinstance(obj, o3d.geometry.TriangleMesh):
     pcd = obj.sample_points_uniformly(n_points); 
@@ -646,13 +646,16 @@ def computeconvex(obj, n_points=600):
   hull, _ = pcd.compute_convex_hull(); 
   hull_ls = o3d.geometry.LineSet.create_from_triangle_mesh(hull); 
   hull_ls.paint_uniform_color([0.77, 0, 1])
-  return [pcd, hull_ls]
+  return (pcd, hull_ls)
 
 def voxelize(obj, show=True):
   if isinstance(obj, o3d.geometry.TriangleMesh):
     pcd = obj.sample_points_uniformly(600)
   elif isinstance(obj, o3d.geometry.PointCloud):
     pcd = obj.voxel_down_sample(0.01);
+  else: 
+    print(f"Please provide a o3d.geometry.TriangleMesh or o3d.geometry.PointCloud object rather than {type(obj)}")
+    return False
   pcd.colors = o3d.utility.Vector3dVector(np.random.uniform(0, 1, size=(600, 3)))
   # fit to unit cube
   pcd.scale(1 / np.max(pcd.get_max_bound() - pcd.get_min_bound()),
