@@ -37,6 +37,8 @@ class TRAJ:
     self.traj = pt.load(trajfile, top=pdbfile); 
     self.traj.top.set_reference(self.traj[0]);
     self.activeframe = 0; 
+  def __getitem__(self, key):
+    return self.traj[key]
   @property
   def top(self):
     return self.traj.top

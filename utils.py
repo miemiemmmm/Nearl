@@ -1,7 +1,12 @@
-import pytraj as pt 
-import numpy as np 
-from scipy.spatial import distance_matrix
 import tempfile
+from hashlib import md5;
+
+import numpy as np 
+import pytraj as pt 
+
+from scipy.interpolate import griddata, Rbf
+from scipy.spatial import distance_matrix
+
 
 def conflictfactor(pdbfile, ligname, cutoff=5):
   VDWRADII = {'1': 1.1, '2': 1.4, '3': 1.82, '4': 1.53, '5': 1.92, '6': 1.7, '7': 1.55, '8': 1.52,
@@ -43,6 +48,50 @@ def conflictfactor(pdbfile, ligname, cutoff=5):
   factor = 1 - ((cclash/2)/((ccontact/2)/atomnr))
   print(f"Clashing factor: {round(factor,3)}; Atom selected: {atomnr}; Contact number: {ccontact}; Clash number: {cclash}");
   return factor
+
+def interpolate(points, weights, grid_dims):
+  """
+  Interpolate density from a set of weighted 3D points to an N x N x N mesh grid.
+
+  Args:
+  points (np.array): An array of shape (num_points, 3) containing the 3D coordinates of the points.
+  weights (np.array): An array of shape (num_points,) containing the weights of the points.
+  grid_size (int): The size of the output mesh grid (N x N x N).
+
+  Returns:
+  np.array: A 3D mesh grid of shape (grid_size, grid_size, grid_size) with the interpolated density.
+
+  Note: 
+    Interpolation box is in accordance with the bound box
+  """
+  # Compute the bounding box
+  min_coords = np.min(points, axis=0)
+  max_coords = np.max(points, axis=0)
+  # Create the X x Y x Z grid
+  grid_dims = [int(i) for i in grid_dims]; 
+  grid_y, grid_x, grid_z = np.mgrid[min_coords[0]:max_coords[0]:grid_dims[0]*1j, 
+                                    min_coords[1]:max_coords[1]:grid_dims[1]*1j, 
+                                    min_coords[2]:max_coords[2]:grid_dims[2]*1j]; 
+  grid_x, grid_y, grid_z = np.meshgrid(np.linspace(min_coords[0], max_coords[0], grid_dims[0]),
+                                       np.linspace(min_coords[1], max_coords[1], grid_dims[1]),
+                                       np.linspace(min_coords[2], max_coords[2], grid_dims[2]), indexing="xy")
+  # Interpolate the density to the grid
+  # grid_density = griddata(points, weights, (grid_x, grid_y, grid_z), method='linear', fill_value=0); 
+  # Perform RBF interpolation
+  rbf = Rbf(points[:, 0], points[:, 1], points[:, 2], weights)
+  grid_density = rbf(grid_x, grid_y, grid_z)
+
+  return grid_density, (grid_x, grid_y, grid_z)
+
+def get_hash(thestr=""):
+  if isinstance(thestr, str):
+    return md5(bytes(thestr, "utf-8")).hexdigest()
+  elif isinstance(thestr, list) or isinstance(thestr, np.ndarray):
+    arrstr = ",".join(np.asarray(thestr).astype(str))
+    return md5(bytes(arrstr, "utf-8")).hexdigest()
+  else:
+    import time;
+    return md5(bytes(time.perf_counter().__str__(), "utf-8")).hexdigest()
 
 # Two ways to get the mask of protein part
 def GetProteinByTraj(traj):
