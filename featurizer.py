@@ -1,16 +1,19 @@
 from hilbertcurve.hilbertcurve import HilbertCurve
-import os
+import time, builtins, tempfile, datetime, os 
 import imageio
+
+from . import representations, data_io
+
 import numpy as np
 import pytraj as pt
-import pandas as pd
-import nglview as nv
-import matplotlib.pyplot as plt
 
-
-from matplotlib import cm
 from scipy.ndimage import gaussian_filter
+from scipy.spatial import distance_matrix 
 from scipy.stats import entropy
+
+import matplotlib.pyplot as plt
+from matplotlib import cm
+import nglview as nv
 
 def cgenff_reader(filename):
   with open(filename) as file1:
@@ -457,5 +460,326 @@ class feature_3d_reader:
     with open(pdbfile, "w") as file1:
       file1.write(pdblines)
     return pdbfile
+
+########################################################
+def logit(function):
+  def adddate(*arg, **kwarg):
+    timestamp = datetime.datetime.now().strftime('%y-%m-%dT%H:%M:%S')
+    builtins.print(f"{timestamp:20s}: ", end="")
+    function(*arg, **kwarg)
+  return adddate
+
+@logit
+def printit(*arg, **kwarg):
+  builtins.print(*arg, **kwarg)
+
+class Featurizer3D:
+  def __init__(self, parms):
+    self.FEATURES = []; 
+    
+    # Check the deinition of featurizer
+    self.parms = parms; 
+    parms_to_check = ["VOXEL_DIMENSION", "CUBOID_LENGTH", "CUTOFF", "MASK_INTEREST", "MASK_ENVIRONMENT"]
+    for parm in parms_to_check:
+      if parm not in parms:
+        print(f"Please define the keyword <{parm}> in your parameter set")
+        return
+    
+    self.__dims     = np.array([int(i) for i in parms["VOXEL_DIMENSION"]]); 
+    self.__lengths  = np.array([float(i) for i in parms["CUBOID_LENGTH"]]); 
+    self.__searchcutoff = float(parms["CUTOFF"]); 
+    
+    if isinstance(parms["MASK_INTEREST"], str):
+      self.__MOI = parms["MASK_INTEREST"]
+    else: 
+      printit("MASK_INTEREST is not a string. It should be a iterable object")
+      
+    if isinstance(parms["MASK_ENVIRONMENT"], str):
+      self.__MOE = parms["MASK_ENVIRONMENT"]
+    else: 
+      printit("MASK_ENVIRONMENT is not a string. It should be a iterable object")
+
+    self.__distances = np.arange(np.prod(self.__dims)).astype(int);
+    self.__boxcenter = np.array([0,0,0]); 
+    self.__points3d = self.get_points()
+    
+    self.__grid = np.arange(np.prod(self.__dims)).reshape(self.__dims)
+    print("Center", self.__boxcenter)
+    
+  def __str__(self):
+    finalstr = f"Feature Number: {len(self.FEATURES)}; \n"
+    for i in self.FEATURES:
+      finalstr += f"Feature: {i.__str__()}\n"
+    return finalstr
+    
+  @property
+  def shape(self):
+    return (i for i in self.__dims); 
+  
+  @property
+  def origin(self): 
+    return np.array(self.__points3d[0]); 
+  @origin.setter
+  def origin(self, neworigin): 
+    diff = np.array(neworigin) - np.array(neworigin); 
+    self.__boxcenter += diff; 
+    self.__points3d += diff; 
+  
+  @property
+  def center(self):
+    return np.array(self.__boxcenter); 
+  @center.setter
+  def center(self, newcenter): 
+    diff = np.array(newcenter) - np.mean(self.__points3d, axis = 0); 
+    self.__boxcenter = np.array(newcenter); 
+    self.__points3d += diff; 
+    
+  @property
+  def lengths(self):
+    return np.array(self.__lengths); 
+  @lengths.setter
+  def lengths(self, new_length): 
+    if isinstance(new_length, int) or isinstance(new_length, float):
+      self.__lengths = np.array([new_length] * 3);
+    elif isinstance(new_length, list) or isinstance(new_length, np.ndarray):
+      assert len(new_length) == 3, "length should be 3"
+      self.__lengths = np.array(new_length);
+    else:
+      raise Exception("Unexpected data type")
+      
+  @property
+  def cutoff(self):
+    return self.__searchcutoff
+  @property
+  def dims(self): 
+    return np.array(self.__dims)
+  @property
+  def moi(self):
+    return self.__MOI
+  @property
+  def moe(self):
+    return self.__MOE
+  @property
+  def mask_int(self):
+    return self.__MOI
+  @property
+  def mask_env(self):
+    return self.__MOE
+  
+  @property
+  def interval(self):
+    return self.__interval
+  @property
+  def unitlength(self):
+    return self.__unitlength
+    
+  def translate(self, offsets, relative=True, **kwarg):
+    """
+    Apply a translational movement to the cell box;
+    """
+    if relative: 
+      self.__boxcenter += offsets; 
+    else: 
+      self.__boxcenter = np.array(offsets); 
+    self.updatebox(); 
+    return 
+      
+  def updatebox(self):
+    """
+    Avoid frequent use of the updatebox function because it generates new point set
+    Only needed when changing the box parameter <VOXEL_DIMENSION> and <CUBOID_LENGTH>
+    Basic variables: 
+      self.__length
+      self.__dims
+    """
+    self.__unitlength = self.__length / self.__dims; 
+    self.__distances  = np.arange(np.prod(self.__dims)).astype(int); 
+    self.__points3d  = self.get_points(); 
+    self.__boxcenter  = np.mean(self.__points3d, axis = 0); 
+  
+  def get_points(self):
+    # Generate grid points
+    self.grid = np.mgrid[self.center[0]-self.lengths[0]/2:self.center[0]+self.lengths[0]/2:self.dims[0]*1j,
+                         self.center[1]-self.lengths[1]/2:self.center[1]+self.lengths[1]/2:self.dims[1]*1j,
+                         self.center[2]-self.lengths[2]/2:self.center[2]+self.lengths[2]/2:self.dims[2]*1j]
+    coord = np.column_stack([self.grid[0].ravel(), self.grid[1].ravel(), self.grid[2].ravel()])
+    return coord
+  
+  def dist2coordindex(self, point):
+    k0 = self.__dims[1]*self.__dims[2]
+    k1 = self.__dims[0]
+    d0 = int(point / k0)
+    d1 = int((point - d0*k0) / k1)
+    d2 = int(point - d0*k0 - d1*k1)
+    ret = np.array([d0, d1, d2])
+    return ret    
+    
+  def update_box_length(self, length=None, scale_factor=1.0):
+    if length is not None:
+        self.__length = float(length)
+    else:
+        self.__length *= scale_factor
+    self.updatebox()
+  
+  def points_to_3D(self, thearray, dtype=float):
+    if len(self.__distances) != len(thearray):
+      printit("Cannot match the length of the array to the 3D cuboid"); 
+      return np.array([0])
+    template  = np.zeros((self.__pointnr, self.__pointnr, self.__pointnr)).astype(dtype);
+    for ind in self.__distances:
+      array_3Didx = tuple(self.__indexes3d[ind]); 
+      template[array_3Didx] = thearray[ind]
+    return template
+    
+  def register_feature(self, feature):
+    self.FEATURES.append(feature); 
+    for feature in self.FEATURES:
+      feature.set_featurizer(self)
+    
+  ####################################################################################################
+  ######################################## DATABASE operation ########################################
+  ####################################################################################################
+  def connect(self, dataset): 
+    """
+    Connect a dataset
+    Args:
+      dataset: File path of the HDF file;
+    """
+    self.dataset = data_io.hdf_operator(dataset)
+    
+  def disconnect(self): 
+    """
+    Disconnect the active dataset
+    """
+    self.dataset.close()
+    
+  def dump(self, key, data, dataset): 
+    """
+    Dump the cached data to the active dataset
+    """
+    self.connect(dataset); 
+    try: 
+      dtypes = self.dataset.dtype(key); 
+      if not all([isinstance(i, float) for i in data[0]]): 
+        ################################## A list of compound data types ###################################
+        print("Using float format")
+        converted_data = data_io.array2dataset(data, dtypes); 
+      else: 
+        print("Using void format")
+        converted_data = data
+      self.dataset.append_entry(key, converted_data); 
+    except Exception as e: 
+      print(f"Error: {e}")
+    self.disconnect(); 
+  
+  def write_box(self, pdbfile="", elements=[], bfactors=[], write_pdb=False):
+    """
+    Write the 3D grid box with or without protein structure to a PDB file
+    Args:
+      pdbfile: str, optional, the output PDB file name. If not provided, the PDB formatted string is returned.
+      elements: list, optional, a list of element symbols for each point. Default is a dummy atom "Du".
+      bfactors: list, optional, a list of B-factor values for each point. Default is 0.0 for all points.
+      write_pdb: bool, optional, if False, avoid writing PDB structure. 
+    Return: 
+      None if pdbfile is provided, otherwise a PDB formatted string representing the 3D points.
+    """
+    if len(elements) == 0: 
+      elements = ["Du"] * len(self.__distances); 
+    if len(bfactors) == 0: 
+      bfactors = [0.00] * len(self.__distances); 
+    template = "ATOM      1  Du  TMP     1       0.000   0.000   0.000  1.00  0.00";
+    if write_pdb and len(self.traj) > 0:
+      with tempfile.NamedTemporaryFile(suffix=".pdb") as file1: 
+        newxyz = np.array([self.traj[self.trajloader.activeframe].xyz])
+        newtraj = pt.Trajectory(xyz=newxyz , top=self.traj.top)
+        pt.write_traj(file1.name, newtraj, overwrite=True)
+        with open(file1.name, "r") as file2:
+          pdblines = [i for i in file2.read().split("\n") if "ATOM" in i or "HETATM" in i]
+        pdbline = "\n".join(pdblines)+"\n"
+    else: 
+      pdbline = ""; 
+    coordinates = np.round(self.__points3d, decimals=3); 
+    for i in self.__distances:
+      point = self.__points3d[i]; 
+      elem  = elements[i]; 
+      bfval = bfactors[i]; 
+      tmpstr = "".join([f"{i:>8.3f}" for i in point]); 
+      thisline = f"ATOM  {i:>5}  {elem:<3}{template[16:30]}{tmpstr}{template[54:60]}{round(bfval,2):>6}\n"
+      pdbline += thisline
+    if len(pdbfile) > 0: 
+      with open(pdbfile, "w") as file1:
+        file1.write(pdbline)
+    else: 
+      return pdbline
+  
+  ####################################################################################################
+  ####################################### Perform Computation ########################################
+  ####################################################################################################
+  def run(self, traj, frames, atoms): 
+    """
+    For each trajectory, initialize a representation generator
+    """
+    ######################### Initialize the MolBlock representation generator #########################
+    self.repr_generator = representations.generator(traj); 
+    self.repr_generator.length = [i for i in self.__lengths]; 
+    self.traj = traj;
+    
+    ###################################### Initialize the dataset ######################################
+    repr_processed = np.zeros((len(frames)*len(atoms), 72)); 
+    fpfh_processed = np.zeros((len(frames)*len(atoms), 33, 600)); 
+    feat_processed = np.zeros((len(frames)*len(atoms), len(self.FEATURES), *self.__dims));
+    
+    ##################################### Iterate necessary frames #####################################
+    c = 0; 
+    c_total = 0; 
+    for frame in frames: 
+      self.active_frame = traj[frame]
+      focuses = self.active_frame.xyz[atoms]; 
+      self.repr_generator.frame = frame; 
+      
+      printit(f"Frame {frame}: Generated {len(focuses)} centers"); 
+      # Each frame Runs len(centers) computation/segmentaiton
+      repr_vec, fpfh_vec, feat_vec = self.runframe(focuses); 
+      c_1 = c + len(repr_vec); 
+      c_total += len(repr_vec); 
+      repr_processed[c:c_1] = repr_vec; 
+      fpfh_processed[c:c_1] = fpfh_vec; 
+      feat_processed[c:c_1] = feat_vec; 
+      c = c_1; 
+      
+    return repr_processed[:c_total], fpfh_processed[:c_total], feat_processed[:c_total]
+  
+  def runframe(self, centers):
+    """
+    No need traj for representation generation
+    Needs to correctly set the self.
+    """
+    feat_vector = np.zeros((len(centers), len(self.FEATURES), *self.__dims));
+    fpfh_vector = np.zeros((len(centers), 33, 600)); 
+    repr_vector = np.zeros((len(centers), 72)); 
+    mask = np.ones(len(centers), dtype=bool); 
+    print("Feature vector: ", feat_vector.shape)
+    
+    for idx, center in enumerate(centers): 
+      # Reset the focus of representation generator
+      self.center = center;
+      self.repr_generator.center = self.center; 
+      self.repr_generator.length = self.lengths; 
+      ########################### Segment the box and generate feature vectors ###########################
+      slices, segments = self.repr_generator.slicebyframe(); 
+      feature_vector, mesh_obj, fpfh = self.repr_generator.vectorize(segments); 
+      if len(feature_vector) == 0: 
+        mask[idx] = False
+        continue
+      repr_vector[idx] = feature_vector; 
+      fpfh_vector[idx] = fpfh; 
+      
+      for fidx, feature in enumerate(self.FEATURES):
+        feat_vector[idx, fidx] = feature.featurize(); 
+        # feat_vector[idx, fidx] = np.zeros((self.dim))
+        
+    return repr_vector[mask], fpfh_vector[mask], feat_vector[mask]
+
+
 
 

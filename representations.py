@@ -74,12 +74,17 @@ def pdb2xyzr(thepdb, write="", exp=False):
     return finallines
 
 def runmsms(msms, inputfile, outfile, d = 4, r = 1.5): 
-  subprocess.run([msms, "-if", inputfile, "-of", outfile, "-density", str(d), "-probe_radius", str(r)], stdout=subprocess.DEVNULL); 
+  subprocess.run([msms, "-if", inputfile, "-of", outfile, "-density", str(d), "-probe_radius", str(r), "-all"], stdout=subprocess.DEVNULL); 
   if os.path.isfile(f"{outfile}.vert") and os.path.isfile(f"{outfile}.face"): 
     return True
   else: 
-    print(f"{runmsms.__name__:15s}: Failed to generate corresponding vertex and triangle file"); 
-    return False
+    subprocess.run([msms, "-if", inputfile, "-of", outfile, "-density", str(d), "-probe_radius", str(r)], stdout=subprocess.DEVNULL);
+    if os.path.isfile(f"{outfile}.vert") and os.path.isfile(f"{outfile}.face"):
+      return True
+    else: 
+      # Very low possibility of failing
+      print(f"{runmsms.__name__:15s}: Failed to generate corresponding vertex and triangle file"); 
+      return False 
 
 def pdb2msms(msms, pdbfile, outprefix): 
   xyzrfile = pdb2xyzr(pdbfile, write=outprefix)
@@ -413,18 +418,21 @@ class generator:
           mesh = msms2mesh(f"{out_prefix}.vert", f"{out_prefix}.face", filename=f"{out_prefix}.ply");
         if mesh.is_empty(): 
           try: 
-            mesh = o3d.io.read_triangle_mesh(f"{file1.name}.ply"); 
+            mesh = o3d.io.read_triangle_mesh(f"{out_prefix}.ply"); 
             mesh.remove_degenerate_triangles(); 
             mesh.compute_vertex_normals(); 
           except:
-            raise Exception(f"{self.slice2msms.__name__:15s}:Failed to generate the 3d object"); 
+            raise Exception(f"{self.segment2mesh.__name__:15s}:Failed to generate the 3d object"); 
+        if (clear and os.path.isfile(f"{out_prefix}.vert")): 
+          os.remove(f"{out_prefix}.vert")
+        if (clear and os.path.isfile(f"{out_prefix}.face")): 
+          os.remove(f"{out_prefix}.face")
+        return mesh
       else:
-        print(f"{self.slice2msms.__name__:15s}: Failed to generate the MSMS output")
-    if (clear and os.path.isfile(f"{out_prefix}.vert")): 
-      os.remove(f"{out_prefix}.vert")
-    if (clear and os.path.isfile(f"{out_prefix}.face")): 
-      os.remove(f"{out_prefix}.face")
-    return mesh
+        print(f"{self.segment2mesh.__name__:15s}: Failed to generate the MSMS output")
+        print(theidxi)
+        return False
+
     
   def vectorize(self, segment, clear=True, msms=""): 
     """
@@ -457,6 +465,8 @@ class generator:
       
       ############################### Segment conversion to triangle mesh ################################
       self.mesh = self.segment2mesh(theidxi); 
+      if self.mesh == False or self.mesh.is_empty(): 
+        return [], [], []
       ################################## Point cloud-based descriptors ###################################
       SA = self.surface(self.mesh)
       VOL = self.volume(self.mesh)
@@ -479,7 +489,7 @@ class generator:
     ################################# Generate the final fpfh features #################################
     fpfh_final = self.fpfh_down(finalobj); 
     
-    return framefeature.reshape(-1), finalobj, fpfh_final.reshape(-1)
+    return framefeature.reshape(-1), finalobj, fpfh_final
     
   
   def atom_type_count(self, theidxi):
