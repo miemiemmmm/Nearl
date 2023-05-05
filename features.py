@@ -24,11 +24,7 @@ class Feature:
     Returns:
     np.array: A 3D mesh grid of shape (grid_size, grid_size, grid_size) with the interpolated density.
     """
-    # Interpolate the density to the grid
-    _grid = self.featurizer.grid; 
-    # print(points.tolist())
-    # print(weights.tolist())
-    # print(tuple(_grid))
+    _grid = self.featurizer.grid;
     grid_density = griddata(points, weights, tuple(_grid), method='linear', fill_value=0);
     return grid_density
 

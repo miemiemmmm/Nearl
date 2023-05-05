@@ -4,7 +4,7 @@ import pytraj as pt
 import numpy as np 
 import tempfile
 
-def DACbytraj(traj, frameidx, themask):
+def DACbytraj(traj, frameidx, themask, **kwargs):
   """
   Count Hydrogen bond donors and acceptors by trajectory and selection
   """
@@ -26,8 +26,7 @@ def DACbytraj(traj, frameidx, themask):
   d_patt = Chem.MolFromSmarts(donor_pattern); 
   d_hits = mol.GetSubstructMatches(d_patt); 
   a_patt = Chem.MolFromSmarts(acceptor_pattern); 
-  a_hits = mol.GetSubstructMatches(a_patt); 
-  # print(f"{DACbytraj.__name__:15s}: Matched {len(d_hits)} donors, {len(a_hits)} acceptors. ")
+  a_hits = mol.GetSubstructMatches(a_patt);
   conf = mol.GetConformer()
   donors = np.zeros((len(d_hits),3));
   for idx, hit in enumerate(d_hits): 
@@ -57,8 +56,7 @@ def Chargebytraj(traj, frameidx, themask):
   with tempfile.NamedTemporaryFile(suffix=".pdb") as file1:
     pt.write_traj(file1.name, tmp_traj, overwrite=True, frame_indices=[frameidx])
     mol = Chem.MolFromPDBFile(file1.name);
-  
-  # print(f"{DACbytraj.__name__:15s}: Matched {len(d_hits)} donors, {len(a_hits)} acceptors. ")
+
   AllChem.ComputeGasteigerCharges(mol); 
   conf = mol.GetConformer(); 
   positions = conf.GetPositions(); 
@@ -69,5 +67,17 @@ def Chargebytraj(traj, frameidx, themask):
     chargedict[key] = float(atom.GetDoubleProp('_GasteigerCharge')); 
   return chargedict; 
 
+
+def writepdbs(traj, frameidx, themask):
+  selection = traj.top.select(themask);
+  if len(selection) == 0:
+    print(f"{DACbytraj.__name__:15s}: No atom in the selected mask. Skipping it.")
+    return np.array([]), np.array([])
+  tmp_traj = traj.copy();
+  tmp_traj.strip(f"!({themask})");
+  with tempfile.NamedTemporaryFile(suffix=".pdb") as file1:
+    pt.write_traj(file1.name, tmp_traj, overwrite=True, frame_indices=[frameidx])
+    mol = Chem.MolFromPDBFile(file1.name);
+  return Chem.MolToPDBBlock(mol);
 
 
