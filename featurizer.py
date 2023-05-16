@@ -10,6 +10,7 @@ from matplotlib import cm
 import matplotlib.pyplot as plt
 
 from . import representations, data_io
+from . import CONFIG
 
 
 print("Loading the featurizer module")
@@ -653,6 +654,10 @@ class Featurizer3D:
     for feature in self.FEATURES:
       feature.set_featurizer(self)
 
+  def register_traj(self, thetraj):
+    self.traj = thetraj;
+  def register_frames(self, theframes):
+    self.frames = theframes
   ####################################################################################################
   ######################################## DATABASE operation ########################################
   ####################################################################################################
@@ -732,25 +737,28 @@ class Featurizer3D:
   ####################################################################################################
   ####################################### Perform Computation ########################################
   ####################################################################################################
-  def run(self, traj, frames, atoms):
+  def run_by_atom(self, atoms, fbox_length="same"):
     """
     For each trajectory, initialize a representation generator
     """
     ######################### Initialize the MolBlock representation generator #########################
-    self.repr_generator = representations.generator(traj);
-    self.repr_generator.length = [i for i in self.__lengths];
-    self.traj = traj;
+    self.repr_generator = representations.generator(self.traj);
+    if fbox_length == "same":
+      self.repr_generator.length = [i for i in self.__lengths];   # shape of the
+    elif (not isinstance(fbox_length, str)) and  len(fbox_length) == 3:
+      self.repr_generator.length = [i for i in fbox_length];  # shape of the
+    printit(self.repr_generator.length)
 
     ###################################### Initialize the dataset ######################################
-    repr_processed = np.zeros((len(frames) * len(atoms), 72));
-    fpfh_processed = np.zeros((len(frames) * len(atoms), 33, 600));
-    feat_processed = np.zeros((len(frames) * len(atoms), len(self.FEATURES), *self.__dims));
+    repr_processed = np.zeros((len(self.frames) * len(atoms), 72));
+    fpfh_processed = np.zeros((len(self.frames) * len(atoms), 33, 600));
+    feat_processed = np.zeros((len(self.frames) * len(atoms), len(self.FEATURES), *self.__dims));
 
     ##################################### Iterate necessary frames #####################################
     c = 0;
     c_total = 0;
-    for frame in frames:
-      self.active_frame = traj[frame]
+    for frame in self.frames:
+      self.active_frame = self.traj[frame]
       focuses = self.active_frame.xyz[atoms];
       self.repr_generator.frame = frame;
 
@@ -764,6 +772,10 @@ class Featurizer3D:
       feat_processed[c:c_1] = feat_vec;
       c = c_1;
     return repr_processed[:c_total], fpfh_processed[:c_total], feat_processed[:c_total]
+
+  def run_by_center(self, center):
+    pass
+
 
   def runframe(self, centers):
     """
@@ -782,7 +794,7 @@ class Featurizer3D:
       self.repr_generator.length = self.lengths;
       ########################### Segment the box and generate feature vectors ###########################
       slices, segments = self.repr_generator.slicebyframe();
-      feature_vector, mesh_obj, fpfh = self.repr_generator.vectorize(segments, clear=False);
+      feature_vector, mesh_obj, fpfh = self.repr_generator.vectorize(segments, clear=CONFIG.get("clear", True));
       if len(feature_vector) == 0:
         mask[idx] = False
         continue
