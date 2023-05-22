@@ -7,7 +7,7 @@ from scipy import spatial
 from itertools import combinations
 from scipy.spatial.distance import cdist
 from . import utils, chemtools
-from . import CONFIG
+from . import CONFIG, printit
 
 _clear = CONFIG.get("clear", False);
 _verbose = CONFIG.get("verbose", False);
@@ -528,13 +528,6 @@ class generator:
     Args:
       segment: the segment to be vectorized
     """
-    # if (not CONFIG.get("clear", True)):
-    #   # Get a random temporary file prefix
-    #   with tempfile.NamedTemporaryFile(prefix=CONFIG.get("tempfolder", "/tmp/VECTORIZE_")) as file1:
-    #     tempname = file1.name;
-    # else:
-    #   tempname = "";
-
     # Initialize the identity feature vector
     framefeature = np.zeros((self.SEGMENT_LIMIT, 12 + CONFIG.get("VIEWPOINT_BINS", 30)));
     # Order the segments from the most abundant to least ones
@@ -578,11 +571,7 @@ class generator:
       
       rad = self.mean_radius(self.mesh)
       h_ratio = self.convex_hull_ratio(self.mesh);
-      self.mesh.paint_uniform_color(CMAP6[segcounter]); 
-      # if segcounter == 0:
-      #   finalobj = copy.deepcopy(self.mesh);
-      # else:
-      #   finalobj += copy.deepcopy(self.mesh);
+      self.mesh.paint_uniform_color(CMAP6[segcounter]);
 
       framefeature[segcounter, :12] = [
         T_Nr, C_Nr, N_d, N_a, C_p, C_n, PE_lg, PE_el, SA, VOL, rad, h_ratio
@@ -612,18 +601,11 @@ class generator:
       segcounter += 1
       segment_objects.append(self.mesh);
       if _verbose:
-        print(f"Segment {segcounter} / {nrsegments}: ", self.mesh)
-        print("SUM: ", functools.reduce(lambda a, b: a+b, segment_objects))
+        printit(f"Segment {segcounter} / {nrsegments}: ", self.mesh)
+        printit("SUM: ", functools.reduce(lambda a, b: a+b, segment_objects))
     if _verbose:
-      print("Finished vectorization")
-      print("Final 3D object: ", functools.reduce(lambda a, b: a+b, segment_objects))
+      printit("Final 3D object: ", functools.reduce(lambda a, b: a+b, segment_objects))
 
-    ################################# Generate the final fpfh features #################################
-    # if (not clear):
-    #   o3d.io.write_triangle_mesh(f"{tempname}.ply", finalobj, write_ascii=True);
-    #   with open(f"{tempname}.pdb", "w") as file1:
-    #     file1.write(pdb_final)
-    # fpfh_final = self.fpfh_down(finalobj);
     return framefeature.reshape(-1), segment_objects
   
   def atom_type_count(self, theidxi):
@@ -777,9 +759,6 @@ class PointFeature(object):
     # plt.plot(np.arange(len(hist_normalized)), hist_normalized)
     # plt.show()
     return hist_normalized
-
-
-
 
 
 ####################################################################################################

@@ -1,16 +1,21 @@
-import time, builtins, tempfile, datetime, os
-
+import time, builtins, tempfile, datetime, os, functools
 import numpy as np
 import pytraj as pt
 
+# open3d related modules
+from open3d.io import write_triangle_mesh
+from open3d.pipelines.registration import compute_fpfh_feature
+from open3d.geometry import KDTreeSearchParamHybrid
+# other modules
 from scipy.stats import entropy
 from scipy.ndimage import gaussian_filter
 from scipy.spatial import distance_matrix
 from matplotlib import cm
 import matplotlib.pyplot as plt
 
+# local modules
 from . import representations, data_io
-from . import CONFIG
+from . import CONFIG, printit
 
 _clear = CONFIG.get("clear", False);
 _verbose = CONFIG.get("verbose", False);
@@ -20,10 +25,6 @@ Configurations needed for this module
 CONFIG["clear"]
 CONFIG["verbose"]
 """
-
-
-print("Loading the featurizer module")
-
 
 def cgenff_reader(filename):
   with open(filename) as file1:
@@ -476,17 +477,7 @@ class obsolete_feature_3d_reader:
       file1.write(pdblines)
     return pdbfile
 
-########################################################
-def logit(function):
-  def adddate(*arg, **kwarg):
-    timestamp = datetime.datetime.now().strftime('%y-%m-%dT%H:%M:%S')
-    builtins.print(f"{timestamp:20s}: ", end="")
-    function(*arg, **kwarg)
-  return adddate
 
-@logit
-def printit(*arg, **kwarg):
-  builtins.print(*arg, **kwarg)
 
 
 ########################################################
@@ -502,7 +493,7 @@ class Featurizer3D:
     parms_to_check = ["VOXEL_DIMENSION", "CUBOID_LENGTH", "CUTOFF", "MASK_INTEREST", "MASK_ENVIRONMENT"]
     for parm in parms_to_check:
       if parm not in parms:
-        print(f"Please define the keyword <{parm}> in your parameter set")
+        printit(f"Warning: Not found required parameter: {parm}. Please define the keyword <{parm}> in your parameter set. ")
         return
 
     self.__dims = np.array([int(i) for i in parms["VOXEL_DIMENSION"]]);
@@ -524,7 +515,7 @@ class Featurizer3D:
     self.__points3d = self.get_points()
 
     self.__grid = np.arange(np.prod(self.__dims)).reshape(self.__dims)
-    print("Center", self.__boxcenter)
+    # print("Center", self.__boxcenter)
 
   def __str__(self):
     finalstr = f"Feature Number: {len(self.FEATURES)}; \n"
@@ -855,7 +846,7 @@ class Featurizer3D:
     """
     feat_vector = np.zeros((len(centers), len(self.FEATURES), *self.__dims));
     fpfh_vector = np.zeros((len(centers), 33, 600));
-    repr_vector = np.zeros((len(centers), 72));
+    repr_vector = np.zeros((len(centers), 6 * (12 + CONFIG.get("VIEWPOINT_BINS", 30))));
     mask = np.ones(len(centers), dtype=bool);
 
     for idx, center in enumerate(centers):
@@ -865,22 +856,37 @@ class Featurizer3D:
       self.repr_generator.length = self.lengths;
       # Segment the box and generate feature vectors for each segment
       slices, segments = self.repr_generator.slicebyframe();
+
+      # DEBUG ONLY
       if _verbose:
-        print(f"Found {len(set(segments))} segments", np.unique(segments, return_counts=True)); # DEBUG
+        printit(f"Found {len(set(segments))} segments", np.unique(segments, return_counts=True));
       feature_vector, mesh_objs = self.repr_generator.vectorize(segments);
+
+      final_mesh = functools.reduce(lambda a, b: a + b, mesh_objs);
       if (not _clear):
-        pass
-        # o3d.io.write_triangle_mesh(f"/tmp/test.ply", sum(mesh_objs), write_ascii=True);
+        with tempfile.NamedTemporaryFile(prefix=CONFIG["tempfolder"]+"MSMS_OBJ_") as tmp:
+          write_triangle_mesh(f"{tmp.name}.ply", final_mesh, write_ascii=True);
 
       if len(feature_vector) == 0:
+        if _verbose:
+          printit(f"Center {center} has no feature vector");
         mask[idx] = False
         continue
+
+      # Compute the molecue block feature vector
       repr_vector[idx] = feature_vector;
-      fpfh_vector[idx] = fpfh;
+      # Compute the FPFH
+      fpfh = compute_fpfh_feature(final_mesh.sample_points_uniformly(CONFIG.get("DOWN_SAMPLE_POINTS", 600)),
+                                  KDTreeSearchParamHybrid(radius=1, max_nn=20));
+      # print(fpfh, np.asarray(fpfh.data))
+      fpfh_vector[idx] = fpfh.data;
 
       for fidx, feature in enumerate(self.FEATURES):
         feat_vector[idx, fidx] = feature.featurize();
-    printit(f"Centers {len(centers)} ; Feature vector: ", feat_vector.shape)
+
+    # DEBUG ONLY
+    if _verbose:
+      printit(f"Centers {len(centers)} ; Feature vector: ", feat_vector.shape)
 
     return repr_vector[mask], fpfh_vector[mask], feat_vector[mask]
 
