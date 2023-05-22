@@ -71,7 +71,7 @@ class MassFeature(Feature):
     thisxyz = self.featurizer.active_frame.xyz; 
     atomic_nrs = np.array([int(i.atomic_number) for i in traj.top.atoms]); 
     
-    mask_inbox = utils.boxfilter(thisxyz, self.featurizer.center, self.featurizer.lengths, return_state=True);
+    mask_inbox = utils.filter_points_within_bounding_box(thisxyz, self.featurizer.center, self.featurizer.lengths, return_state=True);
     coords = thisxyz[mask_inbox]
     weights = atomic_nrs[mask_inbox]
     feature_mass = self.interpolate(coords, weights)

@@ -464,7 +464,7 @@ class generator:
     xyz = self.traj.xyz[self._frame]; 
     idx_arr = []; 
     s_final = [];
-    state = utils.boxfilter(xyz, self._center, self._length, return_state=True); 
+    state = utils.filter_points_within_bounding_box(xyz, self._center, self._length, return_state=True);
     lastres = -999;
     seg_counter = 0;
     for idx, state in enumerate(state):
@@ -532,7 +532,7 @@ class generator:
     framefeature = np.zeros((self.SEGMENT_LIMIT, 12 + CONFIG.get("VIEWPOINT_BINS", 30)));
     # Order the segments from the most abundant to least ones
     segcounter = 0;
-    nrsegments = len(set(segment)) - 1;
+    nrsegments = min(len(set(segment)) - 1, 6);
     pdb_final = "";
     # Lastest mesh object
     self.__mesh = None;
@@ -577,32 +577,43 @@ class generator:
         T_Nr, C_Nr, N_d, N_a, C_p, C_n, PE_lg, PE_el, SA, VOL, rad, h_ratio
       ]
 
-      if segcounter == 0:
-        self.__mesh = copy.deepcopy(self.mesh);
-      elif (segcounter == nrsegments - 1):
+      # Viewpoint-based descriptors
+      if (segcounter > 0):
         vp = self.__mesh.get_center();
-        print(f"Viewpoint is {vp}");
-        other_objects = functools.reduce(lambda a, b: a+b, segment_objects);
-        print("Final round ====> ", other_objects)
-        pf_gen = PointFeature(other_objects);
-        vpc = pf_gen.compute_vpc(vp);
-        print(f"VPC is {vpc}");
-        framefeature[segcounter-1, -30:] = vpc
-
-      elif (segcounter > 0) and (segcounter < nrsegments - 1):
-        vp = self.__mesh.get_center();
-        print(f"Viewpoint is {vp}")
-        # VPC = self.viewpoint(self.mesh, vp);
         pf_gen = PointFeature(self.mesh);
         vpc = pf_gen.compute_vpc(vp);
-        print(f"VPC is {vpc}");
-        framefeature[segcounter-1, -30:] = vpc
-        self.__mesh = copy.deepcopy(self.mesh);
-      segcounter += 1
+        framefeature[segcounter-1, -30:] = vpc;
+        if (_verbose):
+          printit(f"Viewpoint: {vp}; Sum of VPC is: {sum(vpc)}");
+
+      self.__mesh = copy.deepcopy(self.mesh);
+      segcounter += 1;
+
+      # Lookback component to all its previous segments
+      if nrsegments == 1:
+        vp = self.mesh.get_center();
+        other_objects = self.mesh;
+        pf_gen = PointFeature(other_objects);
+        vpc = pf_gen.self_vpc(vp);
+        framefeature[segcounter - 1, -30:] = vpc
+        if (_verbose):
+          printit(f"Final round VPC with only 1 segments; Center as viewpoint: {vp} -> {sum(vpc)}");
+      elif (segcounter == nrsegments):
+        vp = self.__mesh.get_center();
+        other_objects = functools.reduce(lambda a, b: a + b, segment_objects);
+        pf_gen = PointFeature(other_objects);
+        vpc = pf_gen.compute_vpc(vp);
+        framefeature[segcounter - 1, -30:] = vpc
+        if (_verbose):
+          printit(f"Lookback viewpoint: {vp} -> {sum(vpc)}");
+          printit(f"Number of objects for lookback viewpoint component: {len(segment_objects)}")
+
       segment_objects.append(self.mesh);
+
       if _verbose:
-        printit(f"Segment {segcounter} / {nrsegments}: ", self.mesh)
-        printit("SUM: ", functools.reduce(lambda a, b: a+b, segment_objects))
+        printit(f"Segment {segcounter} / {nrsegments}: {self.mesh}")
+        # printit("SUM: ", functools.reduce(lambda a, b: a+b, segment_objects))
+    print(framefeature.round(2))
     if _verbose:
       printit("Final 3D object: ", functools.reduce(lambda a, b: a+b, segment_objects))
 
@@ -635,8 +646,8 @@ class generator:
       number_a: Number of hydrogen bond acceptor
     """
     coord_d, coord_a = chemtools.DACbytraj(self.traj, self.frame, self.resmask, **kwarg);
-    withinbox_d = utils.boxfilter(coord_d, self.center, self.length);
-    withinbox_a = utils.boxfilter(coord_a, self.center, self.length);
+    withinbox_d = utils.filter_points_within_bounding_box(coord_d, self.center, self.length);
+    withinbox_a = utils.filter_points_within_bounding_box(coord_a, self.center, self.length);
     number_d = len(withinbox_d);
     number_a = len(withinbox_a);
     return number_d, number_a
@@ -649,7 +660,7 @@ class generator:
       charge_n: Number of negative partial charge
     """
     charges = {i:j for i,j in self.charges.items()}
-    withinbox = utils.boxfilter(np.array([i for i in charges.keys()]), self.center, self.length);
+    withinbox = utils.filter_points_within_bounding_box(np.array([i for i in charges.keys()]), self.center, self.length);
     charge_p = sum([charges[tuple(i)] for i in withinbox if charges[tuple(i)]>0]);
     charge_n = sum([charges[tuple(i)] for i in withinbox if charges[tuple(i)]<0]);
     return charge_p, charge_n
@@ -686,32 +697,34 @@ class generator:
     """
     return mesh.get_surface_area();
   
-  def mean_radius(self, mesh, samples=600):
+  def mean_radius(self, mesh):
     """
     Down sample the mesh uniformly and compute the mean radius from the point cloud to the geometric center
     Args:
       mesh: open3d.geometry.TriangleMesh
     """
-    pcd = mesh.sample_points_uniformly(samples);
+    pcd = mesh.sample_points_uniformly(CONFIG.get("DOWN_SAMPLE_POINTS", 600));
     mean_radius = np.linalg.norm(np.asarray(pcd.points) - pcd.get_center(), axis=1).mean()
     return mean_radius
   
-  def convex_hull_ratio(self, mesh, samples=600):
+  def convex_hull_ratio(self, mesh):
     """
     Down sample the mesh uniformly and compute the convex hull ratio
     Args:
       mesh: open3d.geometry.TriangleMesh
     """
+    samples = CONFIG.get("DOWN_SAMPLE_POINTS", 600);
     pcd = mesh.sample_points_uniformly(samples);
     hull, _ = pcd.compute_convex_hull();
     hull_ratio = len(hull.vertices)/samples;
     return hull_ratio
   
-  def fpfh_down(self, mesh, samples=600, origin=True): 
+  def fpfh_down(self, mesh, origin=True):
     """
     Down sample the mesh uniformly and compute the fpfh feature
     TODO: add support for the voxel-base down sampling 
     """
+    samples = CONFIG.get("DOWN_SAMPLE_POINTS", 600);
     relative = bool(not origin); 
     mesh_copy = copy.deepcopy(mesh); 
     mesh_copy.translate([0,0,0], relative=relative);
@@ -740,6 +753,14 @@ class PointFeature(object):
     self._norm = np.array(self._obj.vertex_normals);
     self._kdtree = spatial.KDTree(self._pcd);
 
+  def self_vpc(self, bins=128):
+    cos_angles = [np.dot(n, d/np.linalg.norm(d)) for n,d in zip(self._norm, self._pcd-self._pcd.mean(axis=0))];
+    angles = np.arccos(cos_angles);
+    hist, _ = np.histogram(angles, bins=CONFIG.get("VIEWPOINT_BINS", 30), range=(0, np.pi))
+    hist_normalized = hist / np.sum(hist)
+    hist_normalized = np.asarray([i if not np.isnan(i) else 0 for i in hist_normalized]);
+    return hist_normalized
+
   def compute_vpc(self, viewpoint, bins=128):
     # Compute the relative position of the viewpoint to the center of the point cloud
     rel_vp = np.asarray(viewpoint) - self._pcd.mean(axis=0);
@@ -756,8 +777,8 @@ class PointFeature(object):
 
     # Normalize the histogram
     hist_normalized = hist / np.sum(hist)
-    # plt.plot(np.arange(len(hist_normalized)), hist_normalized)
-    # plt.show()
+
+    hist_normalized = np.asarray([i if not np.isnan(i) else 0 for i in hist_normalized]);
     return hist_normalized
 
 

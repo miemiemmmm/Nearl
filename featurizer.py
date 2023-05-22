@@ -779,7 +779,9 @@ class Featurizer3D:
     printit(self.repr_generator.length)
 
     # Step2: Initialize the feature array
-    repr_processed = np.zeros((len(self.frames) * len(atoms), 72));
+    repr_processed = np.zeros((len(self.frames) * len(atoms),
+                               CONFIG.get("SEGMENT_LIMIT", 6) * (12 + CONFIG.get("VIEWPOINT_BINS", 30))
+                               ));
     fpfh_processed = np.zeros((len(self.frames) * len(atoms), 33, 600));
     feat_processed = np.zeros((len(self.frames) * len(atoms), len(self.FEATURES), *self.__dims));
 
@@ -793,7 +795,9 @@ class Featurizer3D:
       printit(f"Frame {frame}: Generated {len(focuses)} centers");
       # For each frame, run number of atoms times to compute the features/segmentations
       repr_vec, fpfh_vec, feat_vec = self.runframe(focuses);
+      print(repr_vec.shape, fpfh_vec.shape, feat_vec.shape)
       c_1 = c + len(repr_vec);
+
       c_total += len(repr_vec);
       repr_processed[c:c_1] = repr_vec;
       fpfh_processed[c:c_1] = fpfh_vec;
