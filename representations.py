@@ -1,11 +1,17 @@
-import os, sys, re, time, subprocess, tempfile, datetime, copy
+import os, sys, re, time, subprocess, tempfile, datetime, copy, functools
 import pytraj as pt
 import numpy as np 
 import open3d as o3d
+from scipy import spatial
 
 from itertools import combinations
 from scipy.spatial.distance import cdist
-from . import utils, chemtools, CONFIG
+from . import utils, chemtools
+from . import CONFIG
+
+_clear = CONFIG.get("clear", False);
+_verbose = CONFIG.get("verbose", False);
+_tempfolder = CONFIG.get("tempfolder", "/tmp");
 
 ATOM_PATTERNS = {0: '^[0-9]*H.*$', 1: '^[0-9]*D.*$', 2: '^O.*$', 3: '^CA$', 4: '^CD$', 5: '^CD  $', 6: '^CA$', 7: '^N$', 8: '^CA$', 9: '^C$', 10: '^O$', 11: '^P$', 12: '^CB$', 13: '^CB$', 14: '^CB$', 15: '^CG$', 16: '^CG$', 17: '^CG$', 18: '^CG$', 19: '^O1$', 20: '^O2$', 21: '^CH3$', 22: '^CD$', 23: '^NE$', 24: '^RE$', 25: '^CZ$', 26: '^NH[12][AB]?$', 27: '^RH[12][AB]?$', 28: '^OD1$', 29: '^ND2$', 30: '^AD1$', 31: '^AD2$', 32: '^OD[12][AB]?$', 33: '^ED[12][AB]?$', 34: '^OD1[AB]?$', 35: '^ND2$', 36: '^AD1$', 37: '^AD2$', 38: '^OD2$', 39: '^LP[12]$', 40: '^SG$', 41: '^SG$', 42: '^OE[12][AB]?$', 43: '^EE[12][AB]?$', 44: '^CD$', 45: '^OE1$', 46: '^NE2$', 47: '^AE[12]$', 48: '^CE1|CD2$', 49: '^ND1$', 50: '^ND1$', 51: '^RD1$', 52: '^NE2$', 53: '^RE2$', 54: '^NE2$', 55: '^RE2$', 56: '^A[DE][12]$', 57: '^CG1$', 58: '^CG2$', 59: '^CD|CD1$', 60: '^CD1$', 61: '^CD2$', 62: '^C[GDE]$', 63: '^NZ$', 64: '^KZ$', 65: '^SD$', 66: '^CE$', 67: '^C[DE][12]$', 68: '^CZ$', 69: '^C[GD]$', 70: '^SE$', 71: '^SEG$', 72: '^OD1$', 73: '^OD2$', 74: '^OG$', 75: '^OG1$', 76: '^CG2$', 77: '^CD1$', 78: '^CD2$', 79: '^CE2$', 80: '^NE1$', 81: '^CE3$', 82: '^CZ2$', 83: '^CZ3$', 84: '^CH2$', 85: '^C[DE][12]$', 86: '^CZ$', 87: '^OH$', 88: '^CG1$', 89: '^CG2$', 90: '^CD$', 91: '^CE$', 92: '^FE[1-7]$', 93: '^S[1-7]$', 94: '^OXO$', 95: '^FE1$', 96: '^FE2$', 97: '^O1$', 98: '^O2$', 99: '^FE$', 100: '^CH[A-D]$', 101: '^N[A-D]$', 102: '^N [A-D]$', 103: '^C[1-4][A-D]$', 104: '^CM[A-D]$', 105: '^C[AB][AD]$', 106: '^CG[AD]$', 107: '^O[12][AD]$', 108: '^C[AB][BC]$', 109: '^OH2$', 110: '^N[123]$', 111: '^C1$', 112: '^C2$', 113: '^C3$', 114: '^C4$', 115: '^C5$', 116: '^C6$', 117: '^O7$', 118: '^O8$', 119: '^S$', 120: '^O[1234]$', 121: '^O[1234]$', 122: '^O4$', 123: '^P1$', 124: '^O[123]$', 125: '^C[12]$', 126: '^N1$', 127: '^C[345]$', 128: '^BAL$', 129: '^POI$', 130: '^DOT$', 131: '^CU$', 132: '^ZN$', 133: '^MN$', 134: '^FE$', 135: '^MG$', 136: '^MN$', 137: '^CO$', 138: '^SE$', 139: '^YB$', 140: '^N1$', 141: '^C[2478]$', 142: '^O2$', 143: '^N3$', 144: '^O4$', 145: '^C[459]A$', 146: '^N5$', 147: '^C[69]$', 148: '^C[78]M$', 149: '^N10$', 150: '^C10$', 151: '^C[12345]\\*$', 152: '^O[234]\\*$', 153: '^O5\\*$', 154: '^OP[1-3]$', 155: '^OT1$', 156: '^C01$', 157: '^C16$', 158: '^C14$', 159: '^C.*$', 160: '^SEG$', 161: '^OXT$', 162: '^OT.*$', 163: '^E.*$', 164: '^S.*$', 165: '^C.*$', 166: '^A.*$', 167: '^O.*$', 168: '^N.*$', 169: '^R.*$', 170: '^K.*$', 171: '^P[A-D]$', 172: '^P.*$', 173: '^.O.*$', 174: '^.N.*$', 175: '^.C.*$', 176: '^.P.*$', 177: '^.H.*$'}
 RESIDUE_PATTERNS = {0: '^.*$', 1: '^.*$', 2: '^WAT|HOH|H2O|DOD|DIS$', 3: '^CA$', 4: '^CD$', 5: '^.*$', 6: '^ACE$', 7: '^.*$', 8: '^.*$', 9: '^.*$', 10: '^.*$', 11: '^.*$', 12: '^ALA$', 13: '^ILE|THR|VAL$', 14: '^.*$', 15: '^ASN|ASP|ASX|HIS|HIP|HIE|HID|HISN|HISL|LEU|PHE|TRP|TYR$', 16: '^ARG|GLU|GLN|GLX|MET$', 17: '^LEU$', 18: '^.*$', 19: '^GLN$', 20: '^GLN$', 21: '^ACE$', 22: '^ARG$', 23: '^ARG$', 24: '^ARG$', 25: '^ARG$', 26: '^ARG$', 27: '^ARG$', 28: '^ASN$', 29: '^ASN$', 30: '^ASN$', 31: '^ASN$', 32: '^ASP$', 33: '^ASP$', 34: '^ASX$', 35: '^ASX$', 36: '^ASX$', 37: '^ASX$', 38: '^ASX$', 39: '^CYS|MET$', 40: '^CY[SXM]$', 41: '^CYH$', 42: '^GLU$', 43: '^GLU$', 44: '^GLU|GLN|GLX$', 45: '^GLN$', 46: '^GLN$', 47: '^GLN|GLX$', 48: '^HIS|HID|HIE|HIP|HISL$', 49: '^HIS|HIE|HISL$', 50: '^HID|HIP$', 51: '^HID|HIP$', 52: '^HIS|HIE|HIP$', 53: '^HIS|HIE|HIP$', 54: '^HID|HISL$', 55: '^HID|HISL$', 56: '^HIS|HID|HIP|HISD$', 57: '^ILE$', 58: '^ILE$', 59: '^ILE$', 60: '^LEU$', 61: '^LEU$', 62: '^LYS$', 63: '^LYS$', 64: '^LYS$', 65: '^MET$', 66: '^MET$', 67: '^PHE$', 68: '^PHE$', 69: '^PRO|CPR$', 70: '^CSO$', 71: '^CSO$', 72: '^CSO$', 73: '^CSO$', 74: '^SER$', 75: '^THR$', 76: '^THR$', 77: '^TRP$', 78: '^TRP$', 79: '^TRP$', 80: '^TRP$', 81: '^TRP$', 82: '^TRP$', 83: '^TRP$', 84: '^TRP$', 85: '^TYR$', 86: '^TYR$', 87: '^TYR$', 88: '^VAL$', 89: '^VAL$', 90: '^.*$', 91: '^.*$', 92: '^FS[34]$', 93: '^FS[34]$', 94: '^FS3$', 95: '^FEO$', 96: '^FEO$', 97: '^HEM$', 98: '^HEM$', 99: '^HEM$', 100: '^HEM$', 101: '^HEM$', 102: '^HEM$', 103: '^HEM$', 104: '^HEM$', 105: '^HEM$', 106: '^HEM$', 107: '^HEM$', 108: '^HEM$', 109: '^HEM$', 110: '^AZI$', 111: '^MPD$', 112: '^MPD$', 113: '^MPD$', 114: '^MPD$', 115: '^MPD$', 116: '^MPD$', 117: '^MPD$', 118: '^MPD$', 119: '^SO4|SUL$', 120: '^SO4|SUL$', 121: '^PO4|PHO$', 122: '^PC$', 123: '^PC$', 124: '^PC$', 125: '^PC$', 126: '^PC$', 127: '^PC$', 128: '^BIG$', 129: '^POI$', 130: '^DOT$', 131: '^.*$', 132: '^.*$', 133: '^.*$', 134: '^.*$', 135: '^.*$', 136: '^.*$', 137: '^.*$', 138: '^.*$', 139: '^.*$', 140: '^FMN$', 141: '^FMN$', 142: '^FMN$', 143: '^FMN$', 144: '^FMN$', 145: '^FMN$', 146: '^FMN$', 147: '^FMN$', 148: '^FMN$', 149: '^FMN$', 150: '^FMN$', 151: '^FMN$', 152: '^FMN$', 153: '^FMN$', 154: '^FMN$', 155: '^ALK|MYR$', 156: '^ALK|MYR$', 157: '^ALK$', 158: '^MYR$', 159: '^ALK|MYR$', 160: '^.*$', 161: '^.*$', 162: '^.*$', 163: '^.*$', 164: '^.*$', 165: '^.*$', 166: '^.*$', 167: '^.*$', 168: '^.*$', 169: '^.*$', 170: '^.*$', 171: '^.*$', 172: '^.*$', 173: '^FAD|NAD|AMX|APU$', 174: '^FAD|NAD|AMX|APU$', 175: '^FAD|NAD|AMX|APU$', 176: '^FAD|NAD|AMX|APU$', 177: '^FAD|NAD|AMX|APU$'}
@@ -13,35 +19,55 @@ EXP_RADII = {1: 1.4, 2: 1.4, 3: 1.4, 4: 1.54, 5: 1.54, 6: 1.54, 7: 1.74, 8: 1.74
 UNITED_RADII = {1: 1.4, 2: 1.6, 3: 1.4, 4: 1.7, 5: 1.8, 6: 2.0, 7: 2.0, 8: 2.0, 9: 2.0, 10: 1.74, 11: 1.86, 12: 1.85, 13: 1.8, 14: 1.54, 15: 1.2, 16: 1.5, 17: 5.0, 18: 1.97, 19: 1.4, 20: 1.4, 21: 1.3, 22: 1.49, 23: 0.01, 24: 0.0, 25: 1.24, 26: 1.6, 27: 1.24, 28: 1.25, 29: 2.15, 30: 3.0, 31: 1.15, 38: 1.8}
 ATOM_NUM = {0: 15, 1: 15, 2: 2, 3: 18, 4: 22, 5: 22, 6: 9, 7: 4, 8: 7, 9: 10, 10: 1, 11: 13, 12: 9, 13: 7, 14: 8, 15: 10, 16: 8, 17: 7, 18: 8, 19: 3, 20: 3, 21: 9, 22: 8, 23: 4, 24: 4, 25: 10, 26: 5, 27: 5, 28: 1, 29: 5, 30: 3, 31: 3, 32: 3, 33: 3, 34: 1, 35: 5, 36: 3, 37: 3, 38: 3, 39: 13, 40: 13, 41: 12, 42: 3, 43: 3, 44: 10, 45: 1, 46: 5, 47: 3, 48: 11, 49: 14, 50: 4, 51: 4, 52: 4, 53: 4, 54: 14, 55: 14, 56: 4, 57: 8, 58: 9, 59: 9, 60: 9, 61: 9, 62: 8, 63: 6, 64: 6, 65: 13, 66: 9, 67: 11, 68: 11, 69: 8, 70: 9, 71: 9, 72: 3, 73: 3, 74: 2, 75: 2, 76: 9, 77: 11, 78: 10, 79: 10, 80: 4, 81: 11, 82: 11, 83: 11, 84: 11, 85: 11, 86: 10, 87: 2, 88: 9, 89: 9, 90: 8, 91: 8, 92: 21, 93: 13, 94: 1, 95: 21, 96: 21, 97: 1, 98: 1, 99: 21, 100: 11, 101: 14, 102: 14, 103: 10, 104: 9, 105: 8, 106: 10, 107: 3, 108: 11, 109: 2, 110: 14, 111: 9, 112: 10, 113: 8, 114: 7, 115: 9, 116: 9, 117: 2, 118: 2, 119: 13, 120: 3, 121: 3, 122: 3, 123: 13, 124: 3, 125: 8, 126: 14, 127: 9, 128: 17, 129: 23, 130: 23, 131: 20, 132: 19, 133: 24, 134: 25, 135: 26, 136: 27, 137: 28, 138: 29, 139: 31, 140: 4, 141: 10, 142: 1, 143: 14, 144: 1, 145: 10, 146: 4, 147: 11, 148: 9, 149: 4, 150: 10, 151: 8, 152: 2, 153: 3, 154: 3, 155: 3, 156: 10, 157: 9, 158: 9, 159: 8, 160: 9, 161: 3, 162: 3, 163: 3, 164: 13, 165: 7, 166: 11, 167: 1, 168: 4, 169: 4, 170: 6, 171: 13, 172: 13, 173: 1, 174: 4, 175: 7, 176: 13, 177: 15}
 
+# Color map for the segments of the molecule block
 CMAP6 = [
-  [0.087411, 0.044556, 0.224813], [0.354032, 0.066925, 0.430906],
-  [0.60933, 0.159474, 0.393589], [0.841969, 0.292933, 0.248564],
-  [0.974176, 0.53678, 0.048392], [0.964394, 0.843848, 0.273391]
+  [0.087411, 0.044556, 0.224813],
+  [0.354032, 0.066925, 0.430906],
+  [0.60933,  0.159474, 0.393589],
+  [0.841969, 0.292933, 0.248564],
+  [0.974176, 0.53678,  0.048392],
+  [0.964394, 0.843848, 0.273391]
 ];
 
 ####################################################################################################
 ################################# Generate Open3D readable object ##################################
 ####################################################################################################
-def getRadius(atom="", residue="", exp=False):
+def getRadius(atom="", residue="", exp=True):
+  """
+  Get the radius of an atom based on its atom name and residue name.
+  Args:
+    atom (str): atom name
+    residue (str): residue name
+    exp (bool): whether to use explicit radii or united atom radii
+  """
   atom = atom.replace(" ", "")
   residue = residue.replace(" ", "")
   for pat in range(len(ATOM_NUM)):
     if re.match(ATOM_PATTERNS[pat], atom) and re.match(RESIDUE_PATTERNS[pat], residue):
       break
   if pat == len(ATOM_NUM):
-    rad = 0.01; 
+    print(f"Warning: Atom {atom} in {residue} not found in the available patterns. Using default radius of 0.01")
+    rad = 0.01;
   else:
+    # Map the pattern to the atom number and get its radius
     rad = UNITED_RADII[ATOM_NUM[pat]] if exp != True else EXP_RADII[ATOM_NUM[pat]]
   return rad
 
-def pdb2xyzr(thepdb, write="", exp=False): 
+def pdb2xyzr(thepdb, write="", exp=True):
+  """
+  Convert atoms in a PDB file to xyzr format.
+  Args:
+    thepdb (str): path to the PDB file or the PDB string
+    write (str): path to write the xyzr file
+    exp (bool): whether to use explicit radii or united atom radii
+  """
   if os.path.isfile(thepdb): 
     with open(thepdb, "r") as f:
       pdblines = f.read().strip("\n").split("\n"); 
   elif ("ATOM" in thepdb) or ("HETATM" in thepdb): 
     pdblines = thepdb.strip("\n").split("\n");
   else: 
-    raise Exception(f"{pdb2xyzr.__name__:15s}: Please provide a valid PDB path or pdb string.")
+    raise Exception(f"{pdb2xyzr.__name__:15s}: Please provide a valid PDB file path or PDB string.")
   finallines = ""; 
   for line in pdblines:
     line = line.strip(); 
@@ -60,45 +86,77 @@ def pdb2xyzr(thepdb, write="", exp=False):
     if re.match(r"[Hh][^Gg]", aname):
       aname = "H"
     resnum = line[22:26].strip(); 
-    resname = resname.replace(" ", ""); 
-    aname = aname.replace(" ", ""); 
+    # Spaces in atom / residue name will be removed in getRadius function
     rad = getRadius(atom=aname, residue=resname, exp=exp); 
     finallines += f"{x:10.3f}{y:10.3f}{z:10.3f}{rad:6.2f}\n"
   if len(write) > 0: 
     if "xyzr" not in write:
-      write = write+".xyzr"; 
-    with open(write, "w") as file1: 
-      file1.write(finallines); 
-    return write
+      filename = write+".xyzr";
+    else:
+      filename = write;
+    with open(filename, "w") as file1:
+      file1.write(finallines);
   else: 
     return finallines
 
-def runmsms(msms, inputfile, outfile, d = 4, r = 1.5): 
+def runmsms(msms, inputfile, outfile, d = 4, r = 1.5):
+  """
+  Run MSMS to generate the surface of a set of atoms
+  Args:
+    msms (str): path to the MSMS executable
+    inputfile (str): path to the input file
+    outfile (str): path to the output file
+    d (float): density of the surface
+    r (float): probe radius
+  """
   subprocess.run([msms, "-if", inputfile, "-of", outfile, "-density", str(d), "-probe_radius", str(r), "-all"], stdout=subprocess.DEVNULL); 
   if os.path.isfile(f"{outfile}.vert") and os.path.isfile(f"{outfile}.face"): 
     return True
-  else: 
-    subprocess.run([msms, "-if", inputfile, "-of", outfile, "-density", str(d), "-probe_radius", str(r)], stdout=subprocess.DEVNULL);
+  else:
+    # If default parameters fail, try again with some other probe radius
+    for r in np.arange(1.0, 2.0, 0.01):
+      subprocess.run([msms, "-if", inputfile, "-of", outfile, "-density", str(d), "-probe_radius", str(r)], stdout=subprocess.DEVNULL);
+      if os.path.isfile(f"{outfile}.vert") and os.path.isfile(f"{outfile}.face"):
+        break
     if os.path.isfile(f"{outfile}.vert") and os.path.isfile(f"{outfile}.face"):
       return True
-    else: 
-      # Very low possibility of failing
-      print(f"{runmsms.__name__:15s}: Failed to generate corresponding vertex and triangle file"); 
-      return False 
+    else:
+      print(f"{runmsms.__name__:15s}: Failed to generate corresponding vertex and triangle file");
+      return False
 
-def pdb2msms(msms, pdbfile, outprefix): 
+def pdb2msms(msms, pdbfile, outprefix):
+  """
+  Generate the MSMS output for a PDB file
+  Args:
+    msms (str): path to the MSMS executable
+    pdbfile (str): path to the PDB file
+    outprefix (str): prefix of the output file
+  """
   xyzrfile = pdb2xyzr(pdbfile, write=outprefix)
   ret = runmsms(msms, xyzrfile, outprefix, d = 4, r = 1.4)
-  if ret:
+  if ret and _verbose:
     print(f"{pdb2msms.__name__:15s}: Successfully generated the MSMS output")
-  else:
+  elif not ret:
     print(f"{pdb2msms.__name__:15s}: Failed to generate the MSMS output")
 
-def traj2msms(msms, traj, frame, indice, out_prefix="/tmp/test", force=False, d=4, r=1.5):
+def traj2msms(msms, traj, frame, indice, force=False, d=4, r=1.5):
+  """
+  Generate the MSMS output for a trajectory
+  ???? TODO: Objective ????
+  Args:
+    msms (str): path to the MSMS executable
+    traj (mdtraj.Trajectory): the trajectory object
+    frame (int): the frame number
+    indice (list): the list of atom indices
+    force (bool): whether to overwrite existing files
+    d (float): density of the surface
+    r (float): probe radius
+  """
+  out_prefix = os.path.join(_tempfolder, "msms_")
   if os.path.isfile(f"{out_prefix}.vert") or os.path.isfile(f"{out_prefix}.face"): 
     if force != True: 
       raise Exception(f"{traj2msms.__name__:15s}: {out_prefix}.vert or {out_prefix}.face already exists, please add argument force=True to enable overwriting of existing files.")
-  with tempfile.NamedTemporaryFile(suffix=".xyzr") as file1:
+  with tempfile.NamedTemporaryFile(prefix=out_prefix) as file1:
     atoms = np.array([a for a in traj.top.atoms]);
     resnames = np.array([a.name for a in traj.top.residues])
     indice = np.array(indice);
@@ -108,15 +166,16 @@ def traj2msms(msms, traj, frame, indice, out_prefix="/tmp/test", force=False, d=
       xyzrline += f"{x:10.3f}{y:10.3f}{z:10.3f}{rad:6.2f}\n"
     with open(file1.name, "w") as file1:
       file1.write(xyzrline);
-    ret = runmsms(msms, file1.name, out_prefix, d=d, r=r);
-    if ret: 
-      pass
-    else: 
+    ret = runmsms(msms, f"{file1.name}.xyzr", file1.name, d=d, r=r);
+    if not ret:
       print(f"{traj2msms.__name__:15s}: Failed to generate the MSMS output")
 
 def msms2pcd(vertfile, filename=""):
   """
-  Convert the MSMS output (vertex and triangle faces) to a point cloud readable by Open3D
+  Convert the MSMS output (vertex file) to a point cloud readable by Open3D
+  Args:
+    vertfile (str): path to the MSMS vertex file
+    filename (str): path to the output file
   """
   if not os.path.isfile(vertfile):
     raise Exception(f"{msms2pcd.__name__:15s}: Cannot find the MSMS output files (.vert");
@@ -141,7 +200,7 @@ def msms2pcd(vertfile, filename=""):
   pcd = o3d.geometry.PointCloud();
   pcd.points  = o3d.utility.Vector3dVector(xyzs);
   pcd.normals = o3d.utility.Vector3dVector(normals);
-  if len(filename)>0:
+  if len(filename) > 0:
     write_ply(xyzs, normals=normals, filename=filename);
   if not pcd.is_empty():
     return pcd
@@ -152,6 +211,10 @@ def msms2pcd(vertfile, filename=""):
 def msms2mesh(vertfile, facefile, filename=""):
   """
   Convert the MSMS output (vertex and triangle faces) to a triangle mesh readable by Open3D
+  Args:
+    vertfile (str): path to the MSMS vertex file
+    facefile (str): path to the MSMS face file
+    filename (str): path to the output file
   """
   if not os.path.isfile(vertfile):
     raise Exception(f"{msms2mesh.__name__:15s}: Cannot find the MSMS output files (.vert"); 
@@ -252,7 +315,10 @@ def pseudo_energy(traj, frame, idxs, mode, charges=[]):
     raise Exception(f"{pseudo_energy.__name__:15s}: Only two pseudo-energy evaluation modes are supported: Lenar-jones (lj) and Electrostatic (elec)")
   return energy_final
 
-def chargedict2array(traj, frame, charges): 
+def chargedict2array(traj, frame, charges):
+  """
+  TODO: Objective ????
+  """
   _charge = {tuple(np.array(k).round(2)):v for k,v in charges.items()}; 
   chargelst = np.zeros(len(traj.xyz[frame]))
   for idx, coord in enumerate(traj.xyz[frame]):
@@ -279,6 +345,14 @@ def fpfh_similarity2(fp1, fp2):
 
 
 def write_ply(coords, normals=[], triangles=[], filename=""):
+  """
+  Write the PLY file for further visualization
+  Args:
+    coords: the coordinates of the vertices
+    normals: the normals of the vertices
+    triangles: the triangles of the mesh
+    filename: the filename of the PLY file
+  """
   header = ["ply", "format ascii 1.0", "comment author: Yang Zhang (y.zhang@bioc.uzh.ch)", f"element vertex {len(coords)}"]
   header.append("property float x");
   header.append("property float y");
@@ -331,22 +405,28 @@ class generator:
   >>> finalobj_down = pcd_new.voxel_down_sample(0.8); 
   >>> finalobj_down.estimate_normals(ktree); 
   """
-  def __init__(self, traj): 
-    self.atoms = np.asarray(list(traj.top.atoms)); 
-    self.traj = traj; 
-    self.SEGMENT_LIMIT = 6
-    self.FPFH_DOWN_SAMPLES = 600; 
-    
+  def __init__(self, traj):
+    """
+    Initialize the molecule block representation generator class
+    Register the trajectory and atoms information
+    Args:
+      traj: pytraj trajectory object
+    """
+    self.traj = traj;
+    self.atoms = np.asarray(list(self.traj.top.atoms));
+
+    # Try to load default parameters from the configuration file
+    self.SEGMENT_LIMIT = CONFIG.get("SEGMENT_LIMIT", 6);
+    self.FPFH_DOWN_SAMPLES = CONFIG.get("DOWN_SAMPLE_POINTS", 600);
+
     if CONFIG.get("msms", False): 
-      self.MSMS_EXE = CONFIG["msms"]
+      self.MSMS_EXE = CONFIG.get("msms", "");
     else: 
       self.MSMS_EXE = os.environ.get("MSMS_EXE", ""); 
-    if not self.MSMS_EXE or len(self.MSMS_EXE) == 0: 
-      print("Warning: Cannot find the executable for msms program. Use the following command to set up msms: export MSMS_EXE=/your/path/to/msms", file=sys.stderr)
+    if (not self.MSMS_EXE) or (len(self.MSMS_EXE) == 0):
+      print(f"Warning: Cannot find the executable for msms program. Use the following ways to find the MSMS executable:\n\"msms\": \"/path/to/MSMS/executable\" in configuration file\nor\nexport MSMS_EXE=/path/to/MSMS/executable", file=sys.stderr)
     elif not os.path.isfile(self.MSMS_EXE): 
-      print(f"Warning: Designated MSMS executable not found. Please check the following path: {self.MSMS_EXE}", file=sys.stderr)
-    else: 
-      print(f"Found the MSMS executable {self.MSMS_EXE}")
+      print(f"Warning: Designated MSMS executable({self.MSMS_EXE}) not found. Please check the following path: {self.MSMS_EXE}", file=sys.stderr)
       
   @property
   def center(self):
@@ -397,7 +477,15 @@ class generator:
         s_final.append(0);
     return xyz[np.array([bool(i) for i in s_final])], np.array(s_final)
     
-  def segment2mesh(self, theidxi, force=False, clear=True, d=4, r=1.5): 
+  def segment2mesh(self, theidxi, force=False, d=4, r=1.5):
+    """
+    Generate a mesh object from a segment of atoms
+    Args:
+      theidxi: the index of atoms in the segment
+      force: force to generate the mesh object even if it is already generated
+      d: the density of the mesh for the MSMS program
+      r: the radius of probe for the MSMS program
+    """
     indice = np.array(theidxi);
     with tempfile.NamedTemporaryFile(suffix=".xyzr") as file1:
       filename = file1.name; 
@@ -412,7 +500,7 @@ class generator:
       ret = runmsms(self.MSMS_EXE, file1.name, out_prefix, d=d, r=r);
       # Already check the existence of output files
       if ret:
-        if clear: 
+        if _clear:
           mesh = msms2mesh(f"{out_prefix}.vert", f"{out_prefix}.face", filename="");
         else: 
           mesh = msms2mesh(f"{out_prefix}.vert", f"{out_prefix}.face", filename=f"{out_prefix}.ply");
@@ -423,9 +511,9 @@ class generator:
             mesh.compute_vertex_normals(); 
           except:
             raise Exception(f"{self.segment2mesh.__name__:15s}:Failed to generate the 3d object"); 
-        if (clear and os.path.isfile(f"{out_prefix}.vert")): 
+        if (_clear and os.path.isfile(f"{out_prefix}.vert")):
           os.remove(f"{out_prefix}.vert")
-        if (clear and os.path.isfile(f"{out_prefix}.face")): 
+        if (_clear and os.path.isfile(f"{out_prefix}.face")):
           os.remove(f"{out_prefix}.face")
         return mesh
       else:
@@ -434,74 +522,115 @@ class generator:
         return False
 
     
-  def vectorize(self, segment, clear=True, msms=""): 
+  def vectorize(self, segment):
     """
+    Vectorize the segments (at maximum 6) of a frame
+    Args:
+      segment: the segment to be vectorized
     """
-    if (not clear):
-      with tempfile.NamedTemporaryFile(suffix="_final") as file1:
-        tempname = file1.name;
-    else:
-      tempname = ""
-    framefeature = np.zeros((self.SEGMENT_LIMIT,12)) #12 * self.SEGMENT_LIMIT).reshape(); 
+    # if (not CONFIG.get("clear", True)):
+    #   # Get a random temporary file prefix
+    #   with tempfile.NamedTemporaryFile(prefix=CONFIG.get("tempfolder", "/tmp/VECTORIZE_")) as file1:
+    #     tempname = file1.name;
+    # else:
+    #   tempname = "";
+
+    # Initialize the identity feature vector
+    framefeature = np.zeros((self.SEGMENT_LIMIT, 12 + CONFIG.get("VIEWPOINT_BINS", 30)));
     # Order the segments from the most abundant to least ones
     segcounter = 0;
-    pdb_final = ""
+    nrsegments = len(set(segment)) - 1;
+    pdb_final = "";
+    # Lastest mesh object
+    self.__mesh = None;
+    segment_objects = [];
     """ ITERATE the at maximum 6 segments """
+    print(utils.ordersegments(segment))
     for segi in utils.ordersegments(segment)[:self.SEGMENT_LIMIT]:
       # ATOM types counts
       theidxi = np.where(segment == segi)[0];
-      atomdict = self.atom_type_count(theidxi)
+      atomdict = self.atom_type_count(theidxi);
       C_Nr = atomdict.get("C", 0); 
       N_Nr = atomdict.get("N", 0); 
       O_Nr = atomdict.get("O", 0); 
       H_Nr = atomdict.get("H", 0); 
       T_Nr = sum(atomdict.values())
       
-      #################################### Residue-based descriptors #####################################
+      # Residue-based descriptors
       self.resmask = utils.getresmask(self.traj, utils.getmaskbyidx(self.traj, theidxi));
       self.charges = chemtools.Chargebytraj(self.traj, self.frame, self.resmask);
       N_d, N_a = self.hbp_count(theidxi);
       C_p, C_n = self.partial_charge(theidxi);
       PE_lg, PE_el = self.pseudo_energy(theidxi)
 
-      if (not clear):
+      if (not _clear):
         pdb_final += chemtools.writepdbs(self.traj, self.frame, self.resmask);
       else:
         pdb_final += ""
       
-      ############################### Segment conversion to triangle mesh ################################
-      self.mesh = self.segment2mesh(theidxi, clear=clear);
+      # Segment conversion to triangle mesh
+      self.mesh = self.segment2mesh(theidxi);
       if self.mesh == False or self.mesh.is_empty(): 
         return [], [], []
-      ################################## Point cloud-based descriptors ###################################
+      # Point cloud-based descriptors
       SA = self.surface(self.mesh)
       VOL = self.volume(self.mesh)
       
       rad = self.mean_radius(self.mesh)
       h_ratio = self.convex_hull_ratio(self.mesh);
       self.mesh.paint_uniform_color(CMAP6[segcounter]); 
-      if segcounter == 0:
-        finalobj = copy.deepcopy(self.mesh);
-      else:
-        finalobj += copy.deepcopy(self.mesh);
-        
-      framefeature[segcounter, :] = [
+      # if segcounter == 0:
+      #   finalobj = copy.deepcopy(self.mesh);
+      # else:
+      #   finalobj += copy.deepcopy(self.mesh);
+
+      framefeature[segcounter, :12] = [
         T_Nr, C_Nr, N_d, N_a, C_p, C_n, PE_lg, PE_el, SA, VOL, rad, h_ratio
       ]
-      segcounter += 1
-    ################################# Generate the final fpfh features #################################
-    if (not clear):
-      o3d.io.write_triangle_mesh(f"{tempname}.ply", finalobj, write_ascii=True);
-      with open(f"{tempname}.pdb", "w") as file1:
-        file1.write(pdb_final)
 
-    fpfh_final = self.fpfh_down(finalobj);
-    return framefeature.reshape(-1), finalobj, fpfh_final
-    
+      if segcounter == 0:
+        self.__mesh = copy.deepcopy(self.mesh);
+      elif (segcounter == nrsegments - 1):
+        vp = self.__mesh.get_center();
+        print(f"Viewpoint is {vp}");
+        other_objects = functools.reduce(lambda a, b: a+b, segment_objects);
+        print("Final round ====> ", other_objects)
+        pf_gen = PointFeature(other_objects);
+        vpc = pf_gen.compute_vpc(vp);
+        print(f"VPC is {vpc}");
+        framefeature[segcounter-1, -30:] = vpc
+
+      elif (segcounter > 0) and (segcounter < nrsegments - 1):
+        vp = self.__mesh.get_center();
+        print(f"Viewpoint is {vp}")
+        # VPC = self.viewpoint(self.mesh, vp);
+        pf_gen = PointFeature(self.mesh);
+        vpc = pf_gen.compute_vpc(vp);
+        print(f"VPC is {vpc}");
+        framefeature[segcounter-1, -30:] = vpc
+        self.__mesh = copy.deepcopy(self.mesh);
+      segcounter += 1
+      segment_objects.append(self.mesh);
+      if _verbose:
+        print(f"Segment {segcounter} / {nrsegments}: ", self.mesh)
+        print("SUM: ", functools.reduce(lambda a, b: a+b, segment_objects))
+    if _verbose:
+      print("Finished vectorization")
+      print("Final 3D object: ", functools.reduce(lambda a, b: a+b, segment_objects))
+
+    ################################# Generate the final fpfh features #################################
+    # if (not clear):
+    #   o3d.io.write_triangle_mesh(f"{tempname}.ply", finalobj, write_ascii=True);
+    #   with open(f"{tempname}.pdb", "w") as file1:
+    #     file1.write(pdb_final)
+    # fpfh_final = self.fpfh_down(finalobj);
+    return framefeature.reshape(-1), segment_objects
   
   def atom_type_count(self, theidxi):
     """
     Descriptor 1 and 2:
+    Args:
+      theidxi: the indices of the atoms in the segment
     Return: 
       Atom counts as a dictionary
     """
@@ -516,7 +645,9 @@ class generator:
   
   def hbp_count(self, theidxi, **kwarg):
     """
-    Descriptor 3 and 4: Counter hydrogen bond donor and acceptors. 
+    Descriptor 3 and 4: Counter hydrogen bond donor and acceptors.
+    Args:
+      theidxi: the indices of the atoms in the segment
     Return: 
       number_d: Number of hydrogen bond donor
       number_a: Number of hydrogen bond acceptor
@@ -565,15 +696,30 @@ class generator:
       VOL  = 1.5 * mesh.get_surface_area();
     return VOL
     
-  def surface(self, mesh): 
+  def surface(self, mesh):
+    """
+    Surface area computation
+    Args:
+      mesh: open3d.geometry.TriangleMesh
+    """
     return mesh.get_surface_area();
   
-  def mean_radius(self, mesh, samples=600): 
+  def mean_radius(self, mesh, samples=600):
+    """
+    Down sample the mesh uniformly and compute the mean radius from the point cloud to the geometric center
+    Args:
+      mesh: open3d.geometry.TriangleMesh
+    """
     pcd = mesh.sample_points_uniformly(samples);
     mean_radius = np.linalg.norm(np.asarray(pcd.points) - pcd.get_center(), axis=1).mean()
     return mean_radius
   
-  def convex_hull_ratio(self, mesh, samples=600): 
+  def convex_hull_ratio(self, mesh, samples=600):
+    """
+    Down sample the mesh uniformly and compute the convex hull ratio
+    Args:
+      mesh: open3d.geometry.TriangleMesh
+    """
     pcd = mesh.sample_points_uniformly(samples);
     hull, _ = pcd.compute_convex_hull();
     hull_ratio = len(hull.vertices)/samples;
@@ -581,6 +727,7 @@ class generator:
   
   def fpfh_down(self, mesh, samples=600, origin=True): 
     """
+    Down sample the mesh uniformly and compute the fpfh feature
     TODO: add support for the voxel-base down sampling 
     """
     relative = bool(not origin); 
@@ -601,15 +748,51 @@ def object_meta(obj):
   return points.reshape(-1), normals.reshape(-1), colors.reshape(-1), triangles.reshape(-1)
 
 
+class PointFeature(object):
+  def __init__(self, obj_3d):
+    # self._neighbors = nneighbors;
+    # self._radius = rad;
+    self._obj = obj_3d;
+    # TODO: setup the points to down sample
+    self._pcd = np.array(self._obj.vertices);
+    self._norm = np.array(self._obj.vertex_normals);
+    self._kdtree = spatial.KDTree(self._pcd);
+
+  def compute_vpc(self, viewpoint, bins=128):
+    # Compute the relative position of the viewpoint to the center of the point cloud
+    rel_vp = np.asarray(viewpoint) - self._pcd.mean(axis=0);
+
+    # Normalize the relative viewpoint vectors
+    rel_vp_normalized = rel_vp / np.linalg.norm(rel_vp);
+
+    # Calculate the angle between the normals and the relative viewpoint vectors
+    cos_angles = np.dot(self._norm, rel_vp_normalized);
+    angles = np.arccos(cos_angles);
+
+    # Create the viewpoint component histogram
+    hist, _ = np.histogram(angles, bins=CONFIG.get("VIEWPOINT_BINS", 30), range=(0, np.pi))
+
+    # Normalize the histogram
+    hist_normalized = hist / np.sum(hist)
+    # plt.plot(np.arange(len(hist_normalized)), hist_normalized)
+    # plt.show()
+    return hist_normalized
+
+
+
+
+
 ####################################################################################################
 ###################################### Open3D object display #######################################
 ####################################################################################################
-def displayfiles(plyfiles, outfile="", add=[]): 
-  cmap = CMAP6;
+def displayfiles(plyfiles, add=[]):
+  """
+  Display a list of ply files (trangle mesh) in the same window
+  """
   objs = []; 
-  finalobj = 0; 
+  finalobj = None;
   for obji, plyfile in enumerate(plyfiles): 
-    color = cmap[obji]; 
+    color = CMAP6[obji];
     mesh = o3d.io.read_triangle_mesh(plyfile); 
     mesh.compute_vertex_normals(); 
     mesh.paint_uniform_color(color); 
@@ -618,32 +801,35 @@ def displayfiles(plyfiles, outfile="", add=[]):
       finalobj = mesh; 
     else: 
       finalobj += mesh;
-  write(finalobj, outfile=outfile); 
   display(objs, add=add); 
   return objs
 
-def write(objs, outfile=""):
-  if len(outfile) > 0:
-    o3d.io.write_triangle_mesh(outfile, objs, write_ascii=True); 
-    if os.path.isfile(outfile): 
-      return True 
-  else: 
-    return False
-
 def display(objects, add=[]):
+  """
+  Display a list of objects in the same window
+  Args:
+    objects: list of open3d.geometry.TriangleMesh
+    add: list of additional objects for accessary
+  """
   if len(objects) == 0 and len(add)==0:
     return []
   else: 
-    objs = copy.deepcopy(objects); 
-    cmap = CMAP6; 
+    objs = copy.deepcopy(objects);
     for i in range(1, len(objs)):
-      color = cmap[i];
+      color = CMAP6[i];
       objs[i].paint_uniform_color(color);
       if isinstance(objs[i], o3d.geometry.TriangleMesh): 
         objs[i].compute_vertex_normals();
     o3d.visualization.draw_geometries(add+objs, width=1200, height=1000);
 
-def display_registration(source, target, transformation=np.eye(4)):
+def display_registration(source, target, transformation):
+  """
+  Apply the transformation metrix to the source point cloud and display it with the target point cloud
+  Args:
+    source: open3d.geometry.PointCloud
+    target: open3d.geometry.PointCloud
+    transformation: transformation matrix, np.array sized (4,4)
+  """
   source_temp = copy.deepcopy(source); 
   target_temp = copy.deepcopy(target); 
   source_temp.paint_uniform_color(CMAP6[1]); 
@@ -685,13 +871,19 @@ def voxelize(obj, show=True):
 ####################################################################################################
 ####################################### Open3D accessory div #######################################
 ####################################################################################################
-def NewCuboid(center=[0,0,0], length=6): 
+def NewCuboid(center=[0,0,0], length=6):
+  """
+  Accessory function to create a cuboid formed by 8 points and 12 lines
+  Args:
+    center: center of the cuboid
+    length: length of the cuboid
+  """
   points = np.array([
     [0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0],
     [0, 0, 1], [1, 0, 1], [0, 1, 1], [1, 1, 1],
   ])
-  points = points*length; 
-  points = points + np.array(center)-(length/2); 
+  points = points * length;
+  points = points + np.array(center) - (length/2);
   lines = np.array([
     [0, 1], [0, 2], [1, 3], [2, 3],
     [4, 5], [4, 6], [5, 7], [6, 7],
@@ -699,13 +891,19 @@ def NewCuboid(center=[0,0,0], length=6):
   ]); 
   colors = [[0, 0, 0] for i in range(len(lines))]
   line_set = o3d.geometry.LineSet(
-    points=o3d.utility.Vector3dVector(points),
-    lines=o3d.utility.Vector2iVector(lines),
+    points = o3d.utility.Vector3dVector(points),
+    lines = o3d.utility.Vector2iVector(lines),
   ); 
   line_set.colors = o3d.utility.Vector3dVector(colors); 
   return line_set
 
-def NewCoordFrame(center=[0,0,0], scale=1): 
+def NewCoordFrame(center=[0,0,0], scale=1):
+  """
+  Accessory function to create a coordinate frame
+  Args:
+    center: center of the coordinate frame
+    scale: scale of the coordinate frame
+  """
   coord_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(); 
   coord_frame.scale(scale=scale, center=center)
   coord_frame.translate(center, relative=False)
