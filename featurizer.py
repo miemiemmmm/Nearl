@@ -12,6 +12,15 @@ import matplotlib.pyplot as plt
 from . import representations, data_io
 from . import CONFIG
 
+_clear = CONFIG.get("clear", False);
+_verbose = CONFIG.get("verbose", False);
+
+"""
+Configurations needed for this module
+CONFIG["clear"]
+CONFIG["verbose"]
+"""
+
 
 print("Loading the featurizer module")
 
@@ -54,8 +63,9 @@ def lig_xml(dic, write_file=False, source=False):
   return ligxml_str
 
 
-class featurizer_3d:
+class obsolete_featurizer_3d:
   def __init__(self,pdbFile, trajFile, grid_length, atom_groups, search_cutoff=18, stride=1):
+    # Initialize the featurizer object
     print("Initializing the featurizer object......")
     self.length3D = grid_length    
     self.index3D = self.get_points(grid_length)
@@ -91,18 +101,21 @@ class featurizer_3d:
     self.curveCenter = np.mean(self.points3D, axis = 0).reshape(1,3); 
 
   def get_point_by_distance(self, point, length):
+    # Get the 3D coordinate of a point in the 3D grid
     d0 = int(point/length**2)
     d1 = int((point - d0*length**2)/length)
     d3 = int(point - d0*length**2 - d1*length)
     return [d0, d1, d3]
   
   def get_points(self, length):
+    # Get the 3D coordinates of all points in the 3D grid
     x=[]
     for i in range(length**3):
       x.append(self.get_point_by_distance(i,length))
     return np.array(x).astype(int)
 
   def points_to_3D(self, thearray, dtype=float):
+    # Convert a 1D array to a 3D array
     if len(self.distances) != len(thearray):
       print("Cannot match the length of the array to the 3D cuboid"); 
       return np.array([0])
@@ -124,6 +137,7 @@ class featurizer_3d:
     return template
 
   def get_entropy(self, arr):
+    # The function to calculate the entropy of an array
     unique, counts = np.unique(arr, return_counts=True)
     return entropy(counts)
 
@@ -336,7 +350,7 @@ class featurizer_3d:
       pickle.dump(data_to_save ,tmpfile, protocol=pickle.HIGHEST_PROTOCOL)
 
 
-class feature_3d_reader:
+class obsolete_feature_3d_reader:
   def __init__(self, pickleFile):
     # Generate the 2D/3D hilbert curve
     with open(pickleFile, "rb") as file1:
@@ -478,8 +492,12 @@ def printit(*arg, **kwarg):
 ########################################################
 class Featurizer3D:
   def __init__(self, parms):
+    """
+    Initialize the featurizer with the given parameters
+    parms: a dictionary of parameters
+    """
     self.FEATURES = [];
-    # Check the deinition of featurizer
+    # Check the essential parameters for the featurizer
     self.parms = parms;
     parms_to_check = ["VOXEL_DIMENSION", "CUBOID_LENGTH", "CUTOFF", "MASK_INTEREST", "MASK_ENVIRONMENT"]
     for parm in parms_to_check:
@@ -599,9 +617,7 @@ class Featurizer3D:
     """
     Avoid frequent use of the updatebox function because it generates new point set
     Only needed when changing the box parameter <VOXEL_DIMENSION> and <CUBOID_LENGTH>
-    Basic variables:
-      self.__length
-      self.__dims
+    Basic variables: self.__length, self.__dims
     """
     self.__unitlength = self.__length / self.__dims;
     self.__distances = np.arange(np.prod(self.__dims)).astype(int);
@@ -618,19 +634,15 @@ class Featurizer3D:
     return self.coord3d
 
   def distance2MTXcoord(self, point):
+    """
+    Convert distance to matrix coordinate
+    """
     k0 = self.__dims[1] * self.__dims[2]
     k1 = self.__dims[0]
     d0 = int(point / k0)
     d1 = int((point - d0 * k0) / k1)
     d2 = int(point - d0 * k0 - d1 * k1)
     return d0, d1, d2
-
-  def _distance2MTXcoord(self, index, N):
-    # TODO:
-    z = index // (N * N)
-    y = (index - z * N * N) // N
-    x = index % N
-    return x, y, z
 
   def update_box_length(self, length=None, scale_factor=1.0):
     if length is not None:
@@ -640,6 +652,11 @@ class Featurizer3D:
     self.updatebox()
 
   def points_to_3D(self, thearray, dtype=float):
+    """
+    Convert a 1D array to a 3D cuboid
+    Args:
+      thearray: A 1D array
+    """
     if len(self.__distances) != len(thearray):
       printit("Cannot match the length of the array to the 3D cuboid");
       return np.array([0])
@@ -650,20 +667,37 @@ class Featurizer3D:
     return template
 
   def register_feature(self, feature):
+    """
+    Register a feature to the featurizer
+    Args:
+      feature: A feature object
+    """
     self.FEATURES.append(feature);
     for feature in self.FEATURES:
       feature.set_featurizer(self)
 
   def register_traj(self, thetraj):
+    """
+    Register a trajectory to the featurizer
+    Args:
+      thetraj: A trajectory object
+    """
     self.traj = thetraj;
+
   def register_frames(self, theframes):
+    """
+    Register the frames to the featurizer for futher iteration
+    Args:
+      theframes: A list of frame indexes
+    """
     self.frames = theframes
+
   ####################################################################################################
   ######################################## DATABASE operation ########################################
   ####################################################################################################
   def connect(self, dataset):
     """
-    Connect a dataset
+    Connect to a dataset
     Args:
       dataset: File path of the HDF file;
     """
@@ -739,9 +773,13 @@ class Featurizer3D:
   ####################################################################################################
   def run_by_atom(self, atoms, fbox_length="same"):
     """
-    For each trajectory, initialize a representation generator
+    Iteratively compute the features for each selected atoms (atom index) in the trajectory
+    Args:
+      atoms: list, a list of atom indexes
+      fbox_length: str or list, optional, the length of the 3D grid box. If "same", use the same length as the
+      trajectory. If a list of 3 numbers, use the provided length. Default is "same".
     """
-    ######################### Initialize the MolBlock representation generator #########################
+    # Step1: Initialize the MolBlock representation generator
     self.repr_generator = representations.generator(self.traj);
     if fbox_length == "same":
       self.repr_generator.length = [i for i in self.__lengths];   # shape of the
@@ -749,21 +787,20 @@ class Featurizer3D:
       self.repr_generator.length = [i for i in fbox_length];  # shape of the
     printit(self.repr_generator.length)
 
-    ###################################### Initialize the dataset ######################################
+    # Step2: Initialize the feature array
     repr_processed = np.zeros((len(self.frames) * len(atoms), 72));
     fpfh_processed = np.zeros((len(self.frames) * len(atoms), 33, 600));
     feat_processed = np.zeros((len(self.frames) * len(atoms), len(self.FEATURES), *self.__dims));
 
-    ##################################### Iterate necessary frames #####################################
+    # Step3: Iterate registered frames
     c = 0;
     c_total = 0;
     for frame in self.frames:
       self.active_frame = self.traj[frame]
       focuses = self.active_frame.xyz[atoms];
       self.repr_generator.frame = frame;
-
       printit(f"Frame {frame}: Generated {len(focuses)} centers");
-      # Each frame Runs len(centers) computation/segmentaiton
+      # For each frame, run number of atoms times to compute the features/segmentations
       repr_vec, fpfh_vec, feat_vec = self.runframe(focuses);
       c_1 = c + len(repr_vec);
       c_total += len(repr_vec);
@@ -774,13 +811,47 @@ class Featurizer3D:
     return repr_processed[:c_total], fpfh_processed[:c_total], feat_processed[:c_total]
 
   def run_by_center(self, center):
-    pass
-
+    """
+    Iteratively compute the features for each centers (absolute coordinates) in the 3D space
+    Args:
+      center: list, a list of 3D coordinates
+    """
+    if np.ravel(center).__len__() % 3 != 0:
+      raise ValueError("Center must be a list of 3 numbers");
+    else:
+      _centers = np.reshape(center, (-1, 3));
+      center_number = len(_centers);
+      # Step1: Initialize the MolBlock representation generator
+      self.repr_generator = representations.generator(self.traj);
+      # Step2: Initialize the feature array
+      id_processed = np.zeros((len(self.frames) * center_number, 72));
+      fpfh_processed = np.zeros((len(self.frames) * center_number, 33, 600));
+      feature_processed = np.zeros((len(self.frames) * center_number, len(self.FEATURES), *self.__dims));
+      # Step3: Iterate registered frames
+      c = 0;
+      c_total = 0;
+      for frame in self.frames:
+        self.active_frame = self.traj[frame]
+        self.repr_generator.frame = frame;
+        printit(f"Frame {frame}: Generated {center_number} centers");
+        # For each frame, run number of centers times to compute the features/segmentations
+        repr_vec, fpfh_vec, feat_vec = self.runframe(_centers);
+        c_1 = c + len(repr_vec);
+        c_total += len(repr_vec);
+        id_processed[c:c_1] = repr_vec;
+        fpfh_processed[c:c_1] = fpfh_vec;
+        feature_processed[c:c_1] = feat_vec;
+        c = c_1;
+      return id_processed[:c_total], fpfh_processed[:c_total], feature_processed[:c_total]
 
   def runframe(self, centers):
     """
-    No need traj for representation generation
-    Needs to correctly set the self.
+    Generate the feature vectors for each center in the current frame
+    Trajectory already loaded in self.repr_generator
+
+    Needs to correctly set the self.repr_generator.center and self.repr_generator.lengths
+    Args:
+      centers: list, a list of 3D coordinates
     """
     feat_vector = np.zeros((len(centers), len(self.FEATURES), *self.__dims));
     fpfh_vector = np.zeros((len(centers), 33, 600));
@@ -792,9 +863,15 @@ class Featurizer3D:
       self.center = center;
       self.repr_generator.center = self.center;
       self.repr_generator.length = self.lengths;
-      ########################### Segment the box and generate feature vectors ###########################
+      # Segment the box and generate feature vectors for each segment
       slices, segments = self.repr_generator.slicebyframe();
-      feature_vector, mesh_obj, fpfh = self.repr_generator.vectorize(segments, clear=CONFIG.get("clear", True));
+      if _verbose:
+        print(f"Found {len(set(segments))} segments", np.unique(segments, return_counts=True)); # DEBUG
+      feature_vector, mesh_objs = self.repr_generator.vectorize(segments);
+      if (not _clear):
+        pass
+        # o3d.io.write_triangle_mesh(f"/tmp/test.ply", sum(mesh_objs), write_ascii=True);
+
       if len(feature_vector) == 0:
         mask[idx] = False
         continue
