@@ -1,5 +1,7 @@
 import json, re, requests, tempfile, time, datetime
+import pytraj as pt 
 import numpy as np 
+from . import utils
 
 class MDPost:
   def __init__(self):
@@ -297,7 +299,7 @@ def RunSimpleEquil(sessid, nrsteps=3000):
     return {}
 
 def EquilToSession(sessid, nrsteps=10000):
-  from . import utils
+
   equilmol2 = GetEquilMOL2(sessid);
   equilpdb  = GetEquilPDB(sessid); 
   sessionpdb = GetSessionPDB(sessid); 
@@ -435,8 +437,6 @@ def getSeqCoord(filename):
     Extract residue CA <coordinates> and <sequence> from PDB chain
   """
   from Bio.PDB.Polypeptide import three_to_one
-  import pytraj as pt 
-  
   traj = pt.load(filename)
   resnames = [i.name for i in traj.top.residues]; 
   trajxyz = traj.xyz[0]; 
@@ -462,7 +462,6 @@ def CompareStructures_Obs(pdbcode, sessexp=None):
         Skip unknown residues
   """
   from tmtools import tm_align; 
-  from . import utils
   pdbcode = pdbcode.lower(); 
   with tempfile.NamedTemporaryFile("w", suffix=".pdb") as file1: 
     file1.write(utils.fetch(pdbcode))
@@ -484,6 +483,4 @@ def CompareStructures_Obs(pdbcode, sessexp=None):
   else: 
     print("TM_Score: Bad match")
   return max([result.tm_norm_chain1, result.tm_norm_chain2]); 
-
-
 

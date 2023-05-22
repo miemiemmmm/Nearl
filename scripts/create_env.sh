@@ -1,11 +1,14 @@
 #!/bin/bash -l 
 
 # ${1}
-conda create -n testenv python=3.8 -y
-conda activate testenv
-conda install -c conda-forge ambertools
+conda create -n mlprod python=3.8 -y
+conda activate mlprod
+conda install -c conda-forge ambertools -y
+conda install -c conda-forge -c anaconda ipywidgets=7.6 notebook nglview=3.0.3 -y
+conda install -c conda-forge -c anaconda h5py scipy numpy scikit-learn pandas requests seaborn biopython -y
+
+pip install open3d rdkit matplotlib sgt
 
 
-pip install 
 
 

@@ -492,11 +492,18 @@ def getresmask(traj, mask):
   finalmask = ":"+"".join(selected_str).strip(","); 
   return finalmask
 
-def boxfilter(thearr, grid_center, grid_length, return_state=False): 
-  thearr = np.array(thearr); 
-  center = np.array(grid_center); 
-  upperbound = np.array(center) + grid_length/2; 
-  lowerbound = np.array(center) - grid_length/2; 
+def filter_points_within_bounding_box(thearr, grid_center, grid_length, return_state=False):
+  """
+  Filter the coordinates array by a bounding box
+  Args:
+    thearr: array of coordinates
+    grid_center: center of the box
+    grid_length: length(s) of the box
+    return_state: return the acceptance of the array, otherwise return the coordinates array
+  """
+  thearr = np.asarray(thearr);
+  upperbound = np.asarray(grid_center) + np.asarray(grid_length)/2;
+  lowerbound = np.asarray(grid_center) - np.asarray(grid_length)/2;
   ubstate = np.array([np.prod(i) for i in thearr < upperbound]); 
   lbstate = np.array([np.prod(i) for i in thearr > lowerbound]); 
   state = [bool(i) for i in ubstate*lbstate]; 
