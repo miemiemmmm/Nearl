@@ -508,7 +508,8 @@ class generator:
           try: 
             mesh = o3d.io.read_triangle_mesh(f"{out_prefix}.ply"); 
             mesh.remove_degenerate_triangles(); 
-            mesh.compute_vertex_normals(); 
+            mesh.compute_vertex_normals();
+            print(f"{self.segment2mesh.__name__:15s}: Warning: Possible empty triangle mesh for segment {theidxi}")
           except:
             raise Exception(f"{self.segment2mesh.__name__:15s}:Failed to generate the 3d object"); 
         if (_clear and os.path.isfile(f"{out_prefix}.vert")):
@@ -517,8 +518,7 @@ class generator:
           os.remove(f"{out_prefix}.face")
         return mesh
       else:
-        print(f"{self.segment2mesh.__name__:15s}: Failed to generate the MSMS output")
-        print(theidxi)
+        print(f"{self.segment2mesh.__name__:15s}: Failed to generate the mesh object for segment {theidxi}")
         return False
 
     
@@ -538,7 +538,7 @@ class generator:
     self.__mesh = None;
     segment_objects = [];
     """ ITERATE the at maximum 6 segments """
-    print(utils.ordersegments(segment))
+    # print(utils.ordersegments(segment))
     for segi in utils.ordersegments(segment)[:self.SEGMENT_LIMIT]:
       # ATOM types counts
       theidxi = np.where(segment == segi)[0];
@@ -563,8 +563,9 @@ class generator:
       
       # Segment conversion to triangle mesh
       self.mesh = self.segment2mesh(theidxi);
-      if self.mesh == False or self.mesh.is_empty(): 
-        return [], [], []
+      if self.mesh == False or self.mesh.is_empty():
+        framefeature[segcounter - 1, :] = 0;
+        continue
       # Point cloud-based descriptors
       SA = self.surface(self.mesh)
       VOL = self.volume(self.mesh)
@@ -577,46 +578,59 @@ class generator:
         T_Nr, C_Nr, N_d, N_a, C_p, C_n, PE_lg, PE_el, SA, VOL, rad, h_ratio
       ]
 
+      # Try fixed viewpoint
+      pf_gen = PointFeature(self.mesh);
+      vpc = pf_gen.compute_vpc([1000, 1000, 1000]);
+      framefeature[segcounter, -CONFIG.get("VIEWPOINT_BINS", 30):] = vpc;
+      # print(segcounter, vpc)
+      if (_verbose):
+        printit(f"Viewpoint: [1000, 0, 0]; Sum of VPC is: {sum(vpc)}");
+
       # Viewpoint-based descriptors
-      if (segcounter > 0):
-        vp = self.__mesh.get_center();
-        pf_gen = PointFeature(self.mesh);
-        vpc = pf_gen.compute_vpc(vp);
-        framefeature[segcounter-1, -30:] = vpc;
-        if (_verbose):
-          printit(f"Viewpoint: {vp}; Sum of VPC is: {sum(vpc)}");
+      # if (segcounter > 0):
+      #   vp = self.__mesh.get_center();
+      #   pf_gen = PointFeature(self.mesh);
+      #   vpc = pf_gen.compute_vpc(vp);
+      #   framefeature[segcounter-1, -30:] = vpc;
+      #   if (_verbose):
+      #     printit(f"Viewpoint: {vp}; Sum of VPC is: {sum(vpc)}");
+
+
 
       self.__mesh = copy.deepcopy(self.mesh);
       segcounter += 1;
 
       # Lookback component to all its previous segments
-      if nrsegments == 1:
-        vp = self.mesh.get_center();
-        other_objects = self.mesh;
-        pf_gen = PointFeature(other_objects);
-        vpc = pf_gen.self_vpc(vp);
-        framefeature[segcounter - 1, -30:] = vpc
-        if (_verbose):
-          printit(f"Final round VPC with only 1 segments; Center as viewpoint: {vp} -> {sum(vpc)}");
-      elif (segcounter == nrsegments):
-        vp = self.__mesh.get_center();
-        other_objects = functools.reduce(lambda a, b: a + b, segment_objects);
-        pf_gen = PointFeature(other_objects);
-        vpc = pf_gen.compute_vpc(vp);
-        framefeature[segcounter - 1, -30:] = vpc
-        if (_verbose):
-          printit(f"Lookback viewpoint: {vp} -> {sum(vpc)}");
-          printit(f"Number of objects for lookback viewpoint component: {len(segment_objects)}")
+      # if nrsegments == 1:
+      #   vp = self.mesh.get_center();
+      #   other_objects = self.mesh;
+      #   pf_gen = PointFeature(other_objects);
+      #   vpc = pf_gen.self_vpc(vp);
+      #   framefeature[segcounter - 1, -30:] = vpc
+      #   if (_verbose):
+      #     printit(f"Final round VPC with only 1 segments; Center as viewpoint: {vp} -> {sum(vpc)}");
+      # elif (segcounter == nrsegments):
+      #   vp = self.__mesh.get_center();
+      #   other_objects = functools.reduce(lambda a, b: a + b, segment_objects);
+      #   pf_gen = PointFeature(other_objects);
+      #   vpc = pf_gen.compute_vpc(vp);
+      #   framefeature[segcounter - 1, -30:] = vpc
+      #   if (_verbose):
+      #     printit(f"Lookback viewpoint: {vp} -> {sum(vpc)}");
+      #     printit(f"Number of objects for lookback viewpoint component: {len(segment_objects)}")
 
       segment_objects.append(self.mesh);
 
       if _verbose:
         printit(f"Segment {segcounter} / {nrsegments}: {self.mesh}")
         # printit("SUM: ", functools.reduce(lambda a, b: a+b, segment_objects))
-    print(framefeature.round(2))
+    # print(framefeature.round(2))
     if _verbose:
       printit("Final 3D object: ", functools.reduce(lambda a, b: a+b, segment_objects))
-
+    if (not _clear):
+      out_filename = os.path.join(_tempfolder, f"structure_frame{self.frame}.pdb")
+      with open(out_filename, "w") as f:
+        f.write(pdb_final);
     return framefeature.reshape(-1), segment_objects
   
   def atom_type_count(self, theidxi):
@@ -629,7 +643,7 @@ class generator:
     """
     ATOM_DICT = {'H': 1, 'C': 6, 'N': 7, 'O': 8, 'F': 9, 'P': 15, 'S': 16, 'Cl': 17, 'Br': 35, 'I': 53}
     atomic_numbers = np.array([i.atomic_number for i in self.atoms[theidxi]]); 
-    atom_number   = len(atomic_numbers); 
+    atom_number = len(atomic_numbers);
     count={}
     for atom, atom_num in ATOM_DICT.items(): 
       if np.count_nonzero(atomic_numbers - atom_num == 0) > 0: 
@@ -749,7 +763,10 @@ class PointFeature(object):
     # self._radius = rad;
     self._obj = obj_3d;
     # TODO: setup the points to down sample
-    self._pcd = np.array(self._obj.vertices);
+    if "vertices" in dir(self._obj):
+      self._pcd = np.array(self._obj.vertices);
+    elif "points" in dir(self._obj):
+      self._pcd = np.array(self._obj.points);
     self._norm = np.array(self._obj.vertex_normals);
     self._kdtree = spatial.KDTree(self._pcd);
 
@@ -909,3 +926,62 @@ def NewCoordFrame(center=[0,0,0], scale=1):
   coord_frame.translate(center, relative=False)
   return coord_frame
 
+
+def compute_similarity(array1, array2):
+  """
+  Compute the similarity between two arrays
+  Args:
+    array1: np.array
+    array2: np.array
+  """
+  if array1.shape != array2.shape:
+    print(f"Two arrays have different shapes: {array1.shape} and {array2.shape}")
+    return False
+  else:
+    array1 = array1.ravel().reshape(6, -1);
+    array2 = array2.ravel().reshape(6, -1);
+    # contrib_chem = np.abs(array1[:,:12] - array2[:,:12]);
+    # contrib_viewpoint = np.abs(array1[:, 12:] - array2[:, 12:]);
+    # print(contrib_chem.shape, contrib_viewpoint.shape)
+    # print(np.linalg.norm(contrib_chem, axis=1))
+    # print(np.linalg.norm(contrib_viewpoint, axis=1))
+    # print(contrib_chem.round(1).tolist())
+    # print(contrib_viewpoint)
+    # weights = np.abs(contrib_chem[:, 0]) / np.linalg.norm(contrib_chem[:, 0])
+    # weights = np.abs(contrib_chem[:, 0]) / np.sum(np.abs(contrib_chem[:, 0]));
+    # weights = np.array([i if abs(i-0)>0.0001 else 0 for i in weights])
+    def cossim(a, b):
+      if np.linalg.norm(a) * np.linalg.norm(b) == 0:
+        return 1
+      else:
+        return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+
+    contrib_chem = np.array([cossim(array1[i, :12].ravel(), array2[i, :12].ravel()) for i in range(6)])
+    contrib_viewpoint = np.array([cossim(array1[i, 12:].ravel(), array2[i, 12:].ravel()) for i in range(6)])
+    print(contrib_chem)
+    # for i in range(6):
+    #   print("cosine similarity chem: ", i, cossim(array1[i, :12].ravel(), array2[i, :12].ravel()))
+    #   print("cosine similarity view: ", i, )
+    #   print("cosine similarity oall: ", i, cossim(array1[i,:].ravel(), array2[i,:].ravel()))
+
+      # print("cosine similarity chem: ", cossim(array1[:,:12].ravel(), array2[:,:12].ravel()))
+      # print("cosine similarity view: ", cossim(array1[:,12:].ravel(), array2[:,12:].ravel()))
+      # print("cosine similarity oall: ", cossim(array1.ravel(), array2.ravel()))
+
+    weights = np.array([1, 0.5, 0.15, 0.1, 0.1, 0.05])
+    # weights = np.array([1]*6)
+    print(f"{'Chem contribution':20s}: ", ''.join(f'{i:6.2f}' for i in contrib_chem))
+    print(f"{'VP contribution':20s}: ", ''.join(f'{i:6.2f}' for i in contrib_viewpoint))
+    print(f"{'Weights':20s}: ", ''.join(f'{i:6.2f}' for i in weights))
+
+    # similarity = sum(np.linalg.norm(contrib_chem, axis=1) * np.linalg.norm(contrib_viewpoint, axis=1) * weights);
+    # similarity = sum(np.sum(contrib_chem, axis=1)/12 * np.sum(contrib_viewpoint, axis=1)/30 * weights);
+    # similarity = np.cos(similarity)
+    # similarity = min(max(similarity, 0), 1)
+    # similarity = 1/(1 + np.exp(-abs((100-similarity)/100)));
+    # print(similarity, "\n")
+    similarity = sum((contrib_chem + contrib_viewpoint)/2 * weights) / sum(weights);
+    print(f"{'Similarity':20s}: ", similarity, "\n")
+    return similarity
+    # cossim(array1.ravel(), array2.ravel())
+    # return np.sum(array1 == array2) / array1.size
