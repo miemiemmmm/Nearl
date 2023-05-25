@@ -6,35 +6,53 @@ from . import utils
 # for traj in trajloader: 
 #   doit()
 class TrajectoryLoader: 
-  def __init__(self, trajs, tops):
+  def __init__(self, trajs, tops, **kwarg):
     if isinstance(trajs, str):
       self.trajs = [trajs]; 
       self.tops  = [tops]; 
     elif isinstance(trajs, list):
       self.trajs = trajs; 
-      self.tops  = tops; 
+      self.tops  = tops;
+    self.kwargs = kwarg;
   def __str__(self):
     outstr = ""
     for i in self.__iter__(): 
       outstr += i.traj.__str__().replace("\n", "\t")+"\n"
     return outstr.strip("\n")
+
   def __iter__(self):
     return self.__loadtrajs(self.trajs, self.tops); 
   def __getitem__(self, index):
+    used_kwargs = self.__desolvekwargs();
     if isinstance(index, int):
-      ret = TRAJ(self.trajs[index], self.tops[index]); 
+      ret = TRAJ(self.trajs[index], self.tops[index], **used_kwargs);
     elif isinstance(index, slice):
-      ret = [TRAJ(traj, top) for traj, top in zip(self.trajs[index], self.tops[index])]
+      ret = [TRAJ(traj, top, **used_kwargs) for traj, top in zip(self.trajs[index], self.tops[index])]
     return ret
   def __loadtrajs(self, trajs, tops):
+    used_kwargs = self.__desolvekwargs();
     for traj, top in zip(trajs, tops):
-      yield TRAJ(traj, top)
+      yield TRAJ(traj, top, **used_kwargs)
+  def __desolvekwargs(self):
+    ret_kwargs = {}
+    if "stride" in self.kwargs.keys():
+      ret_kwargs["stride"] = self.kwargs["stride"]
+    else:
+      ret_kwargs["stride"] = 1;
+    if "mask" in self.kwargs.keys():
+      ret_kwargs["mask"] = self.kwargs["mask"]
+    else:
+      ret_kwargs["mask"] = "*"
+    if "frame_indices" in self.kwargs.keys():
+      ret_kwargs["frame_indices"] = [i for i in self.kwargs["frame_indices"]]
+    return ret_kwargs;
+
 
 
 # Trajectory object
 class TRAJ: 
-  def __init__(self, trajfile, pdbfile):
-    self.traj = pt.load(trajfile, top=pdbfile); 
+  def __init__(self, trajfile, pdbfile, **kwarg):
+    self.traj = pt.load(trajfile, top=pdbfile, **kwarg);
     self.traj.top.set_reference(self.traj[0]);
     self.activeframe = 0; 
   def __getitem__(self, key):

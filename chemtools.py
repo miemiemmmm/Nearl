@@ -16,8 +16,9 @@ def DACbytraj(traj, frameidx, themask, **kwargs):
     return np.array([]), np.array([])
   if (">" in themask) or ("<" in themask):
     print(f"{DACbytraj.__name__:15s}: Detected distance based mash. Please make sure that the reference is set to the trajectory, otherwise, all of the atoms will be processed");
-  tmp_traj = traj.copy(); 
-  tmp_traj.strip(f"!({themask})"); 
+  tmp_traj = traj.copy();
+  if traj.top.select(f"!({themask})").__len__() > 0:
+    tmp_traj.strip(f"!({themask})");
   if (tmp_traj.top.n_atoms == traj.top.n_atoms):
     print(f"{DACbytraj.__name__:15s}: All atoms are kept after applying the mask. Please make sure if this is wanted.")
   with tempfile.NamedTemporaryFile(suffix=".pdb") as file1: 
@@ -44,14 +45,15 @@ def Chargebytraj(traj, frameidx, themask):
   """
   selection = traj.top.select(themask);
   if len(selection) == 0:
-    print(f"{DACbytraj.__name__:15s}: No atom in the selected mask. Skipping it.")
+    print(f"{Chargebytraj.__name__:15s}: No atom in the selected mask. Skipping it.")
     return np.array([]), np.array([])
   if (">" in themask) or ("<" in themask):
-    print(f"{DACbytraj.__name__:15s}: Detected distance based mash. Please make sure that the reference is set to the trajectory, otherwise, all of the atoms will be processed");
+    print(f"{Chargebytraj.__name__:15s}: Detected distance based mash. Please make sure that the reference is set to the trajectory, otherwise, all of the atoms will be processed");
   tmp_traj = traj.copy();
-  tmp_traj.strip(f"!({themask})");
+  if traj.top.select(f"!({themask})").__len__() > 0:
+    tmp_traj.strip(f"!({themask})");
   if (tmp_traj.top.n_atoms == traj.top.n_atoms):
-    print(f"{DACbytraj.__name__:15s}: All atoms are kept after applying the mask. Please make sure if this is wanted.")
+    print(f"{Chargebytraj.__name__:15s}: All atoms are kept after applying the mask. Please make sure if this is wanted.")
   
   with tempfile.NamedTemporaryFile(suffix=".pdb") as file1:
     pt.write_traj(file1.name, tmp_traj, overwrite=True, frame_indices=[frameidx])
@@ -71,10 +73,11 @@ def Chargebytraj(traj, frameidx, themask):
 def writepdbs(traj, frameidx, themask):
   selection = traj.top.select(themask);
   if len(selection) == 0:
-    print(f"{DACbytraj.__name__:15s}: No atom in the selected mask. Skipping it.")
+    print(f"{writepdbs.__name__:15s}: No atom in the selected mask. Skipping it.")
     return np.array([]), np.array([])
   tmp_traj = traj.copy();
-  tmp_traj.strip(f"!({themask})");
+  if traj.top.select(f"!({themask})").__len__() > 0:
+    tmp_traj.strip(f"!({themask})");
   with tempfile.NamedTemporaryFile(suffix=".pdb") as file1:
     pt.write_traj(file1.name, tmp_traj, overwrite=True, frame_indices=[frameidx])
     mol = Chem.MolFromPDBFile(file1.name);

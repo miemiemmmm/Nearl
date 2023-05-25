@@ -525,7 +525,8 @@ def ordersegments(lst):
   from collections import Counter
   counter = Counter(lst);
   sorted_elements = sorted(counter, key=lambda x: counter[x], reverse=True);
-  sorted_elements.remove(0);
+  if 0 in sorted_elements:
+    sorted_elements.remove(0);
   return sorted_elements
 
 def NormalizePDB(refpdb, testpdb, outpdb):
