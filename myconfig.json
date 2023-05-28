@@ -5,7 +5,7 @@
   "password": "testyang",
   "msms": "msms_i86_64Linux2_2.6.1/msms.x86_64Linux2.2.6.1",
   "tempfolder" : "/tmp/",
-  "clear" : true,
+  "clear" : false,
   "verbose" : false,
 
   "DOWN_SAMPLE_POINTS" : 600,

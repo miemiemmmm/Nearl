@@ -867,9 +867,10 @@ class Featurizer3D:
       feature_vector, mesh_objs = self.repr_generator.vectorize(segments);
 
       final_mesh = functools.reduce(lambda a, b: a + b, mesh_objs);
-      if (not _clear):
-        with tempfile.NamedTemporaryFile(prefix=CONFIG["tempfolder"]+"MSMS_OBJ_") as tmp:
-          write_triangle_mesh(f"{tmp.name}.ply", final_mesh, write_ascii=True);
+      # if (not _clear):
+      #   with tempfile.NamedTemporaryFile(prefix=CONFIG["tempfolder"]+"MSMS_OBJ_") as tmp:
+      #     # Write out the final mesh if the intermediate output is required for debugging purpose
+      #     write_triangle_mesh(f"{tmp.name}.ply", final_mesh, write_ascii=True);
 
       if len(feature_vector) == 0:
         if _verbose:

@@ -99,26 +99,29 @@ def pdb2xyzr(thepdb, write="", exp=True):
   else: 
     return finallines
 
-def runmsms(msms, inputfile, outfile, d = 4, r = 1.5):
+def runmsms(msms, inputxyzr, outprefix, d = 4, r = 1.5):
   """
   Run MSMS to generate the surface of a set of atoms
   Args:
     msms (str): path to the MSMS executable
-    inputfile (str): path to the input file
-    outfile (str): path to the output file
+    inputxyzr (str): path to the input file
+    outprefix (str): path to the output file
     d (float): density of the surface
     r (float): probe radius
   """
-  subprocess.run([msms, "-if", inputfile, "-of", outfile, "-density", str(d), "-probe_radius", str(r), "-all"], stdout=subprocess.DEVNULL); 
-  if os.path.isfile(f"{outfile}.vert") and os.path.isfile(f"{outfile}.face"): 
+  subprocess.run([msms, "-if", inputxyzr, "-of", outprefix, "-density", str(d), "-probe_radius", str(r), "-all"], stdout=subprocess.DEVNULL);
+  if os.path.isfile(f"{outprefix}.vert") and os.path.isfile(f"{outprefix}.face"):
     return True
   else:
     # If default parameters fail, try again with some other probe radius
+    if _verbose:
+      print(f"{runmsms.__name__:15s}: Failed to generate corresponding vertex and triangle file with default setting. "
+            f"Trying other parameters");
     for r in np.arange(1.0, 2.0, 0.01):
-      subprocess.run([msms, "-if", inputfile, "-of", outfile, "-density", str(d), "-probe_radius", str(r)], stdout=subprocess.DEVNULL);
-      if os.path.isfile(f"{outfile}.vert") and os.path.isfile(f"{outfile}.face"):
+      subprocess.run([msms, "-if", inputxyzr, "-of", outprefix, "-density", str(d), "-probe_radius", str(r)], stdout=subprocess.DEVNULL);
+      if os.path.isfile(f"{outprefix}.vert") and os.path.isfile(f"{outprefix}.face"):
         break
-    if os.path.isfile(f"{outfile}.vert") and os.path.isfile(f"{outfile}.face"):
+    if os.path.isfile(f"{outprefix}.vert") and os.path.isfile(f"{outprefix}.face"):
       return True
     else:
       print(f"{runmsms.__name__:15s}: Failed to generate corresponding vertex and triangle file");
@@ -427,7 +430,17 @@ class generator:
       print(f"Warning: Cannot find the executable for msms program. Use the following ways to find the MSMS executable:\n\"msms\": \"/path/to/MSMS/executable\" in configuration file\nor\nexport MSMS_EXE=/path/to/MSMS/executable", file=sys.stderr)
     elif not os.path.isfile(self.MSMS_EXE): 
       print(f"Warning: Designated MSMS executable({self.MSMS_EXE}) not found. Please check the following path: {self.MSMS_EXE}", file=sys.stderr)
-      
+
+    if (not _clear):
+      self.set_tempprefix();
+
+  def set_tempprefix(self, tempprefix=""):
+    if len(tempprefix) > 0:
+      self.tempprefix = os.path.join(_tempfolder, f"tmp_{tempprefix}_");
+    else:
+      temphash = utils.get_hash()[-10:];
+      self.tempprefix = os.path.join(_tempfolder, f"tmp_{temphash}_");
+
   @property
   def center(self):
     return self._center
@@ -487,40 +500,39 @@ class generator:
       r: the radius of probe for the MSMS program
     """
     indice = np.array(theidxi);
-    with tempfile.NamedTemporaryFile(suffix=".xyzr") as file1:
-      filename = file1.name; 
-      resnames = np.array([a.name for a in self.traj.top.residues])
-      rads = [getRadius(i,j) for i,j in [(a.name,resnames[a.resid]) for a in self.atoms[indice]]]
-      xyzrline = ""; 
-      for (x,y,z),rad in zip(self.traj.xyz[self.frame][indice], rads):
-        xyzrline += f"{x:10.3f}{y:10.3f}{z:10.3f}{rad:6.2f}\n"
-      with open(file1.name, "w") as file1:
-        file1.write(xyzrline);
-      out_prefix = file1.name.replace(".xyzr", "")
-      ret = runmsms(self.MSMS_EXE, file1.name, out_prefix, d=d, r=r);
-      # Already check the existence of output files
-      if ret:
-        if _clear:
-          mesh = msms2mesh(f"{out_prefix}.vert", f"{out_prefix}.face", filename="");
-        else: 
-          mesh = msms2mesh(f"{out_prefix}.vert", f"{out_prefix}.face", filename=f"{out_prefix}.ply");
-        if mesh.is_empty(): 
-          try: 
-            mesh = o3d.io.read_triangle_mesh(f"{out_prefix}.ply"); 
-            mesh.remove_degenerate_triangles(); 
-            mesh.compute_vertex_normals();
-            print(f"{self.segment2mesh.__name__:15s}: Warning: Possible empty triangle mesh for segment {theidxi}")
-          except:
-            raise Exception(f"{self.segment2mesh.__name__:15s}:Failed to generate the 3d object"); 
-        if (_clear and os.path.isfile(f"{out_prefix}.vert")):
-          os.remove(f"{out_prefix}.vert")
-        if (_clear and os.path.isfile(f"{out_prefix}.face")):
-          os.remove(f"{out_prefix}.face")
-        return mesh
-      else:
-        print(f"{self.segment2mesh.__name__:15s}: Failed to generate the mesh object for segment {theidxi}")
-        return False
+    self.set_tempprefix();
+    filename = self.tempprefix + "msms";
 
+    # Prepare the xyzr file for MSMS
+    resnames = np.array([a.name for a in self.traj.top.residues])
+    rads = [getRadius(i, j) for i, j in [(a.name, resnames[a.resid]) for a in self.atoms[indice]]]
+    xyzrline = "";
+    for (x, y, z), rad in zip(self.traj.xyz[self.frame][indice], rads):
+      xyzrline += f"{x:10.3f}{y:10.3f}{z:10.3f}{rad:6.2f}\n"
+    with open(f"{filename}.xyzr", "w") as file1:
+      file1.write(xyzrline);
+
+    # Generate the vertices and faces file by program MSMS
+    ret = runmsms(self.MSMS_EXE, f"{filename}.xyzr", filename, d=d, r=r);
+
+    # Already check the existence of output files
+    if ret:
+      if _clear:
+        mesh = msms2mesh(f"{filename}.vert", f"{filename}.face", filename="");
+      else:
+        mesh = msms2mesh(f"{filename}.vert", f"{filename}.face", filename=f"{filename}.ply");
+      if (_clear and os.path.isfile(f"{filename}.vert")):
+        os.remove(f"{filename}.vert")
+      if (_clear and os.path.isfile(f"{filename}.face")):
+        os.remove(f"{filename}.face")
+      if (_clear and os.path.isfile(f"{filename}.xyzr")):
+        os.remove(f"{filename}.xyzr")
+      if mesh.is_empty() and _verbose:
+        raise Exception(f"{self.segment2mesh.__name__:15s}:Failed to generate the 3d object");
+      return mesh
+    else:
+      print(f"{self.segment2mesh.__name__:15s}: Failed to generate the mesh object for segment {theidxi}")
+      return False
     
   def vectorize(self, segment):
     """
@@ -557,7 +569,11 @@ class generator:
       PE_lg, PE_el = self.pseudo_energy(theidxi)
 
       if (not _clear):
-        pdb_final += chemtools.writepdbs(self.traj, self.frame, self.resmask);
+        pdbstr = chemtools.writepdbs(self.traj, self.frame, self.resmask);
+        new_lines = [line for line in pdbstr.strip("\n").split('\n') if ("END" not in line and "CONECT" not in line)]
+        # pdbstr = pdbstr.replace("^END.*", "");
+        # pdbstr = pdbstr.replace("^CONECT.*", "");
+        pdb_final += ('\n'.join(new_lines) + "\n") # chemtools.writepdbs(self.traj, self.frame, self.resmask);
       else:
         pdb_final += ""
       
@@ -595,8 +611,6 @@ class generator:
       #   if (_verbose):
       #     printit(f"Viewpoint: {vp}; Sum of VPC is: {sum(vpc)}");
 
-
-
       self.__mesh = copy.deepcopy(self.mesh);
       segcounter += 1;
 
@@ -623,14 +637,17 @@ class generator:
 
       if _verbose:
         printit(f"Segment {segcounter} / {nrsegments}: {self.mesh}")
-        # printit("SUM: ", functools.reduce(lambda a, b: a+b, segment_objects))
-    # print(framefeature.round(2))
     if _verbose:
       printit("Final 3D object: ", functools.reduce(lambda a, b: a+b, segment_objects))
     if (not _clear):
-      out_filename = os.path.join(_tempfolder, f"structure_frame{self.frame}.pdb")
-      with open(out_filename, "w") as f:
+      # Write out the final mesh if the intermediate output is required for debugging purpose
+      self.set_tempprefix()
+      with open(f"{self.tempprefix}frame{self.frame}.pdb", "w") as f:
         f.write(pdb_final);
+      final_mesh = functools.reduce(lambda a, b: a + b, segment_objects);
+      o3d.io.write_triangle_mesh(f"{self.tempprefix}frame{self.frame}.ply", final_mesh, write_ascii=True);
+
+
     return framefeature.reshape(-1), segment_objects
   
   def atom_type_count(self, theidxi):
@@ -927,7 +944,19 @@ def NewCoordFrame(center=[0,0,0], scale=1):
   return coord_frame
 
 
-def compute_similarity(array1, array2):
+def cosine_similarity(a, b):
+  """
+  Compute the cosine similarity between two vectors
+  Args:
+    a: np.array
+    b: np.array
+  """
+  if np.linalg.norm(a) * np.linalg.norm(b) < 0.0001:
+    return 0.0
+  else:
+    return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+
+def compute_similarity(array1, array2, weights=[1, 0.5, 0.15, 0.1, 0.1, 0.05]):
   """
   Compute the similarity between two arrays
   Args:
@@ -940,48 +969,30 @@ def compute_similarity(array1, array2):
   else:
     array1 = array1.ravel().reshape(6, -1);
     array2 = array2.ravel().reshape(6, -1);
-    # contrib_chem = np.abs(array1[:,:12] - array2[:,:12]);
-    # contrib_viewpoint = np.abs(array1[:, 12:] - array2[:, 12:]);
-    # print(contrib_chem.shape, contrib_viewpoint.shape)
-    # print(np.linalg.norm(contrib_chem, axis=1))
-    # print(np.linalg.norm(contrib_viewpoint, axis=1))
-    # print(contrib_chem.round(1).tolist())
-    # print(contrib_viewpoint)
-    # weights = np.abs(contrib_chem[:, 0]) / np.linalg.norm(contrib_chem[:, 0])
-    # weights = np.abs(contrib_chem[:, 0]) / np.sum(np.abs(contrib_chem[:, 0]));
-    # weights = np.array([i if abs(i-0)>0.0001 else 0 for i in weights])
-    def cossim(a, b):
-      if np.linalg.norm(a) * np.linalg.norm(b) == 0:
-        return 1
-      else:
-        return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+    weights = np.asarray(weights);
+    contrib_chem = np.array([cosine_similarity(array1[i, :12].ravel(), array2[i, :12].ravel()) for i in range(6)])
+    contrib_viewpoint = np.array([cosine_similarity(array1[i, 12:].ravel(), array2[i, 12:].ravel()) for i in range(6)])
 
-    contrib_chem = np.array([cossim(array1[i, :12].ravel(), array2[i, :12].ravel()) for i in range(6)])
-    contrib_viewpoint = np.array([cossim(array1[i, 12:].ravel(), array2[i, 12:].ravel()) for i in range(6)])
-    print(contrib_chem)
+    # print("TESTHERE");
+    # print(array1.tolist(), array2.tolist());
     # for i in range(6):
-    #   print("cosine similarity chem: ", i, cossim(array1[i, :12].ravel(), array2[i, :12].ravel()))
-    #   print("cosine similarity view: ", i, )
-    #   print("cosine similarity oall: ", i, cossim(array1[i,:].ravel(), array2[i,:].ravel()))
+    #   _cos = cossim(array1[i, :12].ravel(), array2[i, :12].ravel())
+    #   print(f"====> session {i}", _cos, array1[i, :12].ravel(), array2[i, :12].ravel());
+    # print("TESTEND")
 
-      # print("cosine similarity chem: ", cossim(array1[:,:12].ravel(), array2[:,:12].ravel()))
-      # print("cosine similarity view: ", cossim(array1[:,12:].ravel(), array2[:,12:].ravel()))
-      # print("cosine similarity oall: ", cossim(array1.ravel(), array2.ravel()))
+    similarities = (contrib_chem + contrib_viewpoint) / 2 * weights / sum(weights[np.nonzero(contrib_chem)]);
+    # print(similarities, contrib_viewpoint.round(2), contrib_chem.round(2))
 
-    weights = np.array([1, 0.5, 0.15, 0.1, 0.1, 0.05])
-    # weights = np.array([1]*6)
     print(f"{'Chem contribution':20s}: ", ''.join(f'{i:6.2f}' for i in contrib_chem))
     print(f"{'VP contribution':20s}: ", ''.join(f'{i:6.2f}' for i in contrib_viewpoint))
     print(f"{'Weights':20s}: ", ''.join(f'{i:6.2f}' for i in weights))
+    print(f"{'Contribution(real)':20s}: ", ''.join(f'{i:6.2f}' for i in similarities));
+    print(f"{'Final Similarity':20s}: ", sum(similarities), "\n")
+    return sum(similarities)
 
-    # similarity = sum(np.linalg.norm(contrib_chem, axis=1) * np.linalg.norm(contrib_viewpoint, axis=1) * weights);
-    # similarity = sum(np.sum(contrib_chem, axis=1)/12 * np.sum(contrib_viewpoint, axis=1)/30 * weights);
-    # similarity = np.cos(similarity)
-    # similarity = min(max(similarity, 0), 1)
-    # similarity = 1/(1 + np.exp(-abs((100-similarity)/100)));
-    # print(similarity, "\n")
-    similarity = sum((contrib_chem + contrib_viewpoint)/2 * weights) / sum(weights);
-    print(f"{'Similarity':20s}: ", similarity, "\n")
-    return similarity
-    # cossim(array1.ravel(), array2.ravel())
-    # return np.sum(array1 == array2) / array1.size
+def weight(array1):
+  array1 = array1.ravel().reshape(6, -1);
+  # array2 = array2.ravel().reshape(6, -1);
+  # print(array1)
+  # print("reweight", array1[:, 0].ravel())
+  return array1[:, 0].ravel()
