@@ -35,7 +35,7 @@ if __name__ == "__main__":
     for p in np.linspace(0, np.pi * 2, rotation_steps):
       for z in np.linspace(0, np.pi * 2, rotation_steps):
         # Compute the transformation matrix and apply it to the coordinates
-        trans_matrix = utils.transform_by_eular_angle(r, p, z, translate);
+        trans_matrix = utils.transform_by_euler_angle(r, p, z, translate);
         coord_transformed = utils.transform_pcd(coord, trans_matrix);
 
         # Create a new frame and append the new frame to the trajectory
