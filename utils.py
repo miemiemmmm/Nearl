@@ -84,9 +84,9 @@ def interpolate(points, weights, grid_dims):
   return grid_density, (grid_x, grid_y, grid_z)
 
 def get_hash(thestr=""):
-  if isinstance(thestr, str):
+  if isinstance(thestr, str) and len(thestr)>0:
     return md5(bytes(thestr, "utf-8")).hexdigest()
-  elif isinstance(thestr, list) or isinstance(thestr, np.ndarray):
+  elif (isinstance(thestr, list) or isinstance(thestr, np.ndarray)) and len(thestr)>0:
     arrstr = ",".join(np.asarray(thestr).astype(str))
     return md5(bytes(arrstr, "utf-8")).hexdigest()
   else:
@@ -564,12 +564,11 @@ def NormalizePDB(refpdb, testpdb, outpdb):
   with open(outpdb, 'w') as file1:
     file1.write(finalstr)
 
-def calc_tm(roll, pitch, yaw, translate=[0, 0, 0]):
+def transform_by_eular_angle(roll, pitch, yaw, translate=[0, 0, 0]):
     # Precompute trigonometric functions
     cos_roll, sin_roll = np.cos(roll), np.sin(roll)
     cos_pitch, sin_pitch = np.cos(pitch), np.sin(pitch)
     cos_yaw, sin_yaw = np.cos(yaw), np.sin(yaw)
-
     # Generate rotation matrices
     Rx = np.array([[1, 0, 0], [0, cos_roll, -sin_roll], [0, sin_roll, cos_roll]])
     Ry = np.array([[cos_pitch, 0, sin_pitch], [0, 1, 0], [-sin_pitch, 0, cos_pitch]])

@@ -2,6 +2,7 @@ import numpy as np
 import pytraj as pt
 import open3d as o3d
 import re, sys
+from datetime import datetime
 """
 MAP from atom type to its corresponding atom name and residue name
 # 1   , ^O$     , ^.*$    
@@ -299,7 +300,7 @@ ELEMENT_NAME ={
   10: "C",
   11: "C",
   12: "S",
-  13: "P",  # Also S
+  13: "S",  # Also P
   14: "N",
   15: "H",
   17: "UNK",
@@ -319,18 +320,24 @@ ELEMENT_NAME ={
 }
 
 element_color_map = {
+  # BASIC ELEMENTS
   "C": [0.5, 0.5, 0.5],
   "H": [1,1,1],
   "N": [0,0,1],
   "O": [1,0,0],
-  "K": [0,0.5,1],
-  "S": [0,1,1],
-  "P": [0,1,1],
-  "ZN": [0.5, 0.5, 0.1],
-  "CU": [0.5, 0.5, 0.1],
-  "FE": [0.5, 0.5, 0.1],
-  "MN": [0.5, 0.5, 0.1],
-  "MG": [0.5, 0.5, 0.1],
+  "S": [1,1,0],
+  "P": [1,0.6,0.4],
+
+  # METALS
+  "NA": [0.7, 0.7, 0.1],
+  "MG": [0.7, 0.7, 0.1],
+  "CA": [0.7, 0.7, 0.1],
+  "K" : [0, 0.5, 1],
+  "ZN": [0.8, 0.4, 0.1],
+  "CU": [0.8, 0.4, 0.1],
+  "FE": [0.8, 0.4, 0.1],
+  "MN": [0.6, 0, 0.4],
+
   # UNKNOWNS
   "UNK": [0.5, 0.5, 0.5],
   "U": [0.5, 0.5, 0.5],
@@ -406,51 +413,50 @@ def create_cylinder(start, end, radius=0.2, color=[0.4275, 0.2941, 0.0745]):
 
 def molecule_to_o3d(pdb_path):
   # Load PDB structure
-  structure = pt.load(pdb_path); 
-
-  # Visualization
-  geometries = []
-  atoms = list(structure.top.atoms)
-  residues = list(structure.top.residues)
+  structure = pt.load(pdb_path);
+  atoms = list(structure.top.atoms);
+  residues = list(structure.top.residues);
   coords = list(structure.xyz[0])
+
+  # Add spheres as each atom
+  geometries = [];
   for idx, c in enumerate(coords): 
     theatom = atoms[idx];
-    resname = residues[theatom.resid].name
-    # print(dir(residues[theatom.resid]))
-    # print(resname)
-    atomtype = getAtomNum(theatom.name, resname)
+    resname = residues[theatom.resid].name;
+    atomtype = getAtomNum(theatom.name, resname);
     print(f"Atom Name: {theatom.name:8s} | Res Name: {resname:8s} | ---> {atomtype} |")
     color = element_color_map.get(atomtype, [0.5,0.5,0.5]);
-    geometries.append(create_sphere(c, color=color)); 
-    
+    geometries.append(create_sphere(c, radius=0.5, color=color));
+
+  # Add cylinders as bonds
   for bond in list(structure.top.bonds): 
-    n_i, n_j = bond.indices
-    pos_1 = coords[n_i]
-    pos_2 = coords[n_j]
-    # print(pos_1, pos_2)
+    n_i, n_j = bond.indices;
+    pos_1 = coords[n_i];
+    pos_2 = coords[n_j];
     if np.linalg.norm(pos_1 - pos_2) < 3:  # Simple condition to check if there is a bond
-      geometries.append(create_cylinder(pos_1, pos_2))
+      geometries.append(create_cylinder(pos_1, pos_2, radius=0.15))
   return geometries
 
 ####################################################################################################
-final_geometries = [];
-if len(sys.argv) < 2:
-  print("Usage: python3 visualize.py [file1] [file2] ... [fileN]")
-  sys.exit(0)
-for file in sys.argv[1:]:
-  if ".pdb" in file or ".mol2" in file:
-    # theobj = "/home/miemie/Downloads/clean_lig.mol2"
-    # "/home/yzhang/Downloads/tmp_Sampling_target.pdb"
-    # '/tmp/structure_frame990.pdb'
-    geometries = molecule_to_o3d(file)
-    final_geometries += geometries;
-  elif ".ply" in file:
-    # theobj = "/tmp/MSMS_OBJ_z1lw_j1o.ply"
-    mesh = o3d.io.read_triangle_mesh(file)
-    mesh.paint_uniform_color([0.5,0.1,0.1])
-    lineset = o3d.geometry.LineSet.create_from_triangle_mesh(mesh)
-    final_geometries += [lineset]
+################################# Generate Open3D readable object ##################################
+####################################################################################################
+if __name__ == "__main__":
+  final_geometries = [];
+  if len(sys.argv) < 2:
+    print("Usage: python3 view_obj.py [file1] [file2] ... [fileN]")
+    sys.exit(0)
+  for file in sys.argv[1:]:
+    if ".pdb" in file or ".mol2" in file:
+      geometries = molecule_to_o3d(file)
+      final_geometries += geometries;
+    elif ".ply" in file:
+      mesh = o3d.io.read_triangle_mesh(file)
+      mesh.paint_uniform_color([0.5,0.1,0.1])
+      lineset = o3d.geometry.LineSet.create_from_triangle_mesh(mesh)
+      final_geometries += [lineset]
 
-# Visualize the wireframe representation
-o3d.visualization.draw_geometries(final_geometries)
+  # Visualize the wireframe representation
+  o3d.visualization.draw_geometries(final_geometries)
+  timestamp = datetime.now().strftime('%Y%m%d_%H%M')
+  o3d.io.write_geometry(f"/tmp/OBJSET_{timestamp}.ply", final_geometries)
 
