@@ -564,7 +564,7 @@ def NormalizePDB(refpdb, testpdb, outpdb):
   with open(outpdb, 'w') as file1:
     file1.write(finalstr)
 
-def transform_by_eular_angle(roll, pitch, yaw, translate=[0, 0, 0]):
+def transform_by_euler_angle(roll, pitch, yaw, translate=[0, 0, 0]):
     # Precompute trigonometric functions
     cos_roll, sin_roll = np.cos(roll), np.sin(roll)
     cos_pitch, sin_pitch = np.cos(pitch), np.sin(pitch)
@@ -575,7 +575,8 @@ def transform_by_eular_angle(roll, pitch, yaw, translate=[0, 0, 0]):
     Rz = np.array([[cos_yaw, -sin_yaw, 0], [sin_yaw, cos_yaw, 0], [0, 0, 1]])
 
     # Combine rotations
-    R = Rx @ Ry @ Rz
+    # R = Rx @ Ry @ Rz
+    R = Rz @ Ry @ Rx
 
     # Create the final transformation matrix
     H = np.eye(4); 
