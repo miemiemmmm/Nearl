@@ -1,8 +1,0 @@
-
-parm PDBFILE
-trajin 
-
-
-
-
-

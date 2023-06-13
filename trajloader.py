@@ -1,12 +1,23 @@
-import pytraj as pt 
-from . import utils
+import time;
+import pytraj as pt;
+import numpy as np;
+from . import utils, CONFIG
 
 # Loader of trajectories for iteration
 # Basic way of using: 
-# for traj in trajloader: 
-#   doit()
+
 class TrajectoryLoader: 
   def __init__(self, trajs, tops, **kwarg):
+    """
+    Systematically load trajectories for further processing
+    Example:
+    >>> for traj in trajloader:
+    >>>   # Do something with traj
+    Args:
+        trajs (str or list): Trajectory file names
+        tops (str or list): Topology file names
+        **kwarg: Keyword arguments for pytraj.load
+    """
     if isinstance(trajs, str):
       self.trajs = [trajs]; 
       self.tops  = [tops]; 
@@ -25,50 +36,89 @@ class TrajectoryLoader:
   def __getitem__(self, index):
     used_kwargs = self.__desolvekwargs();
     if isinstance(index, int):
-      ret = TRAJ(self.trajs[index], self.tops[index], **used_kwargs);
+      ret = Trajectory(self.trajs[index], self.tops[index], **used_kwargs);
     elif isinstance(index, slice):
-      ret = [TRAJ(traj, top, **used_kwargs) for traj, top in zip(self.trajs[index], self.tops[index])]
+      ret = [Trajectory(traj, top, **used_kwargs) for traj, top in zip(self.trajs[index], self.tops[index])]
     return ret
   def __loadtrajs(self, trajs, tops):
     used_kwargs = self.__desolvekwargs();
     for traj, top in zip(trajs, tops):
-      yield TRAJ(traj, top, **used_kwargs)
+      yield Trajectory(traj, top, **used_kwargs)
   def __desolvekwargs(self):
     ret_kwargs = {}
-    if "stride" in self.kwargs.keys():
-      ret_kwargs["stride"] = self.kwargs["stride"]
-    else:
-      ret_kwargs["stride"] = 1;
-    if "mask" in self.kwargs.keys():
-      ret_kwargs["mask"] = self.kwargs["mask"]
-    else:
-      ret_kwargs["mask"] = "*"
-    if "frame_indices" in self.kwargs.keys():
-      ret_kwargs["frame_indices"] = [i for i in self.kwargs["frame_indices"]]
-    return ret_kwargs;
+    ret_kwargs["stride"] = self.kwargs.get("stride", None)
+    ret_kwargs["mask"] = self.kwargs.get("mask", None)
+    ret_kwargs["frame_indices"] = self.kwargs.get("frame_indices", None)
+    return ret_kwargs
 
 
 
 # Trajectory object
-class TRAJ: 
+class Trajectory(pt.Trajectory):
   def __init__(self, trajfile, pdbfile, **kwarg):
-    self.traj = pt.load(trajfile, top=pdbfile, **kwarg);
-    self.traj.top.set_reference(self.traj[0]);
-    self.activeframe = 0; 
-  def __getitem__(self, key):
-    return self.traj[key]
-  @property
-  def top(self):
-    return self.traj.top
-  @property
-  def xyz(self): 
-    return self.traj.xyz
+    """
+    Initialize the trajectory object from pytraj.Trajectory
+    Add more customizable functions
+    Args:
+      trajfile: trajectory file
+      pdbfile:  pdb file
+      **kwarg:  keyword arguments
+    """
+    st = time.perf_counter();
+    super().__init__(top=pdbfile);
+    # Set the keyword arguments for slicing/masking trajectory;
+    stride = kwarg.get("stride", None)
+    frame_indices = kwarg.get("frame_indices", None)
+    mask = kwarg.get("mask", None)
+    if CONFIG.get("verbose", False):
+      print(f"Module {self.__class__.__name__}: Loading trajectory {trajfile} with topology {pdbfile}");
+      print(f"Module {self.__class__.__name__}: stride: {stride}, frame_indices: {frame_indices}, mask: {mask}")
+    traj = pt.io.load_traj(trajfile, self.top, stride=stride);
+    # Do the slicing and Masking if needed
+    if stride is not None:
+      if mask is None:
+        buffer_traj = traj[:]
+      else:
+        buffer_traj = traj[mask]
+    else:
+      frame_indices_ = frame_indices
+      # Convert the frame_indices to list if it is tuple
+      if isinstance(frame_indices_, tuple):
+        frame_indices_ = list(frame_indices_)
+      # Load all frames if frame_indices_ is None
+      if frame_indices_ is None and mask is None:
+        buffer_traj = traj[:]
+      elif frame_indices_ is None and mask is not None:
+        # load all frames with given mask
+        # eg: traj['@CA']
+        buffer_traj = traj[mask]
+      elif frame_indices_ is not None and mask is None:
+        # eg. traj[[0, 3, 7]]
+        buffer_traj = traj[frame_indices_]
+      else:
+        # eg. traj[[0, 3, 7], '@CA']
+        buffer_traj = traj[frame_indices_, mask]
+    # Reassign the trajectory if there is slicing or masking of the trajectory
+    if (self.n_frames != buffer_traj.n_frames) or (self.n_atoms != buffer_traj.n_atoms):
+      if CONFIG.get("verbose", False):
+        print(f"Module {self.__class__.__name__}: Reassigning the trajectory; ");
+      self.top = buffer_traj.top;
+      self._xyz = buffer_traj._xyz;
+      self._boxes = buffer_traj._boxes;
+      self.forces = buffer_traj.forces;
+      self.velocities = buffer_traj.velocities;
+      self.time = buffer_traj.time;
+      self._life_holder = buffer_traj._life_holder;
+      self._frame_holder = buffer_traj._frame_holder;
 
+    self.activeframe = 0;
+    if CONFIG.get("verbose", False):
+      print(f"Module {self.__class__.__name__}: Trajectory loaded in {time.perf_counter() - st:.2f} seconds");
   def copy(self):
-    return self.traj.copy()
-
-  def strip(self, mask): 
-    self.traj.strip(mask)
+    thecopy = pt.Trajectory();
+    thecopy.top = self.top.copy()
+    thecopy.xyz = self._xyz.copy()
+    return thecopy
 
   def cluster_pairwise(self, mask, **kwarg): 
     if "countermask" in kwarg.keys():
@@ -82,11 +132,11 @@ class TRAJ:
     return self.frames
     
   def cluster_rmsd(self):
-    self.traj = self.traj; 
+    pass
     
   def slicetraj(self, frameindices):
     frameindices = np.array(frameindices).astype(int)
-    self.traj = pt.Trajectory(self.traj[frameindices])
+
     
   def cluster(self, method="", **kwarg):
     if len(method) == 0:

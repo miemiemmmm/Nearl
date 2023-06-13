@@ -681,7 +681,8 @@ class Featurizer3D:
     Args:
       theframes: A list of frame indexes
     """
-    self.frames = theframes
+    self.frames = theframes;
+    self.frameNr = len(self.frames);
 
   ####################################################################################################
   ######################################## DATABASE operation ########################################
@@ -864,14 +865,12 @@ class Featurizer3D:
       # DEBUG ONLY
       if _verbose:
         printit(f"Found {len(set(segments))} segments", np.unique(segments, return_counts=True));
+
+      # Computation time only occupies 10% of the total time
+      # E.G. 1.686 (clock time) vs 0.174 (cpu time)
       feature_vector, mesh_objs = self.repr_generator.vectorize(segments);
 
       final_mesh = functools.reduce(lambda a, b: a + b, mesh_objs);
-      # if (not _clear):
-      #   with tempfile.NamedTemporaryFile(prefix=CONFIG["tempfolder"]+"MSMS_OBJ_") as tmp:
-      #     # Write out the final mesh if the intermediate output is required for debugging purpose
-      #     write_triangle_mesh(f"{tmp.name}.ply", final_mesh, write_ascii=True);
-
       if len(feature_vector) == 0:
         if _verbose:
           printit(f"Center {center} has no feature vector");
@@ -883,7 +882,6 @@ class Featurizer3D:
       # Compute the FPFH
       fpfh = compute_fpfh_feature(final_mesh.sample_points_uniformly(CONFIG.get("DOWN_SAMPLE_POINTS", 600)),
                                   KDTreeSearchParamHybrid(radius=1, max_nn=20));
-      # print(fpfh, np.asarray(fpfh.data))
       fpfh_vector[idx] = fpfh.data;
 
       for fidx, feature in enumerate(self.FEATURES):

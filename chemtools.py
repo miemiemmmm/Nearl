@@ -4,6 +4,8 @@ import pytraj as pt
 import numpy as np 
 import tempfile
 
+from . import CONFIG
+
 def DACbytraj(traj, frameidx, themask, **kwargs):
   """
   Count Hydrogen bond donors and acceptors by trajectory and selection
@@ -19,7 +21,7 @@ def DACbytraj(traj, frameidx, themask, **kwargs):
   tmp_traj = traj.copy();
   if traj.top.select(f"!({themask})").__len__() > 0:
     tmp_traj.strip(f"!({themask})");
-  if (tmp_traj.top.n_atoms == traj.top.n_atoms):
+  if (tmp_traj.top.n_atoms == traj.top.n_atoms) and CONFIG["verbose"]:
     print(f"{DACbytraj.__name__:15s}: All atoms are kept after applying the mask. Please make sure if this is wanted.")
   with tempfile.NamedTemporaryFile(suffix=".pdb") as file1: 
     pt.write_traj(file1.name, tmp_traj, overwrite=True, frame_indices=[frameidx])
@@ -52,7 +54,7 @@ def Chargebytraj(traj, frameidx, themask):
   tmp_traj = traj.copy();
   if traj.top.select(f"!({themask})").__len__() > 0:
     tmp_traj.strip(f"!({themask})");
-  if (tmp_traj.top.n_atoms == traj.top.n_atoms):
+  if (tmp_traj.top.n_atoms == traj.top.n_atoms) and CONFIG["verbose"]:
     print(f"{Chargebytraj.__name__:15s}: All atoms are kept after applying the mask. Please make sure if this is wanted.")
   
   with tempfile.NamedTemporaryFile(suffix=".pdb") as file1:

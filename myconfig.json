@@ -3,15 +3,17 @@
   "dbname": "testfeatures",
   "host": "localhost",
   "password": "testyang",
-  "msms": "msms_i86_64Linux2_2.6.1/msms.x86_64Linux2.2.6.1",
+  "msms": "/media/yzhang/MieT5/BetaPose/msms_i86_64Linux2_2.6.1/msms.x86_64Linux2.2.6.1",
   "tempfolder" : "/tmp/",
   "clear" : false,
   "verbose" : false,
 
+  "usegpu": false,
+
   "DOWN_SAMPLE_POINTS" : 600,
 
   "SEGMENT_LIMIT" : 6,
-  "VIEWPOINT_BINS" : 30,
+  "VIEWPOINT_BINS" : 12,
 
   "test": "test"
 }
