@@ -60,7 +60,7 @@ class Feature:
 
 class MassFeature(Feature):
   def __init__(self):
-    super(MassFeature, self).__init__()
+    super().__init__()
     
   def featurize(self): 
     """

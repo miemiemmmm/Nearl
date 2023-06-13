@@ -3,7 +3,7 @@ import pytraj as pt
 import numpy as np 
 import open3d as o3d
 from scipy import spatial
-
+import multiprocessing as mp
 from itertools import combinations
 from scipy.spatial.distance import cdist
 from . import utils, chemtools
@@ -12,6 +12,12 @@ from . import CONFIG, printit
 _clear = CONFIG.get("clear", False);
 _verbose = CONFIG.get("verbose", False);
 _tempfolder = CONFIG.get("tempfolder", "/tmp");
+
+_usegpu = CONFIG.get("usegpu", False);
+if _usegpu:
+  import cupy as cp
+
+
 
 ATOM_PATTERNS = {0: '^[0-9]*H.*$', 1: '^[0-9]*D.*$', 2: '^O.*$', 3: '^CA$', 4: '^CD$', 5: '^CD  $', 6: '^CA$', 7: '^N$', 8: '^CA$', 9: '^C$', 10: '^O$', 11: '^P$', 12: '^CB$', 13: '^CB$', 14: '^CB$', 15: '^CG$', 16: '^CG$', 17: '^CG$', 18: '^CG$', 19: '^O1$', 20: '^O2$', 21: '^CH3$', 22: '^CD$', 23: '^NE$', 24: '^RE$', 25: '^CZ$', 26: '^NH[12][AB]?$', 27: '^RH[12][AB]?$', 28: '^OD1$', 29: '^ND2$', 30: '^AD1$', 31: '^AD2$', 32: '^OD[12][AB]?$', 33: '^ED[12][AB]?$', 34: '^OD1[AB]?$', 35: '^ND2$', 36: '^AD1$', 37: '^AD2$', 38: '^OD2$', 39: '^LP[12]$', 40: '^SG$', 41: '^SG$', 42: '^OE[12][AB]?$', 43: '^EE[12][AB]?$', 44: '^CD$', 45: '^OE1$', 46: '^NE2$', 47: '^AE[12]$', 48: '^CE1|CD2$', 49: '^ND1$', 50: '^ND1$', 51: '^RD1$', 52: '^NE2$', 53: '^RE2$', 54: '^NE2$', 55: '^RE2$', 56: '^A[DE][12]$', 57: '^CG1$', 58: '^CG2$', 59: '^CD|CD1$', 60: '^CD1$', 61: '^CD2$', 62: '^C[GDE]$', 63: '^NZ$', 64: '^KZ$', 65: '^SD$', 66: '^CE$', 67: '^C[DE][12]$', 68: '^CZ$', 69: '^C[GD]$', 70: '^SE$', 71: '^SEG$', 72: '^OD1$', 73: '^OD2$', 74: '^OG$', 75: '^OG1$', 76: '^CG2$', 77: '^CD1$', 78: '^CD2$', 79: '^CE2$', 80: '^NE1$', 81: '^CE3$', 82: '^CZ2$', 83: '^CZ3$', 84: '^CH2$', 85: '^C[DE][12]$', 86: '^CZ$', 87: '^OH$', 88: '^CG1$', 89: '^CG2$', 90: '^CD$', 91: '^CE$', 92: '^FE[1-7]$', 93: '^S[1-7]$', 94: '^OXO$', 95: '^FE1$', 96: '^FE2$', 97: '^O1$', 98: '^O2$', 99: '^FE$', 100: '^CH[A-D]$', 101: '^N[A-D]$', 102: '^N [A-D]$', 103: '^C[1-4][A-D]$', 104: '^CM[A-D]$', 105: '^C[AB][AD]$', 106: '^CG[AD]$', 107: '^O[12][AD]$', 108: '^C[AB][BC]$', 109: '^OH2$', 110: '^N[123]$', 111: '^C1$', 112: '^C2$', 113: '^C3$', 114: '^C4$', 115: '^C5$', 116: '^C6$', 117: '^O7$', 118: '^O8$', 119: '^S$', 120: '^O[1234]$', 121: '^O[1234]$', 122: '^O4$', 123: '^P1$', 124: '^O[123]$', 125: '^C[12]$', 126: '^N1$', 127: '^C[345]$', 128: '^BAL$', 129: '^POI$', 130: '^DOT$', 131: '^CU$', 132: '^ZN$', 133: '^MN$', 134: '^FE$', 135: '^MG$', 136: '^MN$', 137: '^CO$', 138: '^SE$', 139: '^YB$', 140: '^N1$', 141: '^C[2478]$', 142: '^O2$', 143: '^N3$', 144: '^O4$', 145: '^C[459]A$', 146: '^N5$', 147: '^C[69]$', 148: '^C[78]M$', 149: '^N10$', 150: '^C10$', 151: '^C[12345]\\*$', 152: '^O[234]\\*$', 153: '^O5\\*$', 154: '^OP[1-3]$', 155: '^OT1$', 156: '^C01$', 157: '^C16$', 158: '^C14$', 159: '^C.*$', 160: '^SEG$', 161: '^OXT$', 162: '^OT.*$', 163: '^E.*$', 164: '^S.*$', 165: '^C.*$', 166: '^A.*$', 167: '^O.*$', 168: '^N.*$', 169: '^R.*$', 170: '^K.*$', 171: '^P[A-D]$', 172: '^P.*$', 173: '^.O.*$', 174: '^.N.*$', 175: '^.C.*$', 176: '^.P.*$', 177: '^.H.*$'}
 RESIDUE_PATTERNS = {0: '^.*$', 1: '^.*$', 2: '^WAT|HOH|H2O|DOD|DIS$', 3: '^CA$', 4: '^CD$', 5: '^.*$', 6: '^ACE$', 7: '^.*$', 8: '^.*$', 9: '^.*$', 10: '^.*$', 11: '^.*$', 12: '^ALA$', 13: '^ILE|THR|VAL$', 14: '^.*$', 15: '^ASN|ASP|ASX|HIS|HIP|HIE|HID|HISN|HISL|LEU|PHE|TRP|TYR$', 16: '^ARG|GLU|GLN|GLX|MET$', 17: '^LEU$', 18: '^.*$', 19: '^GLN$', 20: '^GLN$', 21: '^ACE$', 22: '^ARG$', 23: '^ARG$', 24: '^ARG$', 25: '^ARG$', 26: '^ARG$', 27: '^ARG$', 28: '^ASN$', 29: '^ASN$', 30: '^ASN$', 31: '^ASN$', 32: '^ASP$', 33: '^ASP$', 34: '^ASX$', 35: '^ASX$', 36: '^ASX$', 37: '^ASX$', 38: '^ASX$', 39: '^CYS|MET$', 40: '^CY[SXM]$', 41: '^CYH$', 42: '^GLU$', 43: '^GLU$', 44: '^GLU|GLN|GLX$', 45: '^GLN$', 46: '^GLN$', 47: '^GLN|GLX$', 48: '^HIS|HID|HIE|HIP|HISL$', 49: '^HIS|HIE|HISL$', 50: '^HID|HIP$', 51: '^HID|HIP$', 52: '^HIS|HIE|HIP$', 53: '^HIS|HIE|HIP$', 54: '^HID|HISL$', 55: '^HID|HISL$', 56: '^HIS|HID|HIP|HISD$', 57: '^ILE$', 58: '^ILE$', 59: '^ILE$', 60: '^LEU$', 61: '^LEU$', 62: '^LYS$', 63: '^LYS$', 64: '^LYS$', 65: '^MET$', 66: '^MET$', 67: '^PHE$', 68: '^PHE$', 69: '^PRO|CPR$', 70: '^CSO$', 71: '^CSO$', 72: '^CSO$', 73: '^CSO$', 74: '^SER$', 75: '^THR$', 76: '^THR$', 77: '^TRP$', 78: '^TRP$', 79: '^TRP$', 80: '^TRP$', 81: '^TRP$', 82: '^TRP$', 83: '^TRP$', 84: '^TRP$', 85: '^TYR$', 86: '^TYR$', 87: '^TYR$', 88: '^VAL$', 89: '^VAL$', 90: '^.*$', 91: '^.*$', 92: '^FS[34]$', 93: '^FS[34]$', 94: '^FS3$', 95: '^FEO$', 96: '^FEO$', 97: '^HEM$', 98: '^HEM$', 99: '^HEM$', 100: '^HEM$', 101: '^HEM$', 102: '^HEM$', 103: '^HEM$', 104: '^HEM$', 105: '^HEM$', 106: '^HEM$', 107: '^HEM$', 108: '^HEM$', 109: '^HEM$', 110: '^AZI$', 111: '^MPD$', 112: '^MPD$', 113: '^MPD$', 114: '^MPD$', 115: '^MPD$', 116: '^MPD$', 117: '^MPD$', 118: '^MPD$', 119: '^SO4|SUL$', 120: '^SO4|SUL$', 121: '^PO4|PHO$', 122: '^PC$', 123: '^PC$', 124: '^PC$', 125: '^PC$', 126: '^PC$', 127: '^PC$', 128: '^BIG$', 129: '^POI$', 130: '^DOT$', 131: '^.*$', 132: '^.*$', 133: '^.*$', 134: '^.*$', 135: '^.*$', 136: '^.*$', 137: '^.*$', 138: '^.*$', 139: '^.*$', 140: '^FMN$', 141: '^FMN$', 142: '^FMN$', 143: '^FMN$', 144: '^FMN$', 145: '^FMN$', 146: '^FMN$', 147: '^FMN$', 148: '^FMN$', 149: '^FMN$', 150: '^FMN$', 151: '^FMN$', 152: '^FMN$', 153: '^FMN$', 154: '^FMN$', 155: '^ALK|MYR$', 156: '^ALK|MYR$', 157: '^ALK$', 158: '^MYR$', 159: '^ALK|MYR$', 160: '^.*$', 161: '^.*$', 162: '^.*$', 163: '^.*$', 164: '^.*$', 165: '^.*$', 166: '^.*$', 167: '^.*$', 168: '^.*$', 169: '^.*$', 170: '^.*$', 171: '^.*$', 172: '^.*$', 173: '^FAD|NAD|AMX|APU$', 174: '^FAD|NAD|AMX|APU$', 175: '^FAD|NAD|AMX|APU$', 176: '^FAD|NAD|AMX|APU$', 177: '^FAD|NAD|AMX|APU$'}
@@ -287,31 +293,58 @@ def pseudo_elec(q1, q2, r):
   k = 8.98
   return k*q1*q2/r
 
-def pseudo_energy(traj, frame, idxs, mode, charges=[]): 
+def pseudo_energy_gpu(coord, mode, charges=[]):
+  mode = mode.lower();
+  _coord = cp.array(coord);
+  pairs = list(combinations(cp.arange(len(_coord)), 2));
+  energy_final = cp.array(0, dtype=cp.float64);
+  if mode == "lj":
+    for p in pairs:
+      p1 = _coord[p[0]];
+      p2 = _coord[p[1]];
+      dist = cp.linalg.norm(p1-p2);
+      energy_final += pseudo_lj(dist);
+  elif mode == "elec":
+    if len(charges) == 0:
+      charges = cp.zeros(len(_coord));
+    else:
+      if len(charges) != len(_coord):
+        raise Exception(f"The length of the charge ({len(charges)}) does not equal to the dimension of atoms({len(coord)})")
+      else:
+        charges = cp.array(charges);
+    for p in pairs:
+      p1 = _coord[p[0]];
+      p2 = _coord[p[1]];
+      dist = cp.linalg.norm(p1-p2);
+      energy_final += pseudo_elec(charges[p[0]], charges[p[1]], dist);
+  else:
+    raise Exception(f"{pseudo_energy.__name__:15s}: Only two pseudo-energy evaluation modes are supported: Lenar-jones (lj) and Electrostatic (elec)")
+  return energy_final.get();
+
+def pseudo_energy(coord, mode, charges=[]):
   # Using the following code for distance calculation, speeds up a bit
   mode = mode.lower(); 
-  pairs = list(combinations(idxs, 2)); 
-  xyz = traj.xyz[frame]; 
+  pairs = list(combinations(np.arange(len(coord)), 2));
   energy_final = 0; 
   if mode == "lj": 
     for p in pairs: 
-      p1 = xyz[p[0]];
-      p2 = xyz[p[1]];
-      dist = np.linalg.norm(p1-p2);   
+      p1 = coord[p[0]];
+      p2 = coord[p[1]];
+      dist = np.linalg.norm(p1 - p2);
       energy_final += pseudo_lj(dist);
   elif mode == "elec": 
     if len(charges) == 0:
-      charges = np.zeros(len(xyz)); 
+      charges = np.zeros(len(coord));
     else: 
-      if len(charges) != len(xyz): 
-        raise Exception(f"The length of the charge ({len(charges)}) does not equal to the dimension of atoms({len(xyz)})")
+      if len(charges) != len(coord):
+        raise Exception(f"The length of the charge ({len(charges)}) does not equal to the dimension of atoms({len(coord)})")
       else: 
         charges = np.array(charges); 
     for p in pairs: 
       q1 = charges[p[0]];
       q2 = charges[p[1]];
-      p1 = xyz[p[0]];
-      p2 = xyz[p[1]];
+      p1 = coord[p[0]];
+      p2 = coord[p[1]];
       dist = np.linalg.norm(p1-p2);
       energy_final += pseudo_elec(q1, q2, dist);
   else: 
@@ -418,17 +451,23 @@ class generator:
     self.traj = traj;
     self.atoms = np.asarray(list(self.traj.top.atoms));
 
-    # Try to load default parameters from the configuration file
+    # Load parameters from the configuration file
     self.SEGMENT_LIMIT = CONFIG.get("SEGMENT_LIMIT", 6);
     self.FPFH_DOWN_SAMPLES = CONFIG.get("DOWN_SAMPLE_POINTS", 600);
+    self.VIEWPOINTBINS = CONFIG.get("VIEWPOINT_BINS", 8);
+    self.MSMS_EXE = CONFIG.get("msms", "");
+    printit("Parameters are loaded")
+    printit(f"SEGMENT_LIMIT: {self.SEGMENT_LIMIT}", end=" | ")
+    print(f"DOWN_SAMPLE_POINTS: {self.FPFH_DOWN_SAMPLES}", end=" | ")
+    print(f"VIEWPOINT_BINS: {self.VIEWPOINTBINS}", end=" | ")
+    print(f"MSMS_EXE: {self.MSMS_EXE}")
 
-    if CONFIG.get("msms", False): 
-      self.MSMS_EXE = CONFIG.get("msms", "");
-    else: 
-      self.MSMS_EXE = os.environ.get("MSMS_EXE", ""); 
+    if len(self.MSMS_EXE) == 0:
+      self.MSMS_EXE = os.environ.get("MSMS_EXE", "");
+
     if (not self.MSMS_EXE) or (len(self.MSMS_EXE) == 0):
       print(f"Warning: Cannot find the executable for msms program. Use the following ways to find the MSMS executable:\n\"msms\": \"/path/to/MSMS/executable\" in configuration file\nor\nexport MSMS_EXE=/path/to/MSMS/executable", file=sys.stderr)
-    elif not os.path.isfile(self.MSMS_EXE): 
+    elif not os.path.isfile(self.MSMS_EXE):
       print(f"Warning: Designated MSMS executable({self.MSMS_EXE}) not found. Please check the following path: {self.MSMS_EXE}", file=sys.stderr)
 
     if (not _clear):
@@ -468,7 +507,6 @@ class generator:
     assert isinstance(framei, int), "Frame index should be int"
     self._frame = framei
 
-    
   def slicebyframe(self, threshold=2): 
     """
     Generate a slice from all frame of a trajectory (Each frame takes one dimension)
@@ -501,7 +539,10 @@ class generator:
     """
     indice = np.array(theidxi);
     self.set_tempprefix();
-    filename = self.tempprefix + "msms";
+    if mp.current_process().name == 'MainProcess':
+      filename = self.tempprefix + "msms";
+    else:
+      filename = self.tempprefix + "msms_" + str(mp.current_process().pid);
 
     # Prepare the xyzr file for MSMS
     resnames = np.array([a.name for a in self.traj.top.residues])
@@ -541,7 +582,7 @@ class generator:
       segment: the segment to be vectorized
     """
     # Initialize the identity feature vector
-    framefeature = np.zeros((self.SEGMENT_LIMIT, 12 + CONFIG.get("VIEWPOINT_BINS", 30)));
+    framefeature = np.zeros((self.SEGMENT_LIMIT, 12 + self.VIEWPOINTBINS));
     # Order the segments from the most abundant to least ones
     segcounter = 0;
     nrsegments = min(len(set(segment)) - 1, 6);
@@ -550,7 +591,6 @@ class generator:
     self.__mesh = None;
     segment_objects = [];
     """ ITERATE the at maximum 6 segments """
-    # print(utils.ordersegments(segment))
     for segi in utils.ordersegments(segment)[:self.SEGMENT_LIMIT]:
       # ATOM types counts
       theidxi = np.where(segment == segi)[0];
@@ -571,24 +611,26 @@ class generator:
       if (not _clear):
         pdbstr = chemtools.writepdbs(self.traj, self.frame, self.resmask);
         new_lines = [line for line in pdbstr.strip("\n").split('\n') if ("END" not in line and "CONECT" not in line)]
-        # pdbstr = pdbstr.replace("^END.*", "");
-        # pdbstr = pdbstr.replace("^CONECT.*", "");
-        pdb_final += ('\n'.join(new_lines) + "\n") # chemtools.writepdbs(self.traj, self.frame, self.resmask);
+        pdb_final += ('\n'.join(new_lines) + "\n")
       else:
         pdb_final += ""
-      
+
       # Segment conversion to triangle mesh
       self.mesh = self.segment2mesh(theidxi);
+
+
       if self.mesh == False or self.mesh.is_empty():
         framefeature[segcounter - 1, :] = 0;
         continue
+
       # Point cloud-based descriptors
       SA = self.surface(self.mesh)
       VOL = self.volume(self.mesh)
-      
+      # print("DEBUG here: after the geometrical descriptors calculation", self.mesh)
       rad = self.mean_radius(self.mesh)
       h_ratio = self.convex_hull_ratio(self.mesh);
       self.mesh.paint_uniform_color(CMAP6[segcounter]);
+
 
       framefeature[segcounter, :12] = [
         T_Nr, C_Nr, N_d, N_a, C_p, C_n, PE_lg, PE_el, SA, VOL, rad, h_ratio
@@ -596,47 +638,17 @@ class generator:
 
       # Try fixed viewpoint
       pf_gen = PointFeature(self.mesh);
-      vpc = pf_gen.compute_vpc([1000, 1000, 1000]);
-      framefeature[segcounter, -CONFIG.get("VIEWPOINT_BINS", 30):] = vpc;
-      # print(segcounter, vpc)
+      vpc = pf_gen.compute_vpc([100000000, 0, 0], bins = self.VIEWPOINTBINS);
+      framefeature[segcounter, -self.VIEWPOINTBINS:] = vpc;
       if (_verbose):
         printit(f"Viewpoint: [1000, 0, 0]; Sum of VPC is: {sum(vpc)}");
-
-      # Viewpoint-based descriptors
-      # if (segcounter > 0):
-      #   vp = self.__mesh.get_center();
-      #   pf_gen = PointFeature(self.mesh);
-      #   vpc = pf_gen.compute_vpc(vp);
-      #   framefeature[segcounter-1, -30:] = vpc;
-      #   if (_verbose):
-      #     printit(f"Viewpoint: {vp}; Sum of VPC is: {sum(vpc)}");
-
       self.__mesh = copy.deepcopy(self.mesh);
       segcounter += 1;
-
-      # Lookback component to all its previous segments
-      # if nrsegments == 1:
-      #   vp = self.mesh.get_center();
-      #   other_objects = self.mesh;
-      #   pf_gen = PointFeature(other_objects);
-      #   vpc = pf_gen.self_vpc(vp);
-      #   framefeature[segcounter - 1, -30:] = vpc
-      #   if (_verbose):
-      #     printit(f"Final round VPC with only 1 segments; Center as viewpoint: {vp} -> {sum(vpc)}");
-      # elif (segcounter == nrsegments):
-      #   vp = self.__mesh.get_center();
-      #   other_objects = functools.reduce(lambda a, b: a + b, segment_objects);
-      #   pf_gen = PointFeature(other_objects);
-      #   vpc = pf_gen.compute_vpc(vp);
-      #   framefeature[segcounter - 1, -30:] = vpc
-      #   if (_verbose):
-      #     printit(f"Lookback viewpoint: {vp} -> {sum(vpc)}");
-      #     printit(f"Number of objects for lookback viewpoint component: {len(segment_objects)}")
-
       segment_objects.append(self.mesh);
 
       if _verbose:
         printit(f"Segment {segcounter} / {nrsegments}: {self.mesh}")
+    # print(self.tempprefix)
     if _verbose:
       printit("Final 3D object: ", functools.reduce(lambda a, b: a+b, segment_objects))
     if (not _clear):
@@ -646,8 +658,6 @@ class generator:
         f.write(pdb_final);
       final_mesh = functools.reduce(lambda a, b: a + b, segment_objects);
       o3d.io.write_triangle_mesh(f"{self.tempprefix}frame{self.frame}.ply", final_mesh, write_ascii=True);
-
-
     return framefeature.reshape(-1), segment_objects
   
   def atom_type_count(self, theidxi):
@@ -705,8 +715,29 @@ class generator:
     """
     charges = {i:j for i,j in self.charges.items()}; 
     charge_arr = chargedict2array(self.traj, self.frame, charges);
-    pp_lj = pseudo_energy(self.traj, self.frame, theidxi, "lj");
-    pp_elec = pseudo_energy(self.traj, self.frame, theidxi, "elec", charges=charge_arr);
+    if _usegpu:
+      xyz = cp.asarray(self.traj.xyz[self.frame, theidxi, :]);
+      pp_lj = pseudo_energy_gpu(xyz, "lj");
+      pp_elec = pseudo_energy_gpu(xyz, "elec", charges=charge_arr[theidxi]);
+
+      # from cupyx.profiler import benchmark
+      # bm1 = benchmark(pseudo_energy_gpu, (xyz, "lj"), n_repeat=10)
+      # bm2 = benchmark(pseudo_energy_gpu, (xyz, "elec", charge_arr[theidxi]), n_repeat=10)
+      # print(f"There are {len(theidxi)} atoms ")
+      # print("Benchmark the GPU time: ", bm1.gpu_times.mean(), "efficiency: ", 1/(bm1.gpu_times.mean()/(len(theidxi)**2)));
+      # print("Benchmark the GPU time Elec: ", bm2.gpu_times.mean(), "efficiency: ", 1/(bm2.gpu_times.mean()/(len(theidxi)**2)));
+
+    else:
+      xyz = np.array(self.traj.xyz[self.frame, theidxi, :]);
+      pp_lj = pseudo_energy(xyz, "lj");
+      pp_elec = pseudo_energy(xyz, "elec", charges=charge_arr[theidxi]);
+
+      # from cupyx.profiler import benchmark
+      # bm1 = benchmark(pseudo_energy, (xyz, "lj"), n_repeat=10)
+      # bm2 = benchmark(pseudo_energy, (xyz, "elec", charge_arr[theidxi]), n_repeat=10)
+      # print(f"There are {len(theidxi)} atoms ")
+      # print("Benchmark the CPU time: ", bm1.cpu_times.mean(), "efficiency: ", 1/(bm1.cpu_times.mean()/(len(theidxi)**2)));
+      # print("Benchmark the CPU time Elec: ", bm2.cpu_times.mean(), "efficiency: ", 1/(bm2.cpu_times.mean()/(len(theidxi)**2)));
     return pp_lj, pp_elec
 
   # Descriptor 9 and 10: Surface area and volume of the mesh
@@ -714,10 +745,13 @@ class generator:
     """
     Volume computation is not robust enough
     """
-    try: 
+    try:
+      print("DEBUG here: after the geometrical descriptors calculation", self.mesh, VOL)
       VOL = mesh.get_volume();
+
     except: 
       VOL  = 1.5 * mesh.get_surface_area();
+
     return VOL
     
   def surface(self, mesh):
@@ -790,7 +824,7 @@ class PointFeature(object):
   def self_vpc(self, bins=128):
     cos_angles = [np.dot(n, d/np.linalg.norm(d)) for n,d in zip(self._norm, self._pcd-self._pcd.mean(axis=0))];
     angles = np.arccos(cos_angles);
-    hist, _ = np.histogram(angles, bins=CONFIG.get("VIEWPOINT_BINS", 30), range=(0, np.pi))
+    hist, _ = np.histogram(angles, bins=self.VIEWPOINTBINS, range=(0, np.pi))
     hist_normalized = hist / np.sum(hist)
     hist_normalized = np.asarray([i if not np.isnan(i) else 0 for i in hist_normalized]);
     return hist_normalized
@@ -807,7 +841,7 @@ class PointFeature(object):
     angles = np.arccos(cos_angles);
 
     # Create the viewpoint component histogram
-    hist, _ = np.histogram(angles, bins=CONFIG.get("VIEWPOINT_BINS", 30), range=(0, np.pi))
+    hist, _ = np.histogram(angles, bins=bins, range=(0, np.pi))
 
     # Normalize the histogram
     hist_normalized = hist / np.sum(hist)
