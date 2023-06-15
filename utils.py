@@ -153,7 +153,7 @@ def PairwiseDistance(traj, mask1, mask2, use_mean=False):
   gp2_names = list(atom_names[absolute_index])
   gp2_ids  = list(atom_ids[absolute_index])
 
-  return distarr, { "gp1_names":gp1_names, "gp1_ids":gp1_ids, "gp2_names":gp2_names, "gp2_ids":gp2_ids }
+  return distarr, { "atom_name_group1":gp1_names, "index_group1":gp1_ids, "atom_name_group2":gp2_names, "index_group2":gp2_ids }
 
 def combineMOL2PDB(mol2file, pdbfile, outfile):
   from rdkit import Chem; 
