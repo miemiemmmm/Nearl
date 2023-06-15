@@ -653,11 +653,19 @@ class generator:
       printit("Final 3D object: ", functools.reduce(lambda a, b: a+b, segment_objects))
     if (not _clear):
       # Write out the final mesh if the intermediate output is required for debugging purpose
+      # Reset the file prefix to make the temporary output file organized
       self.set_tempprefix()
       with open(f"{self.tempprefix}frame{self.frame}.pdb", "w") as f:
         f.write(pdb_final);
       final_mesh = functools.reduce(lambda a, b: a + b, segment_objects);
       o3d.io.write_triangle_mesh(f"{self.tempprefix}frame{self.frame}.ply", final_mesh, write_ascii=True);
+    # Keep the final PDB and PLY files in memory for further use
+    self.active_pdb = pdb_final;
+    with Tempfile(suffix=".ply") as f:
+      o3d.io.write_triangle_mesh(f"{self.tempprefix}frame{self.frame}.ply", final_mesh, write_ascii=True);
+      self.active_ply = f.read();
+    if _verbose and (len(self.active_pdb) == 0 or len(active_ply) == 0):
+      printit(f"DEBUG: Failed to correctly generate the intermediate PDB and PLY files for frame {self.frame}");
     return framefeature.reshape(-1), segment_objects
   
   def atom_type_count(self, theidxi):

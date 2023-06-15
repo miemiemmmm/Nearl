@@ -25,16 +25,20 @@ if int(omp_thread) != 1:
 def process_framei(trajfile, topfile, resi):
   print(f"Processing residue {resi} of the trajectory {trajfile}");
   # Initialize the featurizer
-  feat = featurizer.Featurizer3D(FEATURIZER_PARMS);
-  feature_mass = features.MassFeature();
+  feat = features.Featurizer3D(FEATURIZER_PARMS);
+  # feature_mass = ;
+  
   # NOTE: in this step, the feature hooks back the feature and could access the featurizer by feat.featurer
-  feat.register_feature(feature_mass)  # i features
+  feat.register_feature(features.MassFeature());  # i features
+  feat.register_feature(features.BoxFeature()); 
 
   # Load the trajectory in need
+
   traj = trajloader.TrajectoryLoader(trajfile, topfile, mask=f":{resi}")[0];
   feat.register_traj(traj)
   # Fit the standardizer of the input features
   feat.register_frames(range(0, 1000, 20))  # TODO: change the range
+
 
   index_selected = traj.top.select("@CA,C,O,N,CB&:1")
   print(

@@ -47,7 +47,7 @@ if __name__ == "__main__":
     if traj.top.select(":T3P").__len__() > 0:
       traj.strip(":T3P")
     # Initialize the featurizer since different trajectory might have distinct parameters
-    feat  = featurizer.Featurizer3D(FEATURIZER_PARMS);
+    feat  = features.Featurizer3D(FEATURIZER_PARMS);
     feature_mass = features.MassFeature();
 
     # NOTE: in this step, the feature hooks back the feature and could access the featurizer by feat.featurer
