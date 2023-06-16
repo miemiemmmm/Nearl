@@ -590,6 +590,7 @@ class generator:
     # Lastest mesh object
     self.__mesh = None;
     segment_objects = [];
+    atom_indices = [];
     """ ITERATE the at maximum 6 segments """
     for segi in utils.ordersegments(segment)[:self.SEGMENT_LIMIT]:
       # ATOM types counts
@@ -608,17 +609,13 @@ class generator:
       C_p, C_n = self.partial_charge(theidxi);
       PE_lg, PE_el = self.pseudo_energy(theidxi)
 
-      if (not _clear):
-        pdbstr = chemtools.writepdbs(self.traj, self.frame, self.resmask);
-        new_lines = [line for line in pdbstr.strip("\n").split('\n') if ("END" not in line and "CONECT" not in line)]
-        pdb_final += ('\n'.join(new_lines) + "\n")
-      else:
-        pdb_final += ""
+      atom_indices += self.traj.top.select(self.resmask).tolist();
+      pdbstr = chemtools.write_pdb_block(self.traj, self.frame, self.resmask);
+      new_lines = [line for line in pdbstr.strip("\n").split('\n') if ("END" not in line and "CONECT" not in line)]
+      pdb_final += ('\n'.join(new_lines) + "\n")
 
       # Segment conversion to triangle mesh
       self.mesh = self.segment2mesh(theidxi);
-
-
       if self.mesh == False or self.mesh.is_empty():
         framefeature[segcounter - 1, :] = 0;
         continue
@@ -648,7 +645,7 @@ class generator:
 
       if _verbose:
         printit(f"Segment {segcounter} / {nrsegments}: {self.mesh}")
-    # print(self.tempprefix)
+    # END of the segment iteration
     if _verbose:
       printit("Final 3D object: ", functools.reduce(lambda a, b: a+b, segment_objects))
     if (not _clear):
@@ -661,6 +658,7 @@ class generator:
       o3d.io.write_triangle_mesh(f"{self.tempprefix}frame{self.frame}.ply", final_mesh, write_ascii=True);
     # Keep the final PDB and PLY files in memory for further use
     self.active_pdb = pdb_final;
+    self.active_indices = atom_indices;
     with Tempfile(suffix=".ply") as f:
       o3d.io.write_triangle_mesh(f"{self.tempprefix}frame{self.frame}.ply", final_mesh, write_ascii=True);
       self.active_ply = f.read();

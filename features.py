@@ -450,6 +450,7 @@ class Featurizer3D:
       self.mesh = copy.deepcopy(final_mesh);
       self.boxed_pdb = self.repr_generator.active_pdb;
       self.boxed_ply = self.repr_generator.active_ply;
+      self.boxed_indices = self.repr_generator.active_indices;
       if len(feature_vector) == 0:
         if _verbose:
           printit(f"Center {center} has no feature vector");
@@ -535,6 +536,19 @@ class Feature:
   def points3d(self):
     return np.array(self.featurizer.points3d);
 
+  def crop_box(self, points):
+    """
+    Crop the points to the box defined by the center and lengths
+    The mask is returned as a boolean array
+    """
+    thecoord = np.asarray(points);
+    upperbound = self.center + self.lengths / 2;
+    lowerbound = self.center - self.lengths / 2;
+    ubstate = np.all(thecoord < upperbound, axis=1);
+    lbstate = np.all(thecoord > lowerbound, axis=1);
+    mask_inbox = ubstate * lbstate;
+    return mask_inbox
+
   def interpolate(self, points, weights):
     """
     Interpolate density from a set of weighted 3D points to an N x N x N mesh grid.
@@ -601,98 +615,131 @@ class MassFeature(Feature):
   def __init__(self):
     super().__init__()
 
+  def before(self):
+    """
+    Since topology does not change during the simulation, we can precompute the atomic mass
+    """
+    self.atomic_nrs = np.array([int(i.atomic_number) for i in self.traj.top.atoms]);
+
   def featurize(self): 
     """
     1. Get the atomic feature
     2. Update the feature 
     """
-    atomic_nrs = np.array([int(i.atomic_number) for i in self.traj.top.atoms]);
-
     # Get the atoms within the bounding box
-    upperbound = self.center + self.lengths / 2;
-    lowerbound = self.center - self.lengths / 2;
-    ubstate = np.all(self.active_frame.xyz<upperbound, axis=1);
-    lbstate = np.all(self.active_frame.xyz>lowerbound, axis=1);
-    mask_inbox = ubstate * lbstate;
+    mask_inbox = self.crop_box(self.active_frame.xyz);
 
     # Get the coordinate/required atomic features within the bounding box
-    coords = self.active_frame.xyz[mask_inbox]
-    weights = atomic_nrs[mask_inbox]
+    coords  = self.active_frame.xyz[mask_inbox]
+    weights = self.atomic_nrs[mask_inbox]
     feature_mass = self.interpolate(coords, weights)
     print("feature_mass => ", feature_mass.shape)
     return feature_mass;
 
+
+
+# elif self.mode == "charmm36":
+#   """Partial charges from charmm36 force field for protein """
+#   self.mode = "charmm36";
+# elif self.mode == "amber99":
+#   """Partial charges from amber99 force field for protein"""
+#   self.mode = "amber99";
+# elif (self.mode == "charmm36" and not self.computed):
+#   # TODO
+#   self.computed = True;
+# elif (self.mode == "amber99" and not self.computed):
+#   # TODO
+#   self.computed = True;
+
+
 class PartialChargeFeature(Feature):
   """
   Auxiliary class for featurizer. Needs to be hooked to the featurizer after initialization.
-  Atomic charge feature for ligand
+  Atomic charge feature for the structure of interest;
   Compute the charge based on the self.featurizer.boxed_pdb;
   """
-  def __init__(self, moi="*", mode="auto"):
+  def __init__(self, moi="*", value=[]):
     super().__init__()
-    if mode == "auto":
-      self.mode = "gasteiger";
-    elif mode == "am1bcc":
-      self.mode = "am1bcc";
-      self.cmd_template = "am1bcc -i LIGFILE -f ac -o OUTFILE -j 5";
-    elif mode =="cgenff":
-      self.mode = "cgenff";
-      self.cmd_template = "cat LIGFILE | ${CGENFFEXE} -m /dev/null -i mol2 -f OUTFILE";
-    elif isinstance(mode, (np.ndarray, list, tuple)):
+    self.moi = moi;          # moiety of interest
+    self.cmd_template = "";  # command template for external charge computation programs
+    if len(value) > 0:
       self.mode = "manual";
-      self.charge_values = mode;
+      self.charge_values = [i for i in value];
     else:
       self.mode = "gasteiger";
+      self.charge_values = [];
 
-  def before(self):
-    """
-    Generate the charges for the ligand based on the pre-defined mode
-    """
-    if (self.traj.top.select(moi) == 0):
-      raise ValueError("No atoms selected for partial charge calculation");
+  def featurize(self):
+    from rdkit import Chem, AllChem;
+    # indices = [idx for idx in self.featurizer.boxed_indices if idx in self.traj.top.select(self.moi)];
+    # NOTE:
+    # The self.boxed_pdb is already cropped and atom are reindexed in the PDB block.
+    # Hence use the self.boxed_indices to get the original atom indices standing for the PDB block
+    mask = f"(@{','.join([str(i+1) for i in self.featurizer.boxed_indices])})&({self.moi})";
+    print("mask => ", mask)
+    try:
+      pdbstr = chemtools.write_pdb_block(self.traj, self.active_frame_index, mask);
+      rdmol = Chem.MolFromPDBBlock(pdbstr);
+      AllChem.EmbedMolecule(rdmol);
+    except:
+      printit("The active pdb file is not currectly read by rdkit, skipping the partical charge calculation");
+      return np.zeros(tuple(self.dims));
 
-    if self.mode == "am1bcc":
+    if (self.mode == "gasteiger"):
+      AllChem.ComputeGasteigerCharges(rdmol);
+      self.charge_values = np.array([float(i.GetProp("_GasteigerCharge")) for i in rdmol.GetAtoms()]).astype(float);
+    elif self.mode == "manual":
+      self.charge_values = np.asarray(self.charge_values).astype(float);
+
+    # Get the atoms within the bounding box
+    coords_pdb = np.array([i for i in rdmol.GetConformer().GetPositions()]);
+    if len(coords_pdb) != len(self.charge_values):
+      printit("Warning: The number of atoms in PDB does not match the number of charge values");
+    mask_inbox = self.crop_box(coords_pdb);
+
+    # Interpolate the feature values to the grid points
+    coords  = coords_pdb[mask_inbox]
+    weights = self.charge_values[mask_inbox];
+    feature_charge = self.interpolate(coords, weights)
+    print("feature_charge => ", feature_mass.shape)
+    return feature_charge
+
+
+def AM1BCCChargeFeature(Feature):
+  def __init__(self, moi="*", mode="auto", onetime=False):
+    super().__init__()
+    """AM1-BCC charges computed by antechamber for ligand molecules only"""
+    self.cmd_template = "";  # command template for external charge computation programs
+    self.computed = False;   # whether self.charge_values is computed or not
+    self.mode = "am1bcc";
+    self.onetime = onetime;
+    self.cmd_template = "am1bcc -i LIGFILE -f ac -o OUTFILE -j 5";
+
+  def featureize(self):
+    if (not self.computed) or (not self.onetime):
+      # run the am1bcc program
       self.charge_values = np.array(mode);
       cmd_final = self.cmd_template.replace("LIGFILE", self.featurizer.ligfile).replace("OUTFILE", self.featurizer.outfile);
       subprocess.run(cmd_final.split(), check=True);
       # TODO: Try out this function and read the output file into charge values
       self.charge_values = np.loadtxt(self.featurizer.outfile);
-    elif self.mode == "cgenff":
-      cmd_final = self.cmd_template.replace("LIGFILE", self.featurizer.ligfile).replace("OUTFILE", self.featurizer.outfile);
-      subprocess.run(cmd_final, shell=True, check=True);
-    elif self.mode == "charmm":
-      pass
-    elif self.mode == "manual":
-      self.charge_values = np.asarray(self.charge_values);
-
-    # Check if the number of charges matches the number of atoms
-    if len(self.charge_values) != len(self.traj.top.atoms):
-      raise ValueError("The number of charges does not match the number of atoms in the ligand");
-
-  def featurize(self):
-    from rdkit import Chem, AllChem;
-    try:
-      rdmol = Chem.MolFromPDBBlock(self.featurizer.boxed_pdb);
-    except:
-      raise ValueError("The ligand pdb file is not currectly read by rdkit");
-    if (self.mode == "gasteiger"):
-      AllChem.ComputeGasteigerCharges(rdmol);
-    elif (self.mode == "am1bcc"):
-      pass
-    elif (self.mode == "cgenff"):
-      # generate the mol2 file
-      pass
-    elif (self.mode == "manual"):
-      pass
-
-    atomic_nrs = np.array([int(i.atomic_number) for i in self.traj.top.atoms]);
-
+      self.computed = True;
+    rdmol = Chem.MolFromPDBBlock(self.featurizer.boxed_pdb);
+    coords_pdb = np.array([i for i in rdmol.GetConformer().GetPositions()]);
+    if len(coords_pdb) != len(self.charge_values):
+      printit("Warning: The number of atoms in PDB does not match the number of charge values");
     # Get the atoms within the bounding box
     upperbound = self.center + self.lengths / 2;
     lowerbound = self.center - self.lengths / 2;
-    ubstate = np.all(self.active_frame.xyz < upperbound, axis=1);
-    lbstate = np.all(self.active_frame.xyz > lowerbound, axis=1);
+    ubstate = np.all(coords_pdb < upperbound, axis=1);
+    lbstate = np.all(coords_pdb > lowerbound, axis=1);
     mask_inbox = ubstate * lbstate;
+
+    coords = coords_pdb[mask_inbox]
+    weights = charge_array[mask_inbox];
+    feature_charge = self.interpolate(coords, weights)
+    return feature_charge
+
 
 class AtomTypeFeature(Feature):
   def __init__(self, aoi="*"):

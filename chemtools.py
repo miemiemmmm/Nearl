@@ -72,10 +72,10 @@ def Chargebytraj(traj, frameidx, themask):
   return chargedict; 
 
 
-def writepdbs(traj, frameidx, themask):
+def write_pdb_block(traj, frameidx, themask):
   selection = traj.top.select(themask);
   if len(selection) == 0:
-    print(f"{writepdbs.__name__:15s}: No atom in the selected mask. Skipping it.")
+    print(f"{write_pdb_block.__name__:15s}: No atom in the selected mask. Skipping it.")
     return np.array([]), np.array([])
   tmp_traj = traj.copy();
   if traj.top.select(f"!({themask})").__len__() > 0:
