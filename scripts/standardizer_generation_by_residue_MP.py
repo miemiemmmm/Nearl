@@ -10,9 +10,12 @@ from scipy.ndimage import gaussian_filter
 from scipy.spatial import distance_matrix
 from sklearn.preprocessing import MinMaxScaler, StandardScaler, RobustScaler
 
-from BetaPose import utils
-from BetaPose import trajloader, data_io
+from BetaPose import utils, trajloader
 from BetaPose import features, featurizer
+
+import dask
+from dask.distributed import Client
+
 
 omp_thread = os.environ.get('OMP_NUM_THREADS', -1);
 print("OMP_NUM_THREADS ->" ,omp_thread)
@@ -39,21 +42,13 @@ def process_framei(trajfile, topfile, resi):
   # Fit the standardizer of the input features
   feat.register_frames(range(0, 1000, 20))  # TODO: change the range
 
-
   index_selected = traj.top.select("@CA,C,O,N,CB&:1")
-  print(
-    f"The number of atoms selected is {len(index_selected)}, Total generated molecule block is {feat.frameNr * len(index_selected)}")
-  print("++++++++++++++++++++>>>>>>>>>>>>>>>>>> Started the computation")
-  repr_traji, fpfh_traji, features_traji = feat.run_by_atom(index_selected, fbox_length=[6, 6, 6])
-  print("++++++++++++++++++++>>>>>>>>>>>>>>>>>> Finished the computation")
+  print(f"The number of atoms selected is {len(index_selected)}")
+  # print(f"Total generated molecule block is {feat.frameNr * len(index_selected)}")
+
+  repr_traji, features_traji = feat.run_by_atom(index_selected)
   return repr_traji
-  # print(f"The time used for the trajectory (Only residue {resi}) is {time.perf_counter() - st}");
-  # print(f"The featurization speed is {feat.frameNr * len(index_selected) / (time.perf_counter() - st)} blocks per "
-  #       f"molecule block");
-  # if resi == reslst[0]:
-  #   resulti = repr_traji
-  # else:
-  #   resulti = np.concatenate((resulti, repr_traji));
+
 
 
 if __name__ == "__main__":
@@ -62,17 +57,9 @@ if __name__ == "__main__":
     os.remove("TEMP_DATA.pkl")
 
   FEATURIZER_PARMS = {
-    # Mask of components
-    "MASK_INTEREST" : ":LIG,MDL",
-    "MASK_ENVIRONMENT" : ":1-221",
-
     # POCKET SETTINGS
-    "VOXEL_DIMENSION" : [12, 12, 12],    # Unit: 1 (Number of lattice in one dimension)
+    "CUBOID_DIMENSION" : [12, 12, 12],    # Unit: 1 (Number of lattice in one dimension)
     "CUBOID_LENGTH" : [8,8,8],           # Unit: Angstorm (Need scaling)
-
-    # SEARCH SETTINGS
-    "UPDATE_INTERVAL" : 1,
-    "CUTOFF": 18,
   }
 
   # Load multiple trajectories
@@ -89,13 +76,21 @@ if __name__ == "__main__":
     # feat.register_feature(feature_mass)   # i features
 
     # Process residues one by one
-    reslst = list(range(5,145))     # TODO: change the range of residues 
-    with mp.Pool(processes=24) as pool:
-      result = pool.starmap(process_framei, [(trajfile, topfile, resi) for resi in reslst])
-    pool.join()
+    reslst = list(range(5,145))     # TODO: change the range of residues
 
-    resulti = np.concatenate(result)
+    with Client(processes=True, n_workers=16, threads_per_worker=2) as client:
+      tasks = [dask.delayed(process_framei)(trajfile, topfile, resi) for resi in reslst]
+      futures = client.compute(tasks)
+      results = client.gather(futures)
+
+    resulti = np.concatenate(results)
     print(f"Return from the multiprocessing: {resulti.shape}")
+
+    # with mp.Pool(processes=24) as pool:
+    #   result = pool.starmap(process_framei, [(trajfile, topfile, resi) for resi in reslst])
+    # pool.join()
+
+
 
 
     # Save the data

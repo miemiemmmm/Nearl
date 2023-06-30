@@ -4,7 +4,7 @@ import pytraj as pt
 import numpy as np 
 import tempfile
 
-from . import CONFIG
+from . import CONFIG, _clear, _verbose, _tempfolder, printit
 
 def DACbytraj(traj, frameidx, themask, **kwargs):
   """
@@ -21,25 +21,35 @@ def DACbytraj(traj, frameidx, themask, **kwargs):
   tmp_traj = traj.copy();
   if traj.top.select(f"!({themask})").__len__() > 0:
     tmp_traj.strip(f"!({themask})");
-  if (tmp_traj.top.n_atoms == traj.top.n_atoms) and CONFIG["verbose"]:
+  if (tmp_traj.top.n_atoms == traj.top.n_atoms) and _verbose:
     print(f"{DACbytraj.__name__:15s}: All atoms are kept after applying the mask. Please make sure if this is wanted.")
-  with tempfile.NamedTemporaryFile(suffix=".pdb") as file1: 
-    pt.write_traj(file1.name, tmp_traj, overwrite=True, frame_indices=[frameidx])
-    mol = Chem.MolFromPDBFile(file1.name); 
-  d_patt = Chem.MolFromSmarts(donor_pattern); 
-  d_hits = mol.GetSubstructMatches(d_patt); 
-  a_patt = Chem.MolFromSmarts(acceptor_pattern); 
-  a_hits = mol.GetSubstructMatches(a_patt);
-  conf = mol.GetConformer()
-  donors = np.zeros((len(d_hits),3));
-  for idx, hit in enumerate(d_hits): 
-    atom = mol.GetAtomWithIdx(hit[0]);
-    donors[idx,:] = np.array(conf.GetAtomPosition(hit[0])); 
-  acceptors = np.zeros((len(a_hits),3)); 
-  for idx,hit in enumerate(a_hits): 
-    atom = mol.GetAtomWithIdx(hit[0])
-    acceptors[idx,:] = np.array(conf.GetAtomPosition(hit[0]))
-  return donors, acceptors
+
+
+  # with tempfile.NamedTemporaryFile(suffix=".pdb") as file1:
+  #   pt.write_traj(file1.name, tmp_traj, overwrite=True, frame_indices=[frameidx])
+  #   mol = Chem.MolFromPDBFile(file1.name);
+
+  pdbstr = write_pdb_block(traj, selection, frame_index=frameidx)
+  mol = Chem.MolFromPDBBlock(pdbstr);
+  try:
+    d_patt = Chem.MolFromSmarts(donor_pattern);
+    d_hits = mol.GetSubstructMatches(d_patt);
+    a_patt = Chem.MolFromSmarts(acceptor_pattern);
+    a_hits = mol.GetSubstructMatches(a_patt);
+    conf = mol.GetConformer()
+    donors = np.zeros((len(d_hits),3));
+    for idx, hit in enumerate(d_hits):
+      atom = mol.GetAtomWithIdx(hit[0]);
+      donors[idx,:] = np.array(conf.GetAtomPosition(hit[0]));
+    acceptors = np.zeros((len(a_hits),3));
+    for idx,hit in enumerate(a_hits):
+      atom = mol.GetAtomWithIdx(hit[0])
+      acceptors[idx,:] = np.array(conf.GetAtomPosition(hit[0]))
+    return donors, acceptors
+  except:
+    print("Error when reading the pdb file. Please check the following PDB string:")
+    print(pdbstr)
+    return 0, 0
 
 def Chargebytraj(traj, frameidx, themask):
   """
@@ -54,35 +64,112 @@ def Chargebytraj(traj, frameidx, themask):
   tmp_traj = traj.copy();
   if traj.top.select(f"!({themask})").__len__() > 0:
     tmp_traj.strip(f"!({themask})");
-  if (tmp_traj.top.n_atoms == traj.top.n_atoms) and CONFIG["verbose"]:
+  if (tmp_traj.top.n_atoms == traj.top.n_atoms) and _verbose:
     print(f"{Chargebytraj.__name__:15s}: All atoms are kept after applying the mask. Please make sure if this is wanted.")
   
-  with tempfile.NamedTemporaryFile(suffix=".pdb") as file1:
-    pt.write_traj(file1.name, tmp_traj, overwrite=True, frame_indices=[frameidx])
-    mol = Chem.MolFromPDBFile(file1.name);
+  # with tempfile.NamedTemporaryFile() as file1:
+  #   pt.write_traj(f"{file1.name}.pdb", tmp_traj, overwrite=True, frame_indices=[frameidx], options="model chainid A")
+  #   with open(f"{file1.name}.pdb", "r") as f:
+  #     pdbstr = f.read()
+  #   if _clear:
+  #     os.remove(f"{file1.name}.pdb");
 
-  AllChem.ComputeGasteigerCharges(mol); 
-  conf = mol.GetConformer(); 
-  positions = conf.GetPositions(); 
-  chargedict = {}; 
-  conf = mol.GetConformer(); 
-  for idx, atom in enumerate(mol.GetAtoms()): 
-    key = tuple(np.array(conf.GetAtomPosition(idx))); 
-    chargedict[key] = float(atom.GetDoubleProp('_GasteigerCharge')); 
-  return chargedict; 
+  pdbstr = write_pdb_block(traj, selection, frame_index=frameidx)
+  chargedict = {};
+  try:
+    mol = Chem.MolFromPDBBlock(pdbstr)
+    AllChem.ComputeGasteigerCharges(mol);
+    conf = mol.GetConformer();
+    positions = conf.GetPositions();
+    conf = mol.GetConformer();
+    for idx, atom in enumerate(mol.GetAtoms()):
+      key = tuple(np.array(conf.GetAtomPosition(idx)));
+      chargedict[key] = float(atom.GetDoubleProp('_GasteigerCharge'));
+  except:
+    print("Error when reading the pdb file. Please check the following PDB string:")
+    print(pdbstr)
+  return chargedict
+
+    # mol = Chem.MolFromPDBFile(f"{file1.name}.pdb");
 
 
-def write_pdb_block(traj, frameidx, themask):
-  selection = traj.top.select(themask);
-  if len(selection) == 0:
-    print(f"{write_pdb_block.__name__:15s}: No atom in the selected mask. Skipping it.")
-    return np.array([]), np.array([])
-  tmp_traj = traj.copy();
-  if traj.top.select(f"!({themask})").__len__() > 0:
-    tmp_traj.strip(f"!({themask})");
-  with tempfile.NamedTemporaryFile(suffix=".pdb") as file1:
-    pt.write_traj(file1.name, tmp_traj, overwrite=True, frame_indices=[frameidx])
-    mol = Chem.MolFromPDBFile(file1.name);
-  return Chem.MolToPDBBlock(mol);
 
+
+# TODO: Why I used Pytraj to write PDB file and read by rdkit and finally write by rdkit?
+# def write_pdb_block(traj, frameidx, themask):
+#   selection = traj.top.select(themask);
+#   if len(selection) == 0:
+#     print(f"{write_pdb_block.__name__:15s}: No atom in the selected mask. Skipping it.")
+#     return np.array([]), np.array([])
+#   tmp_traj = traj.copy();
+#   if traj.top.select(f"!({themask})").__len__() > 0:
+#     tmp_traj.strip(f"!({themask})");
+#   with tempfile.NamedTemporaryFile(suffix=".pdb") as file1:
+#     pt.write_traj(file1.name, tmp_traj, overwrite=True, frame_indices=[frameidx])
+#     mol = Chem.MolFromPDBFile(file1.name);
+#   return Chem.MolToPDBBlock(mol);
+
+def write_pdb_block(traj, frame_index=0, mask="*", write_pdb=False):
+  selection = traj.top.select(mask);
+  theframe = traj[frame_index];
+  newxyz = np.asarray(theframe.xyz[selection]);
+  newtop = traj.top._get_new_from_mask(mask);
+  newtraj = pt.Trajectory(top=newtop, xyz=np.asarray([newxyz]));
+  if write_pdb:
+    with open(write_pdb, "w") as file1:
+      pt.write_traj(file1.name, newtraj, overwrite=True)
+    return None
+  else:
+    with tempfile.NamedTemporaryFile(suffix=".pdb") as file1:
+      pt.write_traj(file1.name, newtraj, overwrite=True)
+      with open(file1.name, "r") as file2:
+        pdblines = [i for i in file2.read().split("\n") if "ATOM" in i or "HETATM" in i]
+      pdbline = "\n".join(pdblines) + "\nEND\n"
+    return pdbline
+
+
+def write_pdb_block(thetraj, idxs, pdbfile = "", frame_index = 0, marks = [], swap4char=True):
+  # Loop over each residue and atom, and write to the PDB file
+  if (len(marks) > 0) and (len(marks) == len(idxs)):
+    marks = marks;
+  else:
+    marks = ["ATOM"] * len(idxs);
+  xyz_reduce = thetraj.xyz[frame_index].round(3);
+  atom_arr = list(thetraj.top.atoms);
+  res_arr = list(thetraj.top.residues);
+  try:
+    uc = thetraj.unitcells[index];
+    spacegroup = "P 1";
+    finalstr = f"TITLE    Topology Auto Generation : step =  {index}\n";
+    finalstr += f"CRYST1 {uc[0]:8.3f} {uc[1]:8.3f} {uc[2]:8.3f} {uc[3]:6.2f} {uc[4]:6.2f} {uc[5]:6.2f} {spacegroup:<11}\n"
+  except:
+    finalstr = "";
+  for i, idx in enumerate(idxs):
+    coord = xyz_reduce[idx];
+    theatom = atom_arr[idx];
+    res_id = theatom.resid;
+    theres = res_arr[res_id];
+    _res_id = (res_id+1)%10000;
+    atom_name = theatom.name;
+    if atom_name[0].isnumeric():
+      atom_name = f"{atom_name:<4}"
+    elif (swap4char and len(atom_name) == 4):
+      atom_name = atom_name[3]+atom_name[:3];
+    elif (not atom_name[0].isnumeric() and len(atom_name) == 3):
+      atom_name = f"{atom_name:>4}";
+    elif (not atom_name[0].isnumeric() and len(atom_name) == 2):
+      atom_name = f" {atom_name} ";
+    elif (not atom_name[0].isnumeric() and len(atom_name) == 1):
+      atom_name = f" {atom_name}  ";
+    else:
+      atom_name = f"{atom_name:4}"
+    # Write the ATOM record to the PDB file
+    finalstr += f"{marks[i]:<6s}{(i%99999)+1:>5} {atom_name:4} {theres.name:>3}  {_res_id:>4}    {coord[0]:8.3f}{coord[1]:8.3f}{coord[2]:8.3f}  1.00  0.00\n";
+  finalstr +="END"
+  if len(pdbfile) > 0:
+    with open(pdbfile, "w") as file1:
+      file1.write(finalstr)
+      return None
+  else:
+    return finalstr;
 

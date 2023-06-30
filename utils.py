@@ -594,5 +594,20 @@ def transform_pcd(pcd, trans_mtx):
   transformed_pcd = transformed_pcd[:, :3];
   return transformed_pcd
 
+def MSD(arr):
+  """
+    Mean Spacing Deviation
+  """
+  return np.array(arr).std(axis=1).mean(); 
+def MSCV(arr):
+  """
+    Mean Spacing Coefficient of Variation
+  """
+  std = np.array(arr).std(axis=1); 
+  mean = np.array(arr).mean(axis=1); 
+  mscv = (std/mean).mean()
+  return min(mscv, 1); 
+
+
 
 

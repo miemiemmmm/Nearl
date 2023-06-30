@@ -7,6 +7,10 @@ if os.path.isfile(configfile):
 else: 
   print("Not found the config file", file=sys.stderr)
 
+_clear = CONFIG.get("clear", False);
+_verbose = CONFIG.get("verbose", False);
+_tempfolder = CONFIG.get("tempfolder", "/tmp");
+
 from . import test
 
 ########################################################

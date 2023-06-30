@@ -14,25 +14,15 @@ from BetaPose import utils
 from BetaPose import trajloader, data_io
 from BetaPose import features, featurizer
 
-
-
 if __name__ == "__main__":
   print("Current working directory: ", os.getcwd())
   if os.path.exists("TEMP_DATA.pkl"):
     os.remove("TEMP_DATA.pkl")
 
   FEATURIZER_PARMS = {
-    # Mask of components
-    "MASK_INTEREST" : ":LIG,MDL",
-    "MASK_ENVIRONMENT" : ":1-221",
-
     # POCKET SETTINGS
-    "VOXEL_DIMENSION" : [12, 12, 12],    # Unit: 1 (Number of lattice in one dimension)
+    "CUBOID_DIMENSION" : [16, 16, 16],    # Unit: 1 (Number of lattice in one dimension)
     "CUBOID_LENGTH" : [8,8,8],           # Unit: Angstorm (Need scaling)
-
-    # SEARCH SETTINGS
-    "UPDATE_INTERVAL" : 1,
-    "CUTOFF": 18,
   }
 
   # Load multiple trajectories
@@ -48,17 +38,16 @@ if __name__ == "__main__":
       traj.strip(":T3P")
     # Initialize the featurizer since different trajectory might have distinct parameters
     feat  = features.Featurizer3D(FEATURIZER_PARMS);
-    feature_mass = features.MassFeature();
 
     # NOTE: in this step, the feature hooks back the feature and could access the featurizer by feat.featurer
-    feat.register_feature(feature_mass)   # i features
+    feat.register_feature(features.MassFeature())   # i features
     feat.register_traj(traj)
 
     # Fit the standardizer of the input features
     feat.register_frames(range(0, 1000, 50))
     index_selected = traj.top.select("@CA,C,O,N&:5-145")
-    print(f"The number of atoms selected is {len(index_selected)}, Total generated molecule block is {feat.frameNr*len(index_selected)}")
-    repr_traji, fpfh_traji, features_traji = feat.run_by_atom(index_selected, fbox_length=[6,6,6])
+    # print(f"The number of atoms selected is {len(index_selected)}, Total generated molecule block is {feat.*len(index_selected)}")
+    repr_traji, fpfh_traji, features_traji = feat.run_by_atom(index_selected)
 
 
     print(f"the time used for the trajectory is {time.perf_counter() - st}");
