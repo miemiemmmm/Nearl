@@ -591,8 +591,11 @@ class generator:
     self.__mesh = None;
     segment_objects = [];
     atom_indices = [];
+    segs = utils.ordersegments(segment)[:self.SEGMENT_LIMIT];
     """ ITERATE the at maximum 6 segments """
-    for segi in utils.ordersegments(segment)[:self.SEGMENT_LIMIT]:
+    for segidx, segi in enumerate(segs):
+      if _verbose:
+        printit(f"{self.vectorize.__name__:15s}: Processing segment {segidx + 1}/{nrsegments} ...")
       # ATOM types counts
       theidxi = np.where(segment == segi)[0];
       atomdict = self.atom_type_count(theidxi);
@@ -601,16 +604,28 @@ class generator:
       O_Nr = atomdict.get("O", 0); 
       H_Nr = atomdict.get("H", 0); 
       T_Nr = sum(atomdict.values())
+      if _verbose:
+        printit(f"{self.vectorize.__name__:15s}: {T_Nr} atoms in segment {segidx + 1}/{nrsegments} ...")
       
       # Residue-based descriptors
       self.resmask = utils.getresmask(self.traj, utils.getmaskbyidx(self.traj, theidxi));
+      if _verbose:
+        printit(f"{self.vectorize.__name__:15s}: Selected atom number: {len(self.traj.top.select(self.resmask))} : "
+                f"{self.resmask}");
       self.charges = chemtools.Chargebytraj(self.traj, self.frame, self.resmask);
+
+      # This outputs too much information
+      # if _verbose:
+      #   printit(f"{self.vectorize.__name__:15s}: Charges: {self.charges}");
+
       N_d, N_a = self.hbp_count(theidxi);
       C_p, C_n = self.partial_charge(theidxi);
       PE_lg, PE_el = self.pseudo_energy(theidxi)
+      if _verbose:
+        print(f"{self.vectorize.__name__:15s}: Residue-based descriptors of segment {segidx + 1}/{nrsegments} ...")
 
       atom_indices += self.traj.top.select(self.resmask).tolist();
-      pdbstr = chemtools.write_pdb_block(self.traj, self.frame, self.resmask);
+      pdbstr = chemtools.write_pdb_block(self.traj, self.traj.top.select(self.resmask), frame_index = self.frame);
       new_lines = [line for line in pdbstr.strip("\n").split('\n') if ("END" not in line and "CONECT" not in line)]
       pdb_final += ('\n'.join(new_lines) + "\n")
 
@@ -623,7 +638,6 @@ class generator:
       # Point cloud-based descriptors
       SA = self.surface(self.mesh)
       VOL = self.volume(self.mesh)
-      # print("DEBUG here: after the geometrical descriptors calculation", self.mesh)
       rad = self.mean_radius(self.mesh)
       h_ratio = self.convex_hull_ratio(self.mesh);
       self.mesh.paint_uniform_color(CMAP6[segcounter]);
@@ -635,7 +649,12 @@ class generator:
 
       # Try fixed viewpoint
       pf_gen = PointFeature(self.mesh);
-      vpc = pf_gen.compute_vpc([100000000, 0, 0], bins = self.VIEWPOINTBINS);
+      if segidx != len(segs) - 1:
+        idx_next = np.where(segment == segs[segidx+1])[0];
+        cog_next = self.traj.xyz[self.frame][idx_next].mean(axis=0);
+      else:
+        cog_next = self.center;
+      vpc = pf_gen.compute_vpc(cog_next, bins = self.VIEWPOINTBINS);
       framefeature[segcounter, -self.VIEWPOINTBINS:] = vpc;
       if (_verbose):
         printit(f"Viewpoint: [1000, 0, 0]; Sum of VPC is: {sum(vpc)}");
@@ -659,10 +678,11 @@ class generator:
     # Keep the final PDB and PLY files in memory for further use
     self.active_pdb = pdb_final;
     self.active_indices = atom_indices;
-    with Tempfile(suffix=".ply") as f:
-      o3d.io.write_triangle_mesh(f"{self.tempprefix}frame{self.frame}.ply", final_mesh, write_ascii=True);
+
+    o3d.io.write_triangle_mesh(f"{self.tempprefix}frame{self.frame}.ply", final_mesh, write_ascii=True);
+    with open(f"{self.tempprefix}frame{self.frame}.ply", "r") as f:
       self.active_ply = f.read();
-    if _verbose and (len(self.active_pdb) == 0 or len(active_ply) == 0):
+    if _verbose and (len(self.active_pdb) == 0 or len(self.active_ply) == 0):
       printit(f"DEBUG: Failed to correctly generate the intermediate PDB and PLY files for frame {self.frame}");
     return framefeature.reshape(-1), segment_objects
   

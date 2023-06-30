@@ -3,6 +3,7 @@ import pytraj as pt
 import open3d as o3d
 import re, sys
 from datetime import datetime
+import functools
 """
 MAP from atom type to its corresponding atom name and residue name
 # 1   , ^O$     , ^.*$    
@@ -458,5 +459,6 @@ if __name__ == "__main__":
   # Visualize the wireframe representation
   o3d.visualization.draw_geometries(final_geometries)
   timestamp = datetime.now().strftime('%Y%m%d_%H%M')
-  o3d.io.write_geometry(f"/tmp/OBJSET_{timestamp}.ply", final_geometries)
+  o3d.io.write_triangle_mesh(f"/tmp/OBJSET_mesh_{timestamp}.ply", functools.reduce(lambda a, b: a + b, geometries), write_ascii=True)
+  o3d.io.write_triangle_mesh(f"/tmp/OBJSET_surface_{timestamp}.ply", mesh, write_ascii=True)
 

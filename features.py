@@ -326,7 +326,7 @@ class Featurizer3D:
   ####################################################################################################
   ####################################### Perform Computation ########################################
   ####################################################################################################
-  def run_by_atom(self, atoms, fbox_length="same", focus_mode="cog"):
+  def run_by_atom(self, atoms, fbox_length="same", focus_mode=None):
     """
     Iteratively compute the features for each selected atoms (atom index) in the trajectory
     Args:
@@ -360,7 +360,7 @@ class Featurizer3D:
       printit(f"Frame {frame}: Generated {len(focuses)} centers");
       # For each frame, run number of atoms times to compute the features/segmentations
       repr_vec, feat_vec = self.runframe(focuses);
-      print(repr_vec.shape, feat_vec.__len__())
+      # print(repr_vec.shape, feat_vec.__len__())
 
       c_1 = c + len(repr_vec);
       c_total += len(repr_vec);
@@ -438,7 +438,7 @@ class Featurizer3D:
 
       # DEBUG ONLY
       if _verbose:
-        printit(f"Found {len(set(segments))} segments", np.unique(segments, return_counts=True));
+        printit(f"Found {len(set(segments))-1} non-empty segments", {i:j for i,j in zip(*np.unique(segments, return_counts=True)) if i != 0});
 
       """
       Compute the identity vector for the molecue block
@@ -447,6 +447,8 @@ class Featurizer3D:
       feature_vector, mesh_objs = self.repr_generator.vectorize(segments);
       final_mesh = functools.reduce(lambda a, b: a + b, mesh_objs);
       # Keep the intermediate information as metainformation if further review/featurization is needed
+      if _verbose:
+        printit("Final mesh generated", final_mesh);
       self.mesh = copy.deepcopy(final_mesh);
       self.boxed_pdb = self.repr_generator.active_pdb;
       self.boxed_ply = self.repr_generator.active_ply;
@@ -489,21 +491,14 @@ class Feature:
   def __str__(self):
     return self.__class__.__name__
 
-  # def hook(self, featurizer):
-  #   """ TODO: Check if this is obsolete or not"""
-  #   self.featurizer = featurizer
-  #   self.top = featurizer.traj.top
-
   def set_featurizer(self, featurizer): 
     """
     Hook the feature generator back to the feature convolutor and obtain necessary attributes from the featurizer
     including the trajectory, active frame, convolution kernel etc
     """
     self.featurizer = featurizer
-    print(f"Hooking featurizer to {self.__class__.__name__}");
-    # self.traj = getattr(featurizer, "traj", None);
-    # self.active_frame = getattr(featurizer, "active_frame", None);
-    # self.grid = getattr(featurizer, "grid", None);
+    if _verbose:
+      printit(f"Hooking featurizer to {self.__class__.__name__}");
 
   """
   The Feature can ONLY READ the necessary attributes of the featurizer, but not udpate them.
@@ -594,6 +589,7 @@ class Feature:
     sttime = time.perf_counter();
     self.traj = trajectory.traj; 
     self.feature_array = [];
+    # Iterate through the frames in one trajectory
     for index, frame in enumerate(self.traj):
       # Update search list and shift the box
       #######################??????????????????????
@@ -671,14 +667,14 @@ class PartialChargeFeature(Feature):
 
   def featurize(self):
     from rdkit import Chem, AllChem;
-    # indices = [idx for idx in self.featurizer.boxed_indices if idx in self.traj.top.select(self.moi)];
-    # NOTE:
-    # The self.boxed_pdb is already cropped and atom are reindexed in the PDB block.
-    # Hence use the self.boxed_indices to get the original atom indices standing for the PDB block
+    """
+    NOTE:
+    The self.boxed_pdb is already cropped and atom are reindexed in the PDB block.
+    Hence use the self.boxed_indices to get the original atom indices standing for the PDB block
+    """
     mask = f"(@{','.join([str(i+1) for i in self.featurizer.boxed_indices])})&({self.moi})";
-    print("mask => ", mask)
     try:
-      pdbstr = chemtools.write_pdb_block(self.traj, self.active_frame_index, mask);
+      pdbstr = chemtools.write_pdb_block(self.traj, self.traj.top.select(mask), frame_index=self.active_frame_index);
       rdmol = Chem.MolFromPDBBlock(pdbstr);
       AllChem.EmbedMolecule(rdmol);
     except:
@@ -778,7 +774,7 @@ class BoxFeature(Feature):
     Get the box configuration (generally not used as a feature)
     """
     box_feature = np.array([self.center, self.lengths, self.dims])
-    print("Box feature: ", box_feature)
+    # print("Box feature: ", box_feature)
     return box_feature
 
 class FPFHFeature(Feature):
@@ -811,7 +807,8 @@ class PaneltyFeature(Feature):
     """
     Get the mean pairwise distance
     """
-    print("In the before function")
+    if _verbose:
+      print("Precomputing the pairwise distance between the closest atom pairs")
     self.traj_copy = self.traj.copy();
     self.traj_copy.top.set_reference(self.traj_copy[self.refframe]);
     self.pd_arr, self.pd_info = utils.PairwiseDistance(self.traj_copy, self.mask1, self.mask2, use_mean=self.use_mean);
@@ -826,8 +823,51 @@ class PaneltyFeature(Feature):
     norm_v1 = np.linalg.norm(dists)
     norm_v2 = np.linalg.norm(self.mean_pd)
     cos_sim = dot_product / (norm_v1 * norm_v2)
-    print(self.active_frame_index, cos_sim)
+    print("The final panelty is: ", self.active_frame_index, cos_sim)
     return cos_sim;
+
+class MSCVFeature(Feature):
+  def __init__(self, mask1, mask2, **kwargs):
+    super().__init__();
+    self.mask1 = mask1;
+    self.mask2 = mask2;
+    self.use_mean = kwargs.get("use_mean", False);
+    self.refframe = kwargs.get("refframe", 0);
+    self.WINDOW_SIZE = CONFIG.get("WINDOW_SIZE", 10);
+  def before(self):
+    """
+    Get the mean pairwise distance
+    """
+    if _verbose:
+      print("Precomputing the pairwise distance between the closest atom pairs")
+    self.traj_copy = self.traj.copy();
+    self.traj_copy.top.set_reference(self.traj_copy[self.refframe]);
+    self.pd_arr, self.pd_info = utils.PairwiseDistance(self.traj_copy, self.mask1, self.mask2, use_mean=self.use_mean);
+    self.mean_pd = np.mean(self.pd_arr, axis=1);
+
+  def featurize(self):
+    """
+    Get the mean square coefficient of variation of the segment
+    """
+    framenr = self.traj.n_frames;
+    if framenr < self.WINDOW_SIZE:
+      # If the window size is larger than the number of frames, then use the whole trajectory
+      frames = np.arange(0, framenr);
+    elif (self.active_frame_index + self.WINDOW_SIZE > framenr):
+      # If the last frame is not enough to fill the window, then use the last window
+      frames = np.arange(framenr - self.WINDOW_SIZE, framenr);
+    else:
+      frames = np.arange(self.active_frame_index, self.active_frame_index + self.WINDOW_SIZE);
+
+    # Store the pairwise distance for each frame
+    pdists = np.zeros()
+    for fidx in frames:
+      dists = np.linalg.norm(
+        self.active_frame.xyz[self.pd_info["index_group1"]] - self.active_frame.xyz[self.pd_info["index_group2"]],
+        axis=1);
+      pdists[:, fidx] = dists;
+    mscv = utils.MSCV(pdists);
+    return mscv;
 
 class EntropyResidueFeature(Feature):
   def __init__(self):
@@ -922,6 +962,49 @@ class AromaticityFeature(Feature):
     #   frames = np.arange(framenr - self.WINDOW_SIZE, framenr);
     # else:
     #   frames = np.arange(self.active_frame_index, self.active_frame_index + self.WINDOW_SIZE);
+
+
+class RFFeature1D(Feature):
+  def __init__(self, moiety_of_interest, cutoff=12):
+    super().__init__();
+    self.moi = moiety_of_interest;
+    # For the 4*9 (36) features
+    # Rows (protein)   : C, N, O, S
+    # Columns (ligand) : C, N, O, F, P, S, Cl, Br, I
+    self.cutoff = cutoff;
+    self.pro_atom_idx = {6: 0, 7: 1, 8: 2, 16: 3}
+    self.lig_atom_idx = {6: 0, 7: 1, 8: 2, 9: 3, 15: 4, 16: 5, 17: 6, 35: 7, 53: 8}
+
+  def featurize(self):
+    """
+    The features for the RFScore algorithm
+    Nine atom types are considered: C, N, O, F, P, S, Cl, Br, I
+    Output contains 36 features because of the lack of F, P, Cl, Br and I atoms in the PDBbind protein structures
+    Return:
+      rf_arr: (36, 1) array
+    """
+    atoms = np.asarray([i.atomic_number for i in self.top.atoms]);
+    moi_indices = self.top.select(self.moi); # The indices of the moiety of interest
+    if len(moi_indices) == 0:
+      printit("Warning: The moiety of interest is not found in the topology");
+      # Return a zero array if the moiety is not found
+      return np.zeros(36);
+    if _verbose:
+      printit(f"The moiety of interest contains {len(moi_indices)} atoms");
+    # build a kd-tree for interaction query
+    other_indices = np.asarray([i for i in np.arange(len(self.active_frame.xyz)) if i not in moi_indices]);
+    kd_tree = KDTree(self.active_frame.xyz[other_indices]);
+    rf_arr = np.zeros((4,9));
+    for i, idx in enumerate(moi_indices):
+      atom_number = atoms[idx];
+      atom_coord  = self.active_frame.xyz[idx];
+      soft_idxs = kd_tree.query_ball_point(atom_coord, self.cutoff);
+      hard_idxs = other_indices[soft_idxs];
+      for idx_prot in hard_idxs:
+        atom_number_prot = atoms[idx_prot];
+        if atom_number in self.lig_atom_idx and atom_number_prot in self.pro_atom_idx:
+          rf_arr[self.pro_atom_idx[atom_number_prot], self.lig_atom_idx[atom_number]] += 1;
+    return rf_arr.reshape(-1);
 
 
 
