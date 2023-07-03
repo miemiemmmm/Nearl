@@ -173,3 +173,81 @@ def write_pdb_block(thetraj, idxs, pdbfile = "", frame_index = 0, marks = [], sw
   else:
     return finalstr;
 
+
+def combine_molpdb(molfile, pdbfile, outfile=""):
+  """
+  Combine a molecule file (either mol2/sdf/pdb) with a protein PDB file
+  """
+  # Read the ligand file
+  if isinstance(molfile, Chem.rdchem.Mol):
+    lig = molfile;
+  else:
+    if "mol2" in molfile:
+      lig = Chem.MolFromMol2File(molfile);
+    elif "pdb" in molfile:
+      lig = Chem.MolFromPDBFile(molfile);
+    elif "sdf" in molfile:
+      suppl = Chem.SDMolSupplier(molfile);
+      lig = suppl[0];
+    else:
+      raise ValueError(f"Unrecognized ligand file extension: {molfile.split('.')[-1]}");
+  # Write the ligand to a PDB file and combine the protein PDB file
+  ligpdb = Chem.MolToPDBBlock(lig);
+  atomlines = [i.replace("UNL", "LIG") for i in ligpdb.split("\n") if "HETATM" in i];
+  with open(pdbfile, "r") as file1:
+    pdborig = file1.read();
+  linesorig = [i for i in pdborig.strip("\n").split("\n") if "HETATM" in i or "ATOM" in i];
+  finallines = linesorig + atomlines;
+  finalstr = "\n".join(finallines) + "\nEND\n";
+  # Check if the output file is specified
+  if len(outfile) > 0:
+    with open(outfile, "w") as file1:
+      file1.write(finalstr);
+  return finalstr
+
+def CorrectMol2BySmiles(refmol2, prob_smiles):
+  """
+  Correct the reference mol2 structure based on a probe smiles
+  >>> from utils_diverse import modification
+  >>> molfile = "/storage006/yzhang/TMP_FOLDERS/w1SbtSzR/tmp_Sampling_target.mol2"
+  >>> smi = "CNc1ncnc2c(C)n[nH]c12"
+  >>> retmol = modification.CorrectMol2BySmiles(molfile, smi)
+  >>> modification.writeMOL2s([retmol], "/tmp/test.mol2") # The output mol2 file that you want to put
+  """
+  from rdkit.Chem import rdFMCS;
+  mol1 = Chem.MolFromSmiles(prob_smiles);
+  print(refmol2)
+  if "mol2" in refmol2:
+    mol2 = Chem.MolFromMol2File(refmol2);
+  elif "pdb" in refmol2:
+    print("Reading pdb file")
+    mol2 = Chem.MolFromPDBFile(refmol2);
+  elif "sdf" in refmol2:
+    suppl = Chem.SDMolSupplier(refmol2);
+    mol2 = suppl[0];
+  else:
+    raise ValueError(f"Unrecognized ligand file extension: {molfile.split('.')[-1]}");
+
+  # mol2 = Chem.MolFromMol2File(refmol2);
+  if mol1 is None:
+    print("Failed to process the smiles. Please check the validity of the smiles");
+    return None;
+  elif mol2 is None:
+    print("Failed to process the mol2 file. Please check the validity of the mol2 file");
+    return None;
+
+  mol1 = Chem.AddHs(mol1, addCoords=True);
+  AllChem.EmbedMolecule(mol1);
+  # Find the maximum common subgraph (MCS) based on topology
+  mcs = rdFMCS.FindMCS([mol1, mol2],
+                       atomCompare=rdFMCS.AtomCompare.CompareAnyHeavyAtom,
+                       bondCompare=rdFMCS.BondCompare.CompareAny);
+  # Get the MCS as an RDKit molecule
+  mcs_mol = Chem.MolFromSmarts(mcs.smartsString);
+  # Get the atom indices of the MCS in the input molecules
+  match1 = mol1.GetSubstructMatch(mcs_mol);
+  match2 = mol2.GetSubstructMatch(mcs_mol);
+  atom_map = [(i, j) for i, j in zip(match1, match2)];
+  AllChem.AlignMol(mol1, mol2, atomMap=atom_map, maxIters=100);
+  Chem.SanitizeMol(mol1, sanitizeOps=Chem.SANITIZE_ALL);
+  return mol1
