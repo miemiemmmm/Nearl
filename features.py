@@ -138,19 +138,6 @@ class Featurizer3D:
   def points3d(self):
     return self.__points3d
 
-  # @property
-  # def moi(self):
-  #   return self.__MOI
-  # @property
-  # def moe(self):
-  #   return self.__MOE
-  # @property
-  # def mask_int(self):
-  #   return self.__MOI
-  # @property
-  # def mask_env(self):
-  #   return self.__MOE
-
   @property
   def resolutions(self):
     return self.__resolutions
@@ -246,6 +233,7 @@ class Featurizer3D:
     """
     # TODO: Make sure the trajectory related parameters are updated when the trajectory is changed
     self.traj = thetraj;
+    self.top = thetraj.top.copy();
 
   ####################################################################################################
   ######################################## DATABASE operation ########################################
@@ -340,7 +328,7 @@ class Featurizer3D:
       self.repr_generator.length = [i for i in self.__lengths];
     elif (not isinstance(fbox_length, str)) and len(fbox_length) == 3:
       self.repr_generator.length = [i for i in fbox_length];
-    printit(self.repr_generator.length)
+    print(self.repr_generator.length)
 
     # Step2: Initialize the feature array
     repr_processed = np.zeros((self.FRAMENUMBER * len(atoms), self.SEGMENTNR * self.VPBINS));
@@ -1007,8 +995,11 @@ class RFFeature1D(Feature):
     return rf_arr.reshape(-1);
 
 
-
-
+class TopFileNameFeature(Feature):
+  def __init__(self):
+    super().__init__();
+  def featurize(self):
+    return self.top_filename
 
 
 

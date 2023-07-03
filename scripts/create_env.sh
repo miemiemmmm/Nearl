@@ -51,7 +51,7 @@ else
   logit "Successfully activated the environment ${CONDA_DEFAULT_ENV}";
   logit "Installing other necessary packages";
 
-  conda install -c conda-forge -c anaconda scipy=1.10 numpy=1.24 pandas=2.0 scikit-learn=1.2 seaborn matplotlib h5py -y
+  conda install -c conda-forge -c anaconda scipy=1.10 numpy=1.24 pandas=2.0 scikit-learn=1.2 seaborn matplotlib h5py dask -y
   pip3 install open3d rdkit sgt
   pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 
@@ -63,6 +63,7 @@ conda install -c conda-forge -c anaconda notebook nglview=3.0.3 -y
 conda install -c conda-forge requests biopython -y
 # Jax ecosystem
 pip3 install jax=0.4.13 optax flex
+
 # Other packages
 # imageio=2.9.0 # hilbertcurve=2.0.5
 

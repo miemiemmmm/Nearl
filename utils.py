@@ -117,64 +117,48 @@ def GetProteinMask(pdbfile):
   mask = ":"+",".join([str(i) for i in reslst])
   return mask
 
-def PairwiseDistance(traj, mask1, mask2, use_mean=False):
+def PairwiseDistance(traj, mask1, mask2, use_mean=False, ref_frame=None):
   """
   Get the pairwise distance between two masks
   Usually they are the heavy atoms of ligand and protein within the pocket
   """
   selmask1 = traj.top.select(mask1);
   selmask2 = traj.top.select(mask2);
-  atom_names = np.array([i.name for i in traj.top.atoms])
-  atom_ids = np.array([i.index for i in traj.top.atoms])
-  
+  if len(selmask1) == 0:
+    print("No target atom selected, please check the mask")
+    return None, None;
+  elif len(selmask2) == 0:
+    print("No counter part atom selected, please check the mask")
+    return None, None;
+  atom_names = np.array([i.name for i in traj.top.atoms]);
+  atom_ids = np.array([i.index for i in traj.top.atoms]);
+
+  # Compute the distance matrix between the target and reference atoms
   if use_mean == True:
     frame_mean = np.mean(traj.xyz, axis=0);
     this_ligxyz = frame_mean[selmask1];
     this_proxyz = frame_mean[selmask2];
     ref_frame = distance_matrix(this_ligxyz, this_proxyz);
   else:
-    pdist = pt.pairwise_distance(traj, mask_1=mask1, mask_2=mask2);
-    ref_frame = pdist[0][0];
+    this_ligxyz = traj.xyz[ref_frame if ref_frame is not None else 0][selmask1];
+    this_proxyz = traj.xyz[ref_frame if ref_frame is not None else 0][selmask2];
+    ref_frame = distance_matrix(this_ligxyz, this_proxyz);
 
-  minindex = [np.where(ref_frame[i] == np.min(ref_frame[i]))[0][0] for i in range(len(ref_frame))]
-  absolute_index = [selmask2[i] for i in minindex]
-  min_dists = np.min(ref_frame, axis=1)
-  # For mask selection, remember to add 1 because it is the read index number
-  distlist = []
-  for i,j in zip(selmask1, absolute_index):
-    # print(f"Pairing: {atom_names[i]:>4}({atom_ids[i]:>6}) - {atom_names[j]:>4}({atom_ids[j]:>6})")
-    dist_tmp = pt.distance(traj, f"@{i+1} @{j+1}")
-    distlist.append(dist_tmp)
+  # Find closest atom pairs
+  minindex = np.argmin(ref_frame, axis=1);
+  selclosest = selmask2[minindex];
 
-  distarr = np.array(distlist).astype(np.float32)
-  
-  gp1_names = list(atom_names[selmask1])
-  gp1_ids  = list(atom_ids[selmask1])
-  gp2_names = list(atom_names[absolute_index])
-  gp2_ids  = list(atom_ids[absolute_index])
+  # Compute the evolution of distance between closest-pairs
+  # NOTE: Add 1 to pytraj index (Unlike Pytraj, in Cpptraj, Atom index starts from 1)
+  distarr = np.array([pt.distance(traj, f"@{i + 1} @{j + 1}") for i, j in zip(selmask1, selclosest)]);
 
+  gp1_names = atom_names[selmask1].tolist();
+  gp1_ids   = atom_ids[selmask1].tolist();
+  gp2_names = atom_names[selclosest].tolist();
+  gp2_ids   = atom_ids[selclosest].tolist();
   return distarr, { "atom_name_group1":gp1_names, "index_group1":gp1_ids, "atom_name_group2":gp2_names, "index_group2":gp2_ids }
 
-def combineMOL2PDB(mol2file, pdbfile, outfile):
-  from rdkit import Chem; 
-  lig = Chem.MolFromMol2File(mol2file)
-  ligpdb = Chem.MolToPDBBlock(lig)
-  
-  atomlines = [i.replace("UNL", "LIG") for i in ligpdb.split("\n") if "HETATM" in i]
-  with open(pdbfile, "r") as file1: 
-    pdborig = file1.read(); 
-  linesorig = [i for i in pdborig.split("\n") if "HETATM" in i or "ATOM" in i]
-  finallines = linesorig + atomlines; 
-  finalstr = "\n".join(finallines); 
 
-  temp = tempfile.NamedTemporaryFile(suffix=".pdb")
-  temp.write(bytes(finalstr, "utf-8"))
-  
-  traj = pt.load(temp.name)
-  
-  temp.close()
-  pt.save(outfile, traj, overwrite=True)
-  return outfile
 
 def ASALig(pdbfile, lig_mask):
   """

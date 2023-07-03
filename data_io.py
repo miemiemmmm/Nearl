@@ -58,6 +58,12 @@ class hdf_operator:
       self.hdffile = h5.File(filename, "w")
     else: 
       self.hdffile = h5.File(filename, "a")
+
+  def __enter__(self):
+    return self
+
+  def __exit__(self, exc_type, exc_value, traceback):
+    self.close()
     
   def list_datasets(self):
     """
