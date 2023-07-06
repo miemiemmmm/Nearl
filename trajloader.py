@@ -36,7 +36,10 @@ class TrajectoryLoader:
     return outstr.strip("\n")
 
   def __iter__(self):
-    return self.__loadtrajs(self.trajs, self.tops); 
+    return self.__loadtrajs(self.trajs, self.tops);
+
+  def __len__(self):
+    return len(self.trajs);
   def __getitem__(self, index):
     used_kwargs = self.__desolvekwargs();
     if isinstance(index, int):
@@ -120,6 +123,16 @@ class Trajectory(pt.Trajectory):
       self._active_index = 0;
       self._active_frame = self[0];
       printit(f"Module {self.__class__.__name__}: Index {index} out of range ({len(self)}). Reset active to frame 0.");
+
+  def copy_traj(self):
+    thecopy = pt.Trajectory(xyz=self.xyz.copy(), top=self.top.copy(),
+                            velocity=self.velocities.copy() if self.velocities else None,
+                            force=self.forces.copy() if self.velocities else None);
+    thecopy._boxes = self._boxes;
+    thecopy.time = self.time;
+    thecopy._life_holder = self._life_holder;
+    thecopy._frame_holder = self._frame_holder;
+    return thecopy;
 
   def compute_closest_pairs_distance(self, mask, **kwarg):
     if "countermask" in kwarg.keys():

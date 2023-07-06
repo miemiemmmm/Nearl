@@ -797,9 +797,9 @@ class PaneltyFeature(Feature):
     """
     if _verbose:
       print("Precomputing the pairwise distance between the closest atom pairs")
-    self.traj_copy = self.traj.copy();
-    self.traj_copy.top.set_reference(self.traj_copy[self.refframe]);
-    self.pd_arr, self.pd_info = utils.PairwiseDistance(self.traj_copy, self.mask1, self.mask2, use_mean=self.use_mean);
+    traj_copy = self.traj.copy_traj();
+    traj_copy.top.set_reference(traj_copy[self.refframe]);
+    self.pd_arr, self.pd_info = utils.PairwiseDistance(traj_copy, self.mask1, self.mask2, use_mean=self.use_mean);
     self.mean_pd = np.mean(self.pd_arr, axis=1);
   def featurize(self):
     """
@@ -999,7 +999,7 @@ class TopFileNameFeature(Feature):
   def __init__(self):
     super().__init__();
   def featurize(self):
-    return self.top_filename
+    return self.traj.top_filename
 
 
 
