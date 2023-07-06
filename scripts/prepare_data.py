@@ -17,12 +17,8 @@ def parallelize_traj(trajectory):
   """
   Featurizer and the features initialized within the scope of this function
   """
-  print("ori-file", trajectory.top._original_filename, 'total-charge', trajectory.top._total_charge)
-  print("Atoms: ", trajectory.top.n_atoms, " residues: ",trajectory.top.n_residues)
-  print("Before filename ====> ", trajectory.top._original_filename)
   if trajectory.top.select(":T3P").__len__() > 0:
     trajectory.strip(":T3P")
-  print("After filename ====> ", trajectory.top._original_filename)
   # Initialize the featurizer since different trajectory might have distinct parameters
   feat = features.Featurizer3D(FEATURIZER_PARMS);
   # NOTE: in this step, the feature hooks back the feature and could access the featurizer by feat.featurer
@@ -84,26 +80,25 @@ if __name__ == "__main__":
   if os.path.exists(outputfile):
     os.remove(outputfile)
 
-  traj_list = trajectories.strip("%").split("%")
-  top_list = [i for i in topologies]
+  traj_list = trajectories.strip("%").split("%");
+  top_list = [i for i in topologies];
   traj_loader = trajloader.TrajectoryLoader(traj_list, top_list);
 
   # Dask parallelization with 16 workers and 2 threads per worker;
   # Top level parallelization: parallelize over trajectories;
   with Client(processes=True, n_workers=16, threads_per_worker=2) as client:
     tasks = [dask.delayed(parallelize_traj)(traj) for traj in traj_loader];
-    print("##################Tasks are generated##################")
+    print("##################Tasks are generated##################");
     futures = client.compute(tasks);
     results = client.gather(futures);
 
-  print([i.top._original_filename for i in traj_loader])
   # Convert the results to numpy array
   box_array = np.array([[j[0] for j in i] for i in results]);
   panelty_array = np.array([[j[1] for j in i] for i in results]);
   name_array = np.array([[j[2] for j in i] for i in results]);
   RF_array = np.array([[j[3] for j in i] for i in results]);
 
-  print(name_array)
+  print("Tasks finished, start saving the data", name_array)
   name_array = np.array(name_array, dtype=h5py.string_dtype('utf-8'))
 
   # Save the data
