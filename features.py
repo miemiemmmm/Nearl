@@ -395,6 +395,7 @@ class Featurizer3D:
         c = c_1;
       return id_processed[:c_total], feature_processed[:c_total]
 
+  # @profile
   def runframe(self, centers):
     """
     Generate the feature vectors for each center in the current frame
@@ -620,22 +621,6 @@ class MassFeature(Feature):
     print("feature_mass => ", feature_mass.shape)
     return feature_mass;
 
-
-
-# elif self.mode == "charmm36":
-#   """Partial charges from charmm36 force field for protein """
-#   self.mode = "charmm36";
-# elif self.mode == "amber99":
-#   """Partial charges from amber99 force field for protein"""
-#   self.mode = "amber99";
-# elif (self.mode == "charmm36" and not self.computed):
-#   # TODO
-#   self.computed = True;
-# elif (self.mode == "amber99" and not self.computed):
-#   # TODO
-#   self.computed = True;
-
-
 class PartialChargeFeature(Feature):
   """
   Auxiliary class for featurizer. Needs to be hooked to the featurizer after initialization.
@@ -761,7 +746,7 @@ class BoxFeature(Feature):
     """
     Get the box configuration (generally not used as a feature)
     """
-    box_feature = np.array([self.center, self.lengths, self.dims])
+    box_feature = np.array([self.center, self.lengths, self.dims]).ravel();
     # print("Box feature: ", box_feature)
     return box_feature
 

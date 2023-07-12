@@ -5,6 +5,7 @@
   "clear" : false,
   "verbose" : false,
   "usegpu": false,
+  "debug" : true,
 
   "####################" : "Featurizer settings",
   "WINDOW_SIZE" : 10,

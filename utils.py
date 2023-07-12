@@ -488,9 +488,7 @@ def filter_points_within_bounding_box(thearr, grid_center, grid_length, return_s
   thearr = np.asarray(thearr);
   upperbound = np.asarray(grid_center) + np.asarray(grid_length)/2;
   lowerbound = np.asarray(grid_center) - np.asarray(grid_length)/2;
-  ubstate = np.array([np.prod(i) for i in thearr < upperbound]); 
-  lbstate = np.array([np.prod(i) for i in thearr > lowerbound]); 
-  state = [bool(i) for i in ubstate*lbstate]; 
+  state = np.all((thearr < upperbound) & (thearr > lowerbound), axis=1);
   if return_state: 
     return state 
   else: 
@@ -593,5 +591,31 @@ def MSCV(arr):
   return min(mscv, 1); 
 
 
+# Result data extraction
+def data_from_fbag(fbag, feature_idx):
+  data = [];
+  for frame_data in fbag:
+    if isinstance(frame_data[feature_idx], list):
+      data.append(frame_data[feature_idx]);
+    elif isinstance(frame_data[feature_idx], np.ndarray):
+      data.append(frame_data[feature_idx].tolist());
+    elif isinstance(frame_data[feature_idx], (int, float, np.float32, np.float64)):
+      data.append([frame_data[feature_idx]]);
+  return data
+def data_from_tbag(bag, feature_idx):
+  data = [];
+  for traj_data in bag:
+    data += data_from_fbag(traj_data, feature_idx)
+  return data
+def data_from_tbagresults(results, feature_idx):
+  data = [];
+  for tbag in results:
+    data += data_from_tbag(tbag, feature_idx)
+  return np.array(data)
+def data_from_fbagresults(results, feature_idx):
+  data = [];
+  for fbag in results:
+    data += data_from_fbag(fbag, feature_idx)
+  return np.array(data)
 
 

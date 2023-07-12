@@ -6,6 +6,56 @@ import tempfile
 
 from . import CONFIG, _clear, _verbose, _tempfolder, printit
 
+# Default charge partially from Charmm36 forcefield
+DEFAULT_PARTIAL_CHARGE = {
+  "H": 0.09,    # <Atom name="HB1" type="ALA-HB1" charge="0.09"/>
+  "C": -0.18,   # <Atom name="CB" type="LEU-CB" charge="-0.18"/>
+  "N": -0.47,   # <Atom name="N" type="ALA-N" charge="-0.47"/>
+  "O": -0.51,   # <Atom name="O" type="ALA-O" charge="-0.51"/>
+  "F": -0.22,   # <Atom name="F21" type="FETH-F21" charge="-0.22"/>  FLUOROETHANE
+  "P": 1.5,     # <Atom name="PA" type="ATP-PA" charge="1.5"/>
+  "S": -0.09,   # <Atom name="SD" type="MET-SD" charge="-0.09"/>  ADENOSINE TRIPHOSPHATE
+  "CL": -0.04,  # <Atom name="CL" type="CALD-CL" charge="-0.04"/>  CHLOROACETALDEHYDE
+  "BR": -0.1,   # <Atom name="BR11" type="BRET-BR11" charge="-0.1"/>  BROMOETHANE
+  "B": 0.13,    # <Atom name="B1" type="BORE-B1" charge="-0.13"/>  ETHYL BORONIC ACID
+}
+
+def traj_to_rdkit(traj, atomidx, frameidx):
+  """
+  Convert a pytraj trajectory to rdkit mol object
+  """
+  pdbstr = write_pdb_block(traj, atomidx, frame_index=frameidx)
+  mol = Chem.MolFromPDBBlock(pdbstr, sanitize=False, removeHs=False);
+  mol = sanitize_bond(mol);
+  try:
+    mol = Chem.AddHs(mol, addCoords=True)
+    Chem.SanitizeMol(mol, Chem.SanitizeFlags.SANITIZE_ALL^Chem.SanitizeFlags.SANITIZE_ADJUSTHS)
+    AllChem.ComputeGasteigerCharges(mol);
+    # Deal with the NaN in the Gasteiger charges
+    for atom in mol.GetAtoms():
+      if np.isnan(atom.GetDoubleProp('_GasteigerCharge')):
+        atomsymbol = atom.GetSymbol().upper();
+        if atomsymbol in DEFAULT_PARTIAL_CHARGE.keys():
+          print(f"found the symbol {atomsymbol} in the default partial charge table");
+          atom.SetDoubleProp('_GasteigerCharge', DEFAULT_PARTIAL_CHARGE[atomsymbol]);
+        else:
+          atom.SetDoubleProp('_GasteigerCharge', 0.0);
+          print(f"Warning: Found NaN in rdkit molecule and atom {atomsymbol} is not found in the default preset, set to 0.0");
+    if True in np.isnan([atom.GetDoubleProp('_GasteigerCharge') for atom in mol.GetAtoms()]):
+      print("##########################################################################################")
+      print("DEBUG Warning: Still found nan in the charge", [atom.GetDoubleProp('_GasteigerCharge') for atom in mol.GetAtoms()])
+      print("##########################################################################################")
+    return mol;
+  except Exception as e:
+    print("#############################################")
+    print(f"During processing the original file: {traj.top_filename}; ")
+    print("Failed to read PDB/compute the Gasteiger charges. Caught exception: ");
+    print(e);
+    print("Please check the following PDB string:")
+    print(pdbstr)
+    print("#############################################")
+    return None;
+
 def DACbytraj(traj, frameidx, themask, **kwargs):
   """
   Count Hydrogen bond donors and acceptors by trajectory and selection
@@ -48,87 +98,60 @@ def DACbytraj(traj, frameidx, themask, **kwargs):
     print(pdbstr)
     return 0, 0
 
-def Chargebytraj(traj, frameidx, themask):
+def Chargebytraj(traj, frameidx, atomidx):
   """
   Count Hydrogen bond donors and acceptors by trajectory and selection
   """
-  selection = traj.top.select(themask);
-  if len(selection) == 0:
+  if len(atomidx) == 0:
     print(f"{Chargebytraj.__name__:15s}: No atom in the selected mask. Skipping it.")
     return np.array([]), np.array([])
-  if (">" in themask) or ("<" in themask):
-    print(f"{Chargebytraj.__name__:15s}: Detected distance based mash. Please make sure that the reference is set to the trajectory, otherwise, all of the atoms will be processed");
-  tmp_traj = traj.copy_traj();
-  if traj.top.select(f"!({themask})").__len__() > 0:
-    tmp_traj.strip(f"!({themask})");
-  if (tmp_traj.top.n_atoms == traj.top.n_atoms) and _verbose:
-    print(f"{Chargebytraj.__name__:15s}: All atoms are kept after applying the mask. Please make sure if this is wanted.")
-  
-  # with tempfile.NamedTemporaryFile() as file1:
-  #   pt.write_traj(f"{file1.name}.pdb", tmp_traj, overwrite=True, frame_indices=[frameidx], options="model chainid A")
-  #   with open(f"{file1.name}.pdb", "r") as f:
-  #     pdbstr = f.read()
-  #   if _clear:
-  #     os.remove(f"{file1.name}.pdb");
+  atomnr = len(atomidx);
+  coord = np.zeros((atomnr, 3));
+  charges = np.zeros(atomnr);
+  pdbstr = write_pdb_block(traj, atomidx, frame_index=frameidx)
 
-  pdbstr = write_pdb_block(traj, selection, frame_index=frameidx)
-  chargedict = {};
   try:
     mol = Chem.MolFromPDBBlock(pdbstr)
     AllChem.ComputeGasteigerCharges(mol);
-    conf = mol.GetConformer();
-    positions = conf.GetPositions();
-    conf = mol.GetConformer();
-    for idx, atom in enumerate(mol.GetAtoms()):
-      key = tuple(np.array(conf.GetAtomPosition(idx)));
-      chargedict[key] = float(atom.GetDoubleProp('_GasteigerCharge'));
   except Exception as e:
-    print("Error when reading the pdb file. Caught exception: ");
+    print("#############################################")
+    print(f"During processing the original file: {traj.top_filename}; ")
+    print("Failed to read PDB/compute the Gasteiger charges. Caught exception: ");
     print(e);
     print("Please check the following PDB string:")
     print(pdbstr)
-    print("From the original file:", traj.top_filename)
-  return chargedict
-    # mol = Chem.MolFromPDBFile(f"{file1.name}.pdb");
+    print("#############################################")
+    return charges, coord;
 
+  if not np.isclose(atomnr, mol.GetNumAtoms()):
+    atomnr = mol.GetNumAtoms();
+    coord = np.zeros((atomnr, 3));
+    charges = np.zeros(atomnr);
+    print(f"Warning: The atom number of given atom index and PDB does not match. {atomnr} vs {mol.GetNumAtoms()}");
 
-# TODO: Why I used Pytraj to write PDB file and read by rdkit and finally write by rdkit?
-# def write_pdb_block(traj, frameidx, themask):
-#   selection = traj.top.select(themask);
-#   if len(selection) == 0:
-#     print(f"{write_pdb_block.__name__:15s}: No atom in the selected mask. Skipping it.")
-#     return np.array([]), np.array([])
-#   tmp_traj = traj.copy();
-#   if traj.top.select(f"!({themask})").__len__() > 0:
-#     tmp_traj.strip(f"!({themask})");
-#   with tempfile.NamedTemporaryFile(suffix=".pdb") as file1:
-#     pt.write_traj(file1.name, tmp_traj, overwrite=True, frame_indices=[frameidx])
-#     mol = Chem.MolFromPDBFile(file1.name);
-#   return Chem.MolToPDBBlock(mol);
+  try:
+    conf = mol.GetConformer();
+    positions = conf.GetPositions();
+    for idx, atom in enumerate(mol.GetAtoms()):
+      coord[idx,:] = np.asarray(conf.GetAtomPosition(idx));
+      charges[idx] = float(atom.GetDoubleProp('_GasteigerCharge'));
+    return charges, coord;
+  except Exception as e:
+    print("#############################################")
+    print(f"During processing the original file: {traj.top_filename}; ")
+    print("Error when assigning charges. Caught exception: ");
+    print(e);
+    print("Please check the following PDB string:")
+    print(pdbstr)
+    print("#############################################")
+    atomnr = mol.GetNumAtoms();
+    coord = np.zeros((atomnr, 3));
+    charges = np.zeros(atomnr);
+    return charges, coord;
 
-def write_pdb_block(traj, frame_index=0, mask="*", write_pdb=False):
-  selection = traj.top.select(mask);
-  theframe = traj[frame_index];
-  newxyz = np.asarray(theframe.xyz[selection]);
-  newtop = traj.top._get_new_from_mask(mask);
-  newtraj = pt.Trajectory(top=newtop, xyz=np.asarray([newxyz]));
-  if write_pdb:
-    with open(write_pdb, "w") as file1:
-      pt.write_traj(file1.name, newtraj, overwrite=True)
-    return None
-  else:
-    with tempfile.NamedTemporaryFile(suffix=".pdb") as file1:
-      pt.write_traj(file1.name, newtraj, overwrite=True)
-      with open(file1.name, "r") as file2:
-        pdblines = [i for i in file2.read().split("\n") if "ATOM" in i or "HETATM" in i]
-      pdbline = "\n".join(pdblines) + "\nEND\n"
-    # This is to make sure that the atom name is consistent with the rdkit
-    # pdbline = write_pdb_block(pdbline);
-    return pdbline
-
-
-def write_pdb_block(thetraj, idxs, pdbfile = "", frame_index = 0, marks = [], swap4char=True):
+def write_pdb_block(thetraj, idxs, pdbfile="", frame_index=0, marks=[], swap4char=True):
   # Loop over each residue and atom, and write to the PDB file
+  idxs = np.asarray(idxs);
   if (len(marks) > 0) and (len(marks) == len(idxs)):
     marks = marks;
   else:
@@ -141,8 +164,13 @@ def write_pdb_block(thetraj, idxs, pdbfile = "", frame_index = 0, marks = [], sw
     spacegroup = "P 1";
     finalstr = f"TITLE    Topology Auto Generation : step =  {index}\n";
     finalstr += f"CRYST1 {uc[0]:8.3f} {uc[1]:8.3f} {uc[2]:8.3f} {uc[3]:6.2f} {uc[4]:6.2f} {uc[5]:6.2f} {spacegroup:<11}\n"
+    finalstr += "MODEL\n";
   except:
-    finalstr = "";
+    finalstr = "MODEL\n";
+
+  # create a dictionary to map old indices to new
+  old_to_new_idx = {old: new for new, old in enumerate(idxs)}
+
   for i, idx in enumerate(idxs):
     coord = xyz_reduce[idx];
     theatom = atom_arr[idx];
@@ -164,8 +192,11 @@ def write_pdb_block(thetraj, idxs, pdbfile = "", frame_index = 0, marks = [], sw
       atom_name = f"{atom_name:4}"
     # Write the ATOM record to the PDB file
     finalstr += f"{marks[i]:<6s}{(i%99999)+1:>5} {atom_name:4} {theres.name:>3}  {_res_id:>4}    {coord[0]:8.3f}{coord[1]:8.3f}{coord[2]:8.3f}  1.00  0.00\n";
-  finalstr += "END"
-  finalstr =  atom_name_mapping(finalstr);
+  finalstr = atom_name_mapping(finalstr);
+  for bond in thetraj.top.bonds:
+    if (bond.indices[0] in old_to_new_idx) and (bond.indices[1] in old_to_new_idx):
+      finalstr += f"CONECT{old_to_new_idx[bond.indices[0]]+1:>5}{old_to_new_idx[bond.indices[1]]+1:>5}\n";
+  finalstr += "ENDMDL\n"
   if len(pdbfile) > 0:
     with open(pdbfile, "w") as file1:
       file1.write(finalstr)
@@ -175,8 +206,8 @@ def write_pdb_block(thetraj, idxs, pdbfile = "", frame_index = 0, marks = [], sw
 
 def atom_name_mapping(pdbstr):
   pdbstr = pdbstr.replace("CL", "Cl").replace("BR", "Br")
-  pdbstr = pdbstr.replace("NA", "Na").replace("MG", "Mg").replace("ZN", "Zn")  # .replace("CA", "Ca").
-  pdbstr = pdbstr.replace("FE", "Fe").replace("CU", "Cu").replace("NI", "Ni").replace("CO", "Co").replace("MN", "Mn")
+  pdbstr = pdbstr.replace("NA", "Na").replace("MG", "Mg").replace("ZN", "Zn")  # .replace("CA", "Ca").replace("CO", "Co")
+  pdbstr = pdbstr.replace("FE", "Fe").replace("CU", "Cu").replace("NI", "Ni").replace("MN", "Mn")
   return pdbstr
 
 def combine_molpdb(molfile, pdbfile, outfile=""):
@@ -256,28 +287,6 @@ def CorrectMolBySmiles(refmol2, prob_smiles):
   Chem.SanitizeMol(mol1, sanitizeOps=Chem.SANITIZE_ALL);
   return mol1
 
-# ??? Try with putting bonds to remove in a list. Then remove them all at once
-# def sanitize_bond(mol_raw):
-#   conf = mol_raw.GetConformer()
-#   emol = Chem.EditableMol(mol_raw)
-#   # Iterate over each bond in the molecule.
-#   for bond in mol_raw.GetBonds():
-#     begin_atom_idx = bond.GetBeginAtomIdx()
-#     end_atom_idx = bond.GetEndAtomIdx()
-#     # Get the bond length for this bond.
-#     bond_length = rdMolTransforms.GetBondLength(conf, begin_atom_idx, end_atom_idx)
-#     if bond_length > 1.65:
-#       print(f"Removing bond lengthed {bond_length} Angstorm, formed by {begin_atom_idx}@{mol_raw.GetAtomWithIdx.GetSymbol(begin_atom_idx)} - {end_atom_idx}@{mol_raw.GetAtomWithIdx.GetSymbol(begin_atom_idx)}")
-#       # Remove the bond from the molecule.
-#       # Note: Recursively remove the bond if there is more than 1 wrong bond, the atom index will change
-#       #       Hence get the new molecule again and break the loop
-#       emol.RemoveBond(begin_atom_idx, end_atom_idx)
-#       new_mol = emol.GetMol()
-#       new_mol = sanitize_bond(new_mol)
-#       break
-#   Chem.SanitizeMol(new_mol)
-#   return new_mol
-
 # Single Bonds:
 # C-C: Approximately 1.52 Ångstrom (Å)
 # C-N: Approximately 1.47 Å
@@ -325,7 +334,7 @@ def sanitize_bond(mol_raw):
   emol = Chem.EditableMol(mol_raw)
   bonds_to_remove = []
   _avail_atom_types = ["C", "N", "O", "S", "H"]
-  # Iterate over each bond in the molecule.
+  # Iterate over each bond in the molecule
   for bond in mol_raw.GetBonds():
     begin_atom_idx = bond.GetBeginAtomIdx()
     end_atom_idx = bond.GetEndAtomIdx()
@@ -354,17 +363,27 @@ def sanitize_bond(mol_raw):
     if bond_rep not in BOND_LENGTH_MAP:
       bond_rep = "other"
 
-    bond_length_expected = BOND_LENGTH_MAP[bond_rep]
+    bond_length_expected = BOND_LENGTH_MAP[bond_rep];
     if (bond_length > bond_length_expected) and (not np.isclose(bond_length, bond_length_expected, rtol=0.1)):
       print(f"Removing abnormal bond {bond_rep} lengthed {bond_length:.2f}/{bond_length_expected} angstorm, formed by {begin_atom_idx}@{elem1} - {end_atom_idx}@{elem2}")
       bonds_to_remove.append((begin_atom_idx, end_atom_idx))
   # Remove the bonds outside of the iteration loop
   for bond in bonds_to_remove:
     emol.RemoveBond(*bond)
-
   new_mol = emol.GetMol()
   try:
     Chem.SanitizeMol(new_mol)
-  except:
     return new_mol
-  return new_mol
+  except:
+    # raise ValueError("Failed to sanitize the molecule")
+    # print("Failed to use the rdkit to sanitize the molecule, trying to use Biopython.")
+    # with tempfile.NamedTemporaryFile() as temp:
+    #   temp.write(pdb_string.encode())
+    #   temp.close()
+    #   parser = PDBParser(PERMISSIVE=1)
+    #   structure = parser.get_structure("temp", temp.name)
+    # print(structure)
+    return new_mol
+
+
+
