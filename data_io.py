@@ -53,8 +53,8 @@ def array2dataset(data, dtypes):
   return template
 
 class hdf_operator:
-  def __init__(self, filename, new=False): 
-    if new or (not os.path.isfile(filename)): 
+  def __init__(self, filename, overwrite=False):
+    if overwrite or (not os.path.isfile(filename)):
       self.hdffile = h5.File(filename, "w")
     else: 
       self.hdffile = h5.File(filename, "a")
@@ -63,6 +63,7 @@ class hdf_operator:
     return self
 
   def __exit__(self, exc_type, exc_value, traceback):
+    # When exiting the context, close the file with the python "with" statement
     self.close()
     
   def list_datasets(self):
@@ -78,7 +79,7 @@ class hdf_operator:
   
   def data(self, key):
     dset = self.hdffile[key]
-    return dset
+    return np.asarray(dset)
   def dtype(self,key): 
     dset = self.hdffile[key]
     return dset.dtype
