@@ -546,6 +546,9 @@ def NormalizePDB(refpdb, testpdb, outpdb):
   with open(outpdb, 'w') as file1:
     file1.write(finalstr)
 
+
+
+
 def transform_by_euler_angle(roll, pitch, yaw, translate=[0, 0, 0]):
     # Precompute trigonometric functions
     cos_roll, sin_roll = np.cos(roll), np.sin(roll)
@@ -565,6 +568,7 @@ def transform_by_euler_angle(roll, pitch, yaw, translate=[0, 0, 0]):
     H[:3, :3] = R; 
     H[:3, 3] = np.array(translate).ravel()
     return H
+
 
 
 def transform_pcd(pcd, trans_mtx): 

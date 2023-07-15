@@ -557,8 +557,30 @@ class generator:
       # else case not needed, s_final[idx] is already 0
     return xyz[s_final > 0], s_final[s_final > 0]
 
-
   def segment2mesh(self, theidxi, force=False, d=4, r=1.5):
+    """
+    Use ChimeraX's method to generate molecular surface
+    Avoids the use of MSMS to generate intermediate .xyzr, .vert, .face files
+    """
+    indice = np.asarray(theidxi);
+    resnames = np.array([a.name for a in self.traj.top.residues])
+    rads = [getRadius(i, j) for i, j in [(a.name, resnames[a.resid]) for a in self.atoms[indice]]]
+    vertices, normals, faces = ses_surface_geometry(self.traj.xyz[self.frame][indice], rads)
+
+    mesh = o3d.geometry.TriangleMesh();
+    mesh.vertices = o3d.utility.Vector3dVector(vertices);
+    mesh.vertex_normals = o3d.utility.Vector3dVector(normals);
+    mesh.triangles = o3d.utility.Vector3iVector(faces);
+    mesh.remove_degenerate_triangles();
+    mesh.compute_vertex_normals();
+    if not mesh.is_empty():
+      return mesh
+    else:
+      print(
+        f"{msms2mesh.__name__:15s}: Failed to convert the MSMS output files to triangle mesh, please check the MSMS output files");
+      return o3d.geometry.TriangleMesh();
+
+  def _segment2mesh(self, theidxi, force=False, d=4, r=1.5):
     """
     Generate a mesh object from a segment of atoms
     Args:
@@ -567,7 +589,7 @@ class generator:
       d: the density of the mesh for the MSMS program
       r: the radius of probe for the MSMS program
     """
-    indice = np.array(theidxi);
+    indice = np.asarray(theidxi);
     self.set_tempprefix();
     if mp.current_process().name == 'MainProcess':
       filename = self.tempprefix + "msms";
@@ -1118,3 +1140,128 @@ def weight(array1):
   # print(array1)
   # print("reweight", array1[:, 0].ravel())
   return array1[:, 0].ravel()
+
+######################################################################
+########## ChimeraX's function to compute surface from XYZR ##########
+######################################################################
+from numba import jit
+
+def invert_matrix(tf):
+  tf = np.asarray(tf)
+  r = tf[:, :3]
+  t = tf[:, 3]
+  tfinv = np.zeros((3, 4), np.float64)
+  rinv = tfinv[:, :3]
+  tinv = tfinv[:, 3]
+  rinv[:, :] = np.linalg.inv(r)
+  tinv[:] = np.dot(rinv, -t)
+  return tfinv
+
+def affine_transform_vertices(vertex_positions, tf):
+  tf_rot = tf[:, :3];
+  tf_trans = tf[:, 3];
+  # Use NumPy's broadcasting capabilities to perform the matrix multiplication
+  vertex_positions_transformed = np.dot(vertex_positions, tf_rot.T) + tf_trans;
+  return vertex_positions_transformed
+
+def reduce_geometry(va, na, ta, vi, ti):
+  vmap = np.zeros(len(va), np.int32)
+  rva = va.take(vi, axis=0)
+  rna = na.take(vi, axis=0)
+  rta = ta.take(ti, axis=0)
+  # Remap triangle vertex indices to use shorter vertex list.
+  vmap[vi] = np.arange(len(vi), dtype=vmap.dtype)
+  rta = vmap.take(rta.ravel()).reshape((len(ti), 3))
+  return rva, rna, rta
+
+def ses_surface_geometry(xyz, radii, probe_radius=1.4, grid_spacing=0.5, sas=False):
+  '''
+  Calculate a solvent excluded molecular surface using a distance grid
+  contouring method.  Vertex, normal and triangle arrays are returned.
+  If sas is true then the solvent accessible surface is returned instead.
+  This avoid generating the
+  '''
+  sys.path.insert(0, "/media/yzhang/MieT5/BetaPose/static")
+  import _geometry, _surface, _map
+
+  radii = np.asarray(radii, np.float32)
+  # Compute bounding box for atoms
+  xyz_min, xyz_max = xyz.min(axis=0), xyz.max(axis=0)
+  pad = 2 * probe_radius + radii.max() + grid_spacing
+  origin = [x - pad for x in xyz_min]
+
+  # Create 3d grid for computing distance map
+  s = grid_spacing
+  shape = [int(np.ceil((xyz_max[a] - xyz_min[a] + 2 * pad) / s))
+           for a in (2, 1, 0)]
+
+  try:
+    matrix = np.empty(shape, np.float32)
+  except (MemoryError, ValueError):
+    raise MemoryError('Surface calculation out of memory trying to allocate a grid %d x %d x %d '
+                      % (shape[2], shape[1], shape[0]) +
+                      'to cover xyz bounds %.3g,%.3g,%.3g ' % tuple(xyz_min) +
+                      'to %.3g,%.3g,%.3g ' % tuple(xyz_max) +
+                      'with grid size %.3g' % grid_spacing)
+
+  max_index_range = 2
+  matrix[:, :, :] = max_index_range
+
+  # Transform centers and radii to grid index coordinates
+  tf_matrix34 = np.array(((1.0 / s, 0, 0, -origin[0] / s),
+                          (0, 1.0 / s, 0, -origin[1] / s),
+                          (0, 0, 1.0 / s, -origin[2] / s)))
+
+  """transforms the atomic coordinates to grid index coordinates"""
+  ijk = affine_transform_vertices(xyz, tf_matrix34);
+
+  ri = radii.astype(np.float32)
+  ri += probe_radius
+  ri /= s
+
+  # Compute distance map from surface of spheres, positive outside.
+  _map.sphere_surface_distance(ijk, ri, max_index_range, matrix)
+
+  # Get the SAS surface as a contour surface of the distance map
+  level = 0
+  sas_va, sas_ta, sas_na = _map.contour_surface(matrix, level, cap_faces=False,
+                                                calculate_normals=True)
+  if sas:
+    invert_m34 = invert_matrix(tf_matrix34);
+    ses_va = affine_transform_vertices(ses_va, invert_m34);
+    return sas_va, sas_na, sas_ta
+
+  # Compute SES surface distance map using SAS surface vertex
+  # points as probe sphere centers.
+  matrix[:, :, :] = max_index_range
+  rp = np.empty((len(sas_va),), np.float32)
+  rp[:] = float(probe_radius) / s
+  _map.sphere_surface_distance(sas_va, rp, max_index_range, matrix)
+  ses_va, ses_ta, ses_na = _map.contour_surface(matrix, level, cap_faces=False,
+                                                calculate_normals=True)
+
+  # Transform surface from grid index coordinates to atom coordinates
+  invert_m34 = invert_matrix(tf_matrix34);
+  ses_va = affine_transform_vertices(ses_va, invert_m34);
+
+  # Delete connected components more than 1.5 probe radius from atom spheres.
+  kvi = []
+  kti = []
+  vtilist = _surface.connected_pieces(ses_ta)
+
+  for vi, ti in vtilist:
+    v0 = ses_va[vi[0], :]
+    d = xyz - v0
+    d2 = (d * d).sum(axis=1)
+    adist = (np.sqrt(d2) - radii).min()
+    if adist < 1.5 * probe_radius:
+      kvi.append(vi)
+      kti.append(ti)
+  keepv = np.concatenate(kvi) if kvi else []
+  keept = np.concatenate(kti) if kti else []
+  va, na, ta = reduce_geometry(ses_va, ses_na, ses_ta, keepv, keept)
+  return va, na, ta
+
+
+
+
