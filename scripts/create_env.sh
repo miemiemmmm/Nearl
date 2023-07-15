@@ -8,7 +8,7 @@ logit(){
   echo ">>>> $(date '+%d.%m.%Y %H.%M.%S') : $@"
 }
 
-env_name="mltest"; 
+env_name="mlenv"; 
 
 if [ ${#env_name} -eq 0 ]; then 
   logit "Please define a environment name: bash ${0} <environment name>";
@@ -39,7 +39,7 @@ if [ ${#foundenv} -eq 0 ]; then
 fi
 
 logit "Creating the environment, installation of AmberTools might take a while ...";
-conda create --name ${env_name} -c conda-forge python=3.10 ambertools=22.0 -y
+conda create --name ${env_name} -c conda-forge python=3.9.11 ambertools=22.0 -y
 logit "Activating the environment ${env_name}";
 conda activate ${env_name}
 
@@ -61,12 +61,11 @@ fi
 
 
 # Packages useful for development
-conda install -c conda-forge -c anaconda notebook nglview=3.0.3 -y
+conda install -c conda-forge -c anaconda notebook nglview=3.0.3 trimesh -y
 conda install -c conda-forge requests biopython -y
 # Jax ecosystem
 pip3 install jax optax flex
-
+pip3 install line_profiler
 # Other packages
 # imageio=2.9.0 # hilbertcurve=2.0.5
-
 

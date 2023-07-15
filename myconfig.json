@@ -19,6 +19,8 @@
   "host": "localhost",
   "password": "testyang",
 
+  "datadir": "/media/yzhang/MieT5/BetaPose/data",
+
   "####################" : "Test settings",
   "test": "test"
 }
