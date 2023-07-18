@@ -76,7 +76,9 @@ class hdf_operator:
         datasets.append(name)
     self.hdffile.visititems(find_datasets)
     return datasets
-  
+
+  def keys(self):
+    return self.hdffile.keys();
   def data(self, key):
     dset = self.hdffile[key]
     return np.asarray(dset)
