@@ -29,6 +29,9 @@ class TrajectoryLoader:
       self.trajs = trajs; 
       self.tops  = tops;
     self.kwargs = kwarg;
+    # If the user does not specify the output type, use Trajectory
+    self.OUTPUT_TYPE = Trajectory;
+
   def __str__(self):
     outstr = ""
     for i in self.__iter__(): 
@@ -43,21 +46,23 @@ class TrajectoryLoader:
   def __getitem__(self, index):
     used_kwargs = self.__desolvekwargs();
     if isinstance(index, int):
-      ret = Trajectory(self.trajs[index], self.tops[index], **used_kwargs);
+      ret = self.OUTPUT_TYPE(self.trajs[index], self.tops[index], **used_kwargs);
     elif isinstance(index, slice):
-      ret = [Trajectory(traj, top, **used_kwargs) for traj, top in zip(self.trajs[index], self.tops[index])]
+      ret = [self.OUTPUT_TYPE(traj, top, **used_kwargs) for traj, top in zip(self.trajs[index], self.tops[index])]
     return ret
+  def set_outtype(self, outtype):
+    self.OUTPUT_TYPE = outtype;
+
   def __loadtrajs(self, trajs, tops):
     used_kwargs = self.__desolvekwargs();
     for traj, top in zip(trajs, tops):
-      yield Trajectory(traj, top, **used_kwargs)
+      yield self.OUTPUT_TYPE(traj, top, **used_kwargs)
   def __desolvekwargs(self):
     ret_kwargs = {}
     ret_kwargs["stride"] = self.kwargs.get("stride", None)
     ret_kwargs["mask"] = self.kwargs.get("mask", None)
     ret_kwargs["frame_indices"] = self.kwargs.get("frame_indices", None)
     return ret_kwargs
-
 
 
 # Trajectory object
@@ -81,9 +86,16 @@ class Trajectory(pt.Trajectory):
 
     # NOTE: If both stride and frame_indices are given, stride will be respected;
     # NOTE: If none of stride or frame_indices are given, all frames will be loaded;
-    tmptraj = pt.load(trajfile, pdbfile, stride=stride, frame_indices=frame_indices);
-    timeinfo = tmptraj.time;
-    boxinfo = tmptraj._boxes;
+    if isinstance(trajfile, str) and isinstance(pdbfile, str):
+      # Initialize the trajectory object
+      tmptraj = pt.load(trajfile, pdbfile, stride=stride, frame_indices=frame_indices);
+      timeinfo = tmptraj.time;
+      boxinfo = tmptraj._boxes;
+    elif isinstance(trajfile, pt.Trajectory):
+      # Initialize the trajectory object
+      tmptraj = trajfile;
+      timeinfo = tmptraj.time;
+      boxinfo = tmptraj._boxes;
 
     # NOTE: Adding mask in the first pt.load function causes lose of time information;
     if mask is not None:
@@ -105,7 +117,6 @@ class Trajectory(pt.Trajectory):
 
     self._active_index = 0;
     self._active_frame = self[0];
-    # print("=====>", len(self))
 
     if _verbose:
       printit(f"Module {self.__class__.__name__}: stride: {stride}; frame_indices: {frame_indices}; mask: {mask}");

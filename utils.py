@@ -1,4 +1,4 @@
-import tempfile
+import tempfile, os, sys
 from hashlib import md5;
 
 import numpy as np 
@@ -622,4 +622,32 @@ def data_from_fbagresults(results, feature_idx):
     data += data_from_fbag(fbag, feature_idx)
   return np.array(data)
 
+from BetaPose import data_io
+# @profile
+def misato_traj(thepdb, mdfile, parmdir, *args, **kwargs):
+  # Needs dbfile and parm_folder;
+  topfile = f"{parmdir}/{thepdb.lower()}/production.top.gz";
+  if not os.path.exists(topfile):
+    print(f"The topology file of PDB:{thepdb} not found");
+    return pt.Trajectory()
+
+  top = pt.load_topology(topfile);
+  res = set([i.name for i in top.residues]);
+  if "WAT" in res:
+    top.strip(":WAT");
+  if "Cl-" in res:
+    top.strip(":Cl-");
+  if "Na+" in res:
+    top.strip(":Na+");
+
+  with data_io.hdf_operator(mdfile) as f1:
+    keys = f1.hdffile.keys();
+    if thepdb.upper() in keys:
+      coord = f1.data(f"/{thepdb.upper()}/trajectory_coordinates");
+      coord = np.array(coord);
+      ret_traj = pt.Trajectory(xyz=coord, top=top);
+      return ret_traj
+    else:
+      print(f"Not found the key for PDB code {thepdb.upper()}")
+      return pt.Trajectory()
 
