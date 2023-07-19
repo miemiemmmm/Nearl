@@ -328,7 +328,6 @@ class Featurizer3D:
       self.repr_generator.length = [i for i in self.__lengths];
     elif (not isinstance(fbox_length, str)) and len(fbox_length) == 3:
       self.repr_generator.length = [i for i in fbox_length];
-    print(self.repr_generator.length)
 
     # Step2: Initialize the feature array
     repr_processed = np.zeros((self.FRAMENUMBER * len(atoms), self.SEGMENTNR * self.VPBINS));
@@ -348,7 +347,7 @@ class Featurizer3D:
       printit(f"Frame {frame}: Generated {len(focuses)} centers");
       # For each frame, run number of atoms times to compute the features/segmentations
       repr_vec, feat_vec = self.runframe(focuses);
-      # print(repr_vec.shape, feat_vec.__len__())
+
 
       c_1 = c + len(repr_vec);
       c_total += len(repr_vec);
@@ -434,6 +433,10 @@ class Featurizer3D:
       Identity generation is compulsory because it is the only hint to retrieve the feature block
       """
       feature_vector, mesh_objs = self.repr_generator.vectorize(segments);
+      if np.count_nonzero(feature_vector) == 0 or len(mesh_objs) == 0:
+        # Returned feature vector is all-zero, the featurization is most likely failed
+        mask[idx] = False
+        continue
       final_mesh = functools.reduce(lambda a, b: a + b, mesh_objs);
       # Keep the intermediate information as metainformation if further review/featurization is needed
       if _verbose:
@@ -765,7 +768,7 @@ class FPFHFeature(Feature):
     print("FPFH feature: ", fpfh.data.shape)
     return fpfh.data
 
-class PaneltyFeature(Feature):
+class PenaltyFeature(Feature):
   """
   Auxiliary class for featurizer. Needs to be hooked to the featurizer after initialization.
   Deviation from the center of the box
@@ -775,29 +778,58 @@ class PaneltyFeature(Feature):
     self.mask1 = mask1;
     self.mask2 = mask2;
     self.use_mean = kwargs.get("use_mean", False);
-    self.refframe = kwargs.get("refframe", 0);
+    self.ref_frame = kwargs.get("ref_frame", 0);
+    self.FAIL_FLAG = False;
   def before(self):
     """
     Get the mean pairwise distance
     """
     if _verbose:
       print("Precomputing the pairwise distance between the closest atom pairs")
+
+    if isinstance(self.mask1, str):
+      atom_select = self.traj.top.select(self.mask1);
+    elif isinstance(self.mask1, (list, tuple, np.ndarray)):
+      atom_select = np.array([int(i) for i in self.mask1]);
+    if isinstance(self.mask2, str):
+      atom_counterpart = self.traj.top.select(self.mask2);
+    elif isinstance(self.mask2, (list, tuple, np.ndarray)):
+      atom_counterpart = np.array([int(i) for i in self.mask2]);
+    if len(atom_select) == 0:
+      self.FAIL_FLAG = True;
+      printit("Warning: PenaltyFeature: Mask1 is empty. Marked the FAIL_FLAG. Please check the atom selection");
+      return
+    elif len(atom_counterpart) == 0:
+      self.FAIL_FLAG = True;
+      printit("Warning: PenaltyFeature: Mask2 is empty. Marked the FAIL_FLAG. Please check the atom selection");
+      return
+
     traj_copy = self.traj.copy_traj();
-    traj_copy.top.set_reference(traj_copy[self.refframe]);
-    self.pd_arr, self.pd_info = utils.PairwiseDistance(traj_copy, self.mask1, self.mask2, use_mean=self.use_mean);
-    self.mean_pd = np.mean(self.pd_arr, axis=1);
+    traj_copy.top.set_reference(traj_copy[self.ref_frame]);
+    self.pdist, self.pdistinfo = utils.PairwiseDistance(traj_copy, atom_select, atom_counterpart, use_mean=self.use_mean, ref_frame=self.ref_frame);
+    self.pdist_mean = self.pdist.mean(axis=1)
+    if self.pdist.mean() > 8:
+      printit("Warning: the mean distance between the atom of interest and its counterpart is larger than 8 Angstrom");
+      printit("Please check the atom selection");
+    elif np.percentile(self.pdist, 85) > 12:
+      printit("Warning: the 85th percentile of the distance between the atom of interest and its counterpart is larger than 12 Angstrom");
+      printit("Please check the atom selection");
+
+    info_lengths = [len(self.pdistinfo[key]) for key in self.pdistinfo];
+    if len(set(info_lengths)) != 1:
+      printit("Warning: The length of the pdistinfo is not consistent", self.pdistinfo);
+
+
   def featurize(self):
     """
     Get the deviation from the center of the box
     """
-    coord_diff = self.active_frame.xyz[self.pd_info["index_group1"]] - self.active_frame.xyz[self.pd_info["index_group2"]]
+    if self.FAIL_FLAG == True:
+      return 0;
+    coord_diff = self.active_frame.xyz[self.pdistinfo["indices_group1"]] - self.active_frame.xyz[self.pdistinfo["indices_group2"]]
     dists = np.linalg.norm(coord_diff, axis=1)
-    dot_product = np.dot(dists, self.mean_pd)
-    norm_v1 = np.linalg.norm(dists)
-    norm_v2 = np.linalg.norm(self.mean_pd)
-    cos_sim = dot_product / (norm_v1 * norm_v2)
-    print("The final panelty is: ", self.active_frame_index, cos_sim)
-    return cos_sim;
+    cosine_sim = utils.cosine_similarity(dists, self.pdist_mean);
+    return cosine_sim;
 
 class MSCVFeature(Feature):
   def __init__(self, mask1, mask2, **kwargs):
@@ -805,7 +837,7 @@ class MSCVFeature(Feature):
     self.mask1 = mask1;
     self.mask2 = mask2;
     self.use_mean = kwargs.get("use_mean", False);
-    self.refframe = kwargs.get("refframe", 0);
+    self.ref_frame = kwargs.get("ref_frame", 0);
     self.WINDOW_SIZE = CONFIG.get("WINDOW_SIZE", 10);
   def before(self):
     """
@@ -814,8 +846,8 @@ class MSCVFeature(Feature):
     if _verbose:
       print("Precomputing the pairwise distance between the closest atom pairs")
     self.traj_copy = self.traj.copy();
-    self.traj_copy.top.set_reference(self.traj_copy[self.refframe]);
-    self.pd_arr, self.pd_info = utils.PairwiseDistance(self.traj_copy, self.mask1, self.mask2, use_mean=self.use_mean);
+    self.traj_copy.top.set_reference(self.traj_copy[self.ref_frame]);
+    self.pd_arr, self.pd_info = utils.PairwiseDistance(self.traj_copy, self.mask1, self.mask2, use_mean=self.use_mean, ref_frame=self.ref_frame);
     self.mean_pd = np.mean(self.pd_arr, axis=1);
 
   def featurize(self):
@@ -836,7 +868,7 @@ class MSCVFeature(Feature):
     pdists = np.zeros()
     for fidx in frames:
       dists = np.linalg.norm(
-        self.active_frame.xyz[self.pd_info["index_group1"]] - self.active_frame.xyz[self.pd_info["index_group2"]],
+        self.active_frame.xyz[self.pd_info["indices_group1"]] - self.active_frame.xyz[self.pd_info["indices_group2"]],
         axis=1);
       pdists[:, fidx] = dists;
     mscv = utils.MSCV(pdists);

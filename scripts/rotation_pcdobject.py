@@ -19,7 +19,7 @@ if __name__ == "__main__":
   for r in np.linspace(0, np.pi*2, rot_steps):
     for p in np.linspace(0, np.pi*2, rot_steps):
       for z in np.linspace(0, np.pi*2, rot_steps):
-        TransMatrix = utils.transform_by_euler_angle(r, p , z)
+        TransMatrix = utils.TM_euler(r, p , z)
         pcd2 = utils.transform_pcd(pcd, TransMatrix)
         if c == 0:
           pcd_out = pcd2

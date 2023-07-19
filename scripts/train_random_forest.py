@@ -4,17 +4,23 @@ from sklearn.model_selection import train_test_split
 
 import numpy as np
 
-from BetaPose import utils, data_io, models
+from BetaPose import utils, data_io, models, printit
 import time
 
 st = time.perf_counter();
-print("Loading data...")
+printit("Loading data...")
 
-with data_io.hdf_operator("/media/yzhang/MieT5/BetaPose/tests/test_randomforest.h5") as h5file:
-  rf_training_data = h5file.data("rf")
-  label_training_data = h5file.data("label").ravel()
+input_files = ["/media/yzhang/MieT5/BetaPose/data/trainingdata/misato_randomforest.h5"]
 
-print("Data loaded!!! Good luck!!!");
+rf_data = [];
+label_data = [];
+for input_hdfile in input_files:
+  with data_io.hdf_operator(input_hdfile, read_only=True) as h5file:
+    rf_data.append(h5file.data("rf"))
+    label_data.append(h5file.data("label").ravel())
+rf_training_data = np.concatenate(rf_data, axis=0)
+label_training_data = np.concatenate(label_data, axis=0)
+printit("Data loaded!!! Good luck!!!");
 
 # Split your data into training and testing sets.
 # E.G. 75% training, 25% testing.
@@ -26,18 +32,18 @@ rf_regressor = models.rfscore();
 # Fit the regressor with the training data.
 rf_regressor.fit(X_train, y_train)
 
-print(f"Training time: {time.perf_counter()-st:.4f} seconds")
+printit(f"Training time: {time.perf_counter()-st:.4f} seconds")
 
-print(f"Summary of the model: ")
+printit(f"Summary of the model: ")
 # print(f"estimators: {rf_regressor.estimators_}")
-print(f"estimator: {rf_regressor.estimator_}")
-print(f"feature_importances: {rf_regressor.feature_importances_}")
-print(f"n_features_in_: {rf_regressor.n_features_in_}")
+printit(f"estimator: {rf_regressor.estimator_}")
+printit(f"feature_importances: {rf_regressor.feature_importances_}")
+printit(f"n_features_in_: {rf_regressor.n_features_in_}")
 # print(f"base_estimator: {rf_regressor.base_estimator_}")
 # print(f"feature_names_in_: {rf_regressor.feature_names_in_}")
-print(f"n_outputs: {rf_regressor.n_outputs_}")
-print(f"oob_score: {rf_regressor.oob_score_}")
-print(f"oob_prediction: {rf_regressor.oob_prediction_}")
+printit(f"n_outputs: {rf_regressor.n_outputs_}")
+printit(f"oob_score: {rf_regressor.oob_score_}")
+printit(f"oob_prediction: {rf_regressor.oob_prediction_}")
 
 
 # Predict on the training data.
