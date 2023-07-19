@@ -4,7 +4,7 @@ import pytraj as pt
 import numpy as np 
 import tempfile
 
-from . import CONFIG, _clear, _verbose, _tempfolder, printit
+from . import CONFIG, _clear, _verbose, _tempfolder, printit, savelog
 
 # Default charge partially from Charmm36 forcefield
 DEFAULT_PARTIAL_CHARGE = {
@@ -36,15 +36,13 @@ def traj_to_rdkit(traj, atomidx, frameidx):
       if np.isnan(atom.GetDoubleProp('_GasteigerCharge')):
         atomsymbol = atom.GetSymbol().upper();
         if atomsymbol in DEFAULT_PARTIAL_CHARGE.keys():
-          print(f"found the symbol {atomsymbol} in the default partial charge table");
+          printit(f"Warning: Found Nan in rdkit molecule; Setting the atom {atomsymbol} to its default partial charge {DEFAULT_PARTIAL_CHARGE[atomsymbol]}");
           atom.SetDoubleProp('_GasteigerCharge', DEFAULT_PARTIAL_CHARGE[atomsymbol]);
         else:
           atom.SetDoubleProp('_GasteigerCharge', 0.0);
-          print(f"Warning: Found NaN in rdkit molecule and atom {atomsymbol} is not found in the default preset, set to 0.0");
+          printit(f"Warning: Found NaN in rdkit molecule; Atom {atomsymbol} not found in default preset. _GasteigerCharge set to 0.0");
     if True in np.isnan([atom.GetDoubleProp('_GasteigerCharge') for atom in mol.GetAtoms()]):
-      print("##########################################################################################")
-      print("DEBUG Warning: Still found nan in the charge", [atom.GetDoubleProp('_GasteigerCharge') for atom in mol.GetAtoms()])
-      print("##########################################################################################")
+      printit("DEBUG Warning: Still found nan in the charge", [atom.GetDoubleProp('_GasteigerCharge') for atom in mol.GetAtoms()])
     return mol;
   except Exception as e:
     print("#############################################")
@@ -54,6 +52,7 @@ def traj_to_rdkit(traj, atomidx, frameidx):
     print("Please check the following PDB string:")
     print(pdbstr)
     print("#############################################")
+    savelog();
     return None;
 
 def DACbytraj(traj, frameidx, themask, **kwargs):
@@ -149,7 +148,7 @@ def Chargebytraj(traj, frameidx, atomidx):
     charges = np.zeros(atomnr);
     return charges, coord;
 
-def write_pdb_block(thetraj, idxs, pdbfile="", frame_index=0, marks=[], swap4char=True):
+def write_pdb_block(thetraj, idxs, pdbfile="", frame_index=0, marks=[], swap4char=False):
   # Loop over each residue and atom, and write to the PDB file
   idxs = np.asarray(idxs);
   if (len(marks) > 0) and (len(marks) == len(idxs)):

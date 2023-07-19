@@ -8,7 +8,7 @@ from itertools import combinations
 from scipy.spatial.distance import cdist, pdist, squareform
 from rdkit import Chem
 from . import utils, chemtools
-from . import CONFIG, printit
+from . import CONFIG, printit, savelog
 
 _clear = CONFIG.get("clear", False);
 _verbose = CONFIG.get("verbose", False);
@@ -531,8 +531,10 @@ class generator:
     if len(tempprefix) > 0:
       self.tempprefix = os.path.join(_tempfolder, f"tmp_{tempprefix}_");
     else:
+      pid = os.getpid();
       temphash = utils.get_hash()[-10:];
-      self.tempprefix = os.path.join(_tempfolder, f"tmp_{temphash}_");
+      temphash = utils.get_hash(temphash + str(pid))[-10:];
+      self.tempprefix = os.path.join(_tempfolder, f"p{pid}_{temphash}_");
 
 
   def slicebyframe(self, threshold=2): 
@@ -631,6 +633,9 @@ class generator:
   def vectorize(self, segment):
     """
     Vectorize the segments (at maximum 6) of a frame
+    Two major steps:
+      1. Generate the fingerprint for each segment (including PDB generation/Molecular surface generation)
+      2. Collect all the results, combine surfaces and return it to the runframe function
     Args:
       segment: the segment to be vectorized
     """
@@ -640,7 +645,6 @@ class generator:
     self.__mesh = None;     # Load the lastest mesh object to the object
     segment_objects = [];   # 3D objects for each segment
     atom_indices = [];      # Atom indices for each segment
-
 
     # Order the segments from the most abundant to least ones
     segcounter = 0;
@@ -659,7 +663,7 @@ class generator:
       H_Nr = atomdict.get("H", 0); 
       T_Nr = sum(atomdict.values())
       if _verbose:
-        printit(f"{self.vectorize.__name__:15s}: {T_Nr} net atoms in segment {segidx + 1}/{nrsegments} ...")
+        printit(f"{self.vectorize.__name__:15s}: Segment {segidx + 1}/{nrsegments}: Total {T_Nr} atoms including {C_Nr} C, {N_Nr} N, {O_Nr} O, {H_Nr} H")
 
       # Generate the rdkit molecule here for Residue-based descriptors
       self.seg_mask = utils.getresmask(self.traj, utils.getmaskbyidx(self.traj, theidxi));
@@ -667,26 +671,19 @@ class generator:
       self.seg_mol = chemtools.traj_to_rdkit(self.traj, self.seg_indices, self.frame);
       if (self.seg_mol == None) or (not self.seg_mol):
         framefeature[segcounter - 1, :] = 0;
-        print(f"Failed to generate the rdkit molecule for segment {segidx + 1}/{nrsegments} of frame {self.frame} in {self.traj.top_filename}");
-        print("Skip this segment ...")
+        printit(f"Warning: vectorize: Failed to generate the rdkit molecule for segment {segidx + 1}/{nrsegments} of frame {self.frame} in {self.traj.top_filename}");
+        printit(f"Warning: vectorize: Found {len(self.seg_indices)} atoms including {C_Nr} C, {N_Nr} N, {O_Nr} O, {H_Nr} H");
         continue;
-      if _verbose:
-        printit(f"{self.vectorize.__name__:15s}: Atom number selected by residue: {len(self.seg_indices)} : {self.seg_mask}");
 
-      ########################################################
-      # For each segment, computer the partial charge and hydrogen bond information separately
-      ########################################################
+      if _verbose:
+        printit(f"{self.vectorize.__name__:15s}: Segment {segidx + 1}/{nrsegments}: Residue-based atom number: {len(self.seg_indices)}");
+
+      # For each segment, computer the partial charge, hydrogen bond, pseudo energy separately
       C_p, C_n = self.partial_charge();
       N_d, N_a = self.hbp_count();
       PE_lj, PE_el = self.pseudo_energy();
       if _verbose:
-        print(f"{self.vectorize.__name__:15s}: Residue-based descriptors of segment {segidx + 1}/{nrsegments} ...")
-
-      atom_indices += self.seg_indices.tolist();
-      pdbstr = chemtools.write_pdb_block(self.traj, self.seg_indices, frame_index = self.frame);
-      # new_lines = [line for line in pdbstr.strip("\n").split('\n') if ("^END$" not in line and "CONECT" not in line)]
-      new_lines = [line for line in pdbstr.strip("\n").split('\n')];
-      pdb_final += ('\n'.join(new_lines) + "\n");
+        printit(f"{self.vectorize.__name__:15s}: Segment {segidx + 1}/{nrsegments}: C_p: {C_p}, C_n: {C_n}, N_d: {N_d}, N_a: {N_a}, PE_lj: {PE_lj}, PE_el: {PE_el}");
 
       # Segment conversion to triangle mesh
       self.mesh = self.segment2mesh(theidxi);
@@ -707,42 +704,61 @@ class generator:
         T_Nr, C_Nr, N_d, N_a, C_p, C_n, PE_lj, PE_el, SA, VOL, rad, h_ratio
       ]
 
-      # Try fixed viewpoint
+      # PDB string processing
+      atom_indices += self.seg_indices.tolist();
+      pdbstr = chemtools.write_pdb_block(self.traj, self.seg_indices, frame_index=self.frame);
+      # new_lines = [line for line in pdbstr.strip("\n").split('\n') if ("^END$" not in line and "CONECT" not in line)]
+      new_lines = [line for line in pdbstr.strip("\n").split('\n')];
+      pdb_final += ('\n'.join(new_lines) + "\n");
+
+      # TODO: Try fixed viewpoint
       pf_gen = PointFeature(self.mesh);
       if segidx != (nrsegments - 1):
+        # Use the next segment's center as the viewpoint
         idx_next = np.where(segment == ordered_segs[segidx+1])[0];
         cog_next = self.traj.xyz[self.frame][idx_next].mean(axis=0);
       else:
+        # In the last segment, use the center of the box as the viewpoint
         cog_next = self.center;
       vpc = pf_gen.compute_vpc(cog_next, bins = self.VIEWPOINTBINS);
       framefeature[segcounter, -self.VIEWPOINTBINS:] = vpc;
       if (_verbose):
-        printit(f"Viewpoint: [1000, 0, 0]; Sum of VPC is: {sum(vpc)}");
+        printit(f"{self.vectorize.__name__:15s}: Segment {segidx + 1}/{nrsegments}: Viewpoint: {cog_next}; Sum of VPC is: {sum(vpc)}; Max of VPC is: {max(vpc)}; Min of VPC is: {min(vpc)}");
       self.__mesh = copy.deepcopy(self.mesh);
       segcounter += 1;
       segment_objects.append(self.mesh);
       if _verbose:
-        printit(f"Segment {segcounter} / {nrsegments}: {self.mesh}")
+        printit(f"{self.vectorize.__name__:15s}: Segment {segidx + 1}/{nrsegments} processing finished ...")
     ########################################################
-    # END of the segment iteration
+    ############ END of the segment iteration ##############
     ########################################################
-    if _verbose:
-      printit("Final 3D object: ", functools.reduce(lambda a, b: a+b, segment_objects))
+    try:
+      combined_mesh = functools.reduce(lambda a, b: a + b, segment_objects)
+      if _verbose:
+        printit("Final 3D object: ", combined_mesh)
+    except:
+      printit(f"Warning: {self.traj.top_filename} -> Failed to combine the segment meshes for frame {self.frame} in {self.traj.top_filename}");
+      printit(f"Warning: {self.traj.top_filename} -> Non-zero feature number: {np.count_nonzero(framefeature)} ; frame index: {self.frame}; ");
+      printit(f"Warning: {self.traj.top_filename} -> PDB_string: {pdb_final} ; Mesh objects: {segment_objects}");
+      printit(f"Warning: {self.traj.top_filename} -> Skip this frame ...")
+      self.set_tempprefix()
+      savelog(f"{self.tempprefix}frame{self.frame}.log");
+      return np.zeros((self.SEGMENT_LIMIT, 12 + self.VIEWPOINTBINS)).reshape(-1), [];
+
+    # Keep the final PDB and PLY files in memory for further use
+    self.active_pdb = pdb_final;
+    self.active_indices = atom_indices;
+    self.active_ply = write_ply(combined_mesh.vertices, normals=combined_mesh.vertex_normals, triangles=combined_mesh.triangles );
+
     if (not _clear):
       # Write out the final mesh if the intermediate output is required for debugging purpose
       # Reset the file prefix to make the temporary output file organized
       self.set_tempprefix()
       with open(f"{self.tempprefix}frame{self.frame}.pdb", "w") as f:
         f.write(pdb_final);
-      final_mesh = functools.reduce(lambda a, b: a + b, segment_objects);
-      o3d.io.write_triangle_mesh(f"{self.tempprefix}frame{self.frame}.ply", final_mesh, write_ascii=True);
-    # Keep the final PDB and PLY files in memory for further use
-    self.active_pdb = pdb_final;
-    self.active_indices = atom_indices;
+      with open(f"{self.tempprefix}frame{self.frame}.ply", "w") as f:
+        f.write(plystring);
 
-    o3d.io.write_triangle_mesh(f"{self.tempprefix}frame{self.frame}.ply", final_mesh, write_ascii=True);
-    with open(f"{self.tempprefix}frame{self.frame}.ply", "r") as f:
-      self.active_ply = f.read();
     if _verbose and (len(self.active_pdb) == 0 or len(self.active_ply) == 0):
       printit(f"DEBUG: Failed to correctly generate the intermediate PDB and PLY files for frame {self.frame}");
     return framefeature.reshape(-1), segment_objects
@@ -755,14 +771,19 @@ class generator:
     Return: 
       Atom counts as a dictionary
     """
-    ATOM_DICT = {'H': 1, 'C': 6, 'N': 7, 'O': 8, 'F': 9, 'P': 15, 'S': 16, 'Cl': 17, 'Br': 35, 'I': 53}
-    atomic_numbers = np.array([i.atomic_number for i in self.atoms[theidxi]]); 
-    atom_number = len(atomic_numbers);
-    count={}
-    for atom, atom_num in ATOM_DICT.items(): 
-      if np.count_nonzero(atomic_numbers - atom_num == 0) > 0: 
-        count[atom] = np.count_nonzero(atomic_numbers - atom_num == 0); 
-    return count
+    ATOM_DICT = {
+      'H': 1, 'C': 6, 'N': 7, 'O': 8,
+      'F': 9, 'P': 15, 'S': 16, 'Cl': 17,
+      'Br': 35, 'I': 53
+    }
+    atomic_numbers = np.array([i.atomic_number for i in self.atoms[theidxi]]).astype(int);
+    counts = {};
+    # Iterate through every atom type in the dictionary
+    # Return every type of available atom types for method robustness
+    for atom, atom_num in ATOM_DICT.items():
+      at_count = np.count_nonzero(np.isclose(atomic_numbers, atom_num))
+      counts[atom] = at_count;
+    return counts
 
   def hbp_count(self):
     """

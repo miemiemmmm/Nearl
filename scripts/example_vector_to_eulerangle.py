@@ -61,7 +61,7 @@ if __name__ == "__main__":
   eas = euler_angles_from_vector(v1,v2);
 
 
-  tm = utils.transform_by_euler_angle(*eas);
+  tm = utils.TM_euler(*eas);
   ret = utils.transform_pcd(np.array([v2]), tm);
   print(f"Target vector: {v1} | Vector to be aligned: {v2}");
   print(f"Roll: {eas[0]:.4f}; Pitch: {eas[1]:.4f}; Yaw: {eas[2]:.4f}");

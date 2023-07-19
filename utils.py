@@ -1,12 +1,11 @@
-import tempfile, os, sys
+import tempfile, os, sys, time, re, itertools
 from hashlib import md5;
 
 import numpy as np 
 import pytraj as pt 
 
 from scipy.interpolate import griddata, Rbf
-from scipy.spatial import distance_matrix
-
+from scipy.spatial import distance_matrix, distance
 
 def conflictfactor(pdbfile, ligname, cutoff=5):
   VDWRADII = {'1': 1.1, '2': 1.4, '3': 1.82, '4': 1.53, '5': 1.92, '6': 1.7, '7': 1.55, '8': 1.52,
@@ -90,7 +89,6 @@ def get_hash(thestr=""):
     arrstr = ",".join(np.asarray(thestr).astype(str))
     return md5(bytes(arrstr, "utf-8")).hexdigest()
   else:
-    import time;
     return md5(bytes(time.perf_counter().__str__(), "utf-8")).hexdigest()
 
 # Two ways to get the mask of protein part
@@ -122,27 +120,33 @@ def PairwiseDistance(traj, mask1, mask2, use_mean=False, ref_frame=None):
   Get the pairwise distance between two masks
   Usually they are the heavy atoms of ligand and protein within the pocket
   """
-  selmask1 = traj.top.select(mask1);
-  selmask2 = traj.top.select(mask2);
+  if isinstance(mask1, str):
+    selmask1 = traj.top.select(mask1);
+  elif isinstance(mask1, (list, tuple, np.ndarray)):
+    selmask1 = np.asarray(mask1);
+
+  if isinstance(mask2, str):
+    selmask2 = traj.top.select(mask2);
+  elif isinstance(mask2, (list, tuple, np.ndarray)):
+    selmask2 = np.asarray(mask2);
+
   if len(selmask1) == 0:
     print("No target atom selected, please check the mask")
     return None, None;
   elif len(selmask2) == 0:
     print("No counter part atom selected, please check the mask")
     return None, None;
-  atom_names = np.array([i.name for i in traj.top.atoms]);
-  atom_ids = np.array([i.index for i in traj.top.atoms]);
 
   # Compute the distance matrix between the target and reference atoms
   if use_mean == True:
     frame_mean = np.mean(traj.xyz, axis=0);
-    this_ligxyz = frame_mean[selmask1];
-    this_proxyz = frame_mean[selmask2];
-    ref_frame = distance_matrix(this_ligxyz, this_proxyz);
+    mask1_xyz = frame_mean[selmask1];
+    mask2_xyz = frame_mean[selmask2];
+    ref_frame = distance_matrix(mask1_xyz, mask2_xyz);
   else:
-    this_ligxyz = traj.xyz[ref_frame if ref_frame is not None else 0][selmask1];
-    this_proxyz = traj.xyz[ref_frame if ref_frame is not None else 0][selmask2];
-    ref_frame = distance_matrix(this_ligxyz, this_proxyz);
+    mask1_xyz = traj.xyz[ref_frame if ref_frame is not None else 0][selmask1];
+    mask2_xyz = traj.xyz[ref_frame if ref_frame is not None else 0][selmask2];
+    ref_frame = distance_matrix(mask1_xyz, mask2_xyz);
 
   # Find closest atom pairs
   minindex = np.argmin(ref_frame, axis=1);
@@ -150,13 +154,25 @@ def PairwiseDistance(traj, mask1, mask2, use_mean=False, ref_frame=None):
 
   # Compute the evolution of distance between closest-pairs
   # NOTE: Add 1 to pytraj index (Unlike Pytraj, in Cpptraj, Atom index starts from 1)
-  distarr = np.array([pt.distance(traj, f"@{i + 1} @{j + 1}") for i, j in zip(selmask1, selclosest)]);
+  distarr = np.zeros((len(selmask1), traj.n_frames));
+  c = 0;
+  for i, j in zip(selmask1, selclosest):
+    distancei = traj.xyz[:,i,:] - traj.xyz[:,j,:];
+    distarr[c, :] = np.sqrt(np.sum(distancei**2, axis=1));
+    c+=1;
 
-  gp1_names = atom_names[selmask1].tolist();
-  gp1_ids   = atom_ids[selmask1].tolist();
-  gp2_names = atom_names[selclosest].tolist();
-  gp2_ids   = atom_ids[selclosest].tolist();
-  return distarr, { "atom_name_group1":gp1_names, "index_group1":gp1_ids, "atom_name_group2":gp2_names, "index_group2":gp2_ids }
+  pdist_info = {"atom_name_group1": [], "indices_group1": [], "atom_name_group2": [], "indices_group2": []}
+
+  # TODO: This is the most time-consuming part, need to be optimized
+  atoms = [i for i in traj.top.atoms]
+  for idx in selmask1:
+    pdist_info["atom_name_group1"].append(atoms[idx].name);
+    pdist_info["indices_group1"].append(atoms[idx].index);
+  for idx in selclosest:
+    pdist_info["atom_name_group2"].append(atoms[idx].name);
+    pdist_info["indices_group2"].append(atoms[idx].index);
+
+  return distarr, pdist_info
 
 
 
@@ -278,13 +294,9 @@ def DistanceLigPro(theid, mode="session", ligname="LIG"):
     Protein uses CA atoms ; Ligand use ALL atoms
     Have 2 modes: session/file
   """
-  import pytraj as pt
   from . import session_prep
   if mode == "session":
     from rdkit import Chem
-    from scipy.spatial import distance_matrix
-    import re
-    import numpy as np 
     if len(theid) != 8: 
       print("Session ID length not equil to 8");
       return
@@ -326,8 +338,6 @@ def getSeqCoord(filename):
     Extract residue CA <coordinates> and <sequence> from PDB chain
   """
   from Bio.PDB.Polypeptide import three_to_one
-  import pytraj as pt
-
   traj = pt.load(filename)
   resnames = [i.name for i in traj.top.residues];
   trajxyz = traj.xyz[0];
@@ -400,8 +410,7 @@ def getPdbTitle(pdbcode):
   
   
 def getPdbSeq(pdbcode):
-  from Bio.SeqUtils import seq1; 
-  import re
+  from Bio.SeqUtils import seq1;
   pdb = pdbcode.lower().strip().replace(" ", ""); 
   assert len(pdb) == 4, "Please enter a valid PDB name";
   pdbstr = fetch(pdb);
@@ -546,29 +555,37 @@ def NormalizePDB(refpdb, testpdb, outpdb):
   with open(outpdb, 'w') as file1:
     file1.write(finalstr)
 
-
-
-
-def transform_by_euler_angle(roll, pitch, yaw, translate=[0, 0, 0]):
-    # Precompute trigonometric functions
-    cos_roll, sin_roll = np.cos(roll), np.sin(roll)
-    cos_pitch, sin_pitch = np.cos(pitch), np.sin(pitch)
-    cos_yaw, sin_yaw = np.cos(yaw), np.sin(yaw)
-    # Generate rotation matrices
-    Rx = np.array([[1, 0, 0], [0, cos_roll, -sin_roll], [0, sin_roll, cos_roll]])
-    Ry = np.array([[cos_pitch, 0, sin_pitch], [0, 1, 0], [-sin_pitch, 0, cos_pitch]])
-    Rz = np.array([[cos_yaw, -sin_yaw, 0], [sin_yaw, cos_yaw, 0], [0, 0, 1]])
-
-    # Combine rotations
-    # R = Rx @ Ry @ Rz
-    R = Rz @ Ry @ Rx
-
-    # Create the final transformation matrix
-    H = np.eye(4); 
-    H[:3, :3] = R; 
-    H[:3, 3] = np.array(translate).ravel()
-    return H
-
+def TM_euler(roll, pitch, yaw, translate=[0, 0, 0]):
+  """
+  Generate a transformation matrix from Euler angles
+  NOTE: Could also use this function to do xyz rotation
+  >>> from scipy.spatial.transform import Rotation
+  >>> R = Rotation.from_euler('xyz', [roll, pitch, yaw], degrees=False).as_matrix();
+  """
+  # Precompute trigonometric functions
+  cos_roll, sin_roll = np.cos(roll), np.sin(roll)
+  cos_pitch, sin_pitch = np.cos(pitch), np.sin(pitch)
+  cos_yaw, sin_yaw = np.cos(yaw), np.sin(yaw)
+  # Generate rotation matrices
+  Rx = np.array([[1, 0, 0], [0, cos_roll, -sin_roll], [0, sin_roll, cos_roll]])
+  Ry = np.array([[cos_pitch, 0, sin_pitch], [0, 1, 0], [-sin_pitch, 0, cos_pitch]])
+  Rz = np.array([[cos_yaw, -sin_yaw, 0], [sin_yaw, cos_yaw, 0], [0, 0, 1]])
+  # Combine rotations
+  R = Rz @ Ry @ Rx
+  # Create the final transformation matrix
+  H = np.eye(4);
+  H[:3, :3] = R;
+  H[:3, 3] = np.array(translate).ravel()
+  return H
+def TM_quaternion(q, translate=[0, 0, 0]):
+  from scipy.spatial.transform import Rotation
+  # Generate rotation matrix
+  R = Rotation.from_quat(q).as_matrix()
+  # Create the final transformation matrix
+  H = np.eye(4);
+  H[:3, :3] = R;
+  H[:3, 3] = np.array(translate).ravel()
+  return H
 
 
 def transform_pcd(pcd, trans_mtx): 
@@ -622,9 +639,8 @@ def data_from_fbagresults(results, feature_idx):
     data += data_from_fbag(fbag, feature_idx)
   return np.array(data)
 
-from BetaPose import data_io
-# @profile
 def misato_traj(thepdb, mdfile, parmdir, *args, **kwargs):
+  from BetaPose import data_io
   # Needs dbfile and parm_folder;
   topfile = f"{parmdir}/{thepdb.lower()}/production.top.gz";
   if not os.path.exists(topfile):
@@ -640,7 +656,7 @@ def misato_traj(thepdb, mdfile, parmdir, *args, **kwargs):
   if "Na+" in res:
     top.strip(":Na+");
 
-  with data_io.hdf_operator(mdfile) as f1:
+  with data_io.hdf_operator(mdfile, read_only=True) as f1:
     keys = f1.hdffile.keys();
     if thepdb.upper() in keys:
       coord = f1.data(f"/{thepdb.upper()}/trajectory_coordinates");
@@ -650,4 +666,18 @@ def misato_traj(thepdb, mdfile, parmdir, *args, **kwargs):
     else:
       print(f"Not found the key for PDB code {thepdb.upper()}")
       return pt.Trajectory()
+
+def cosine_similarity(vec1, vec2):
+  # Compute the dot product of vec1 and vec2
+  dot_product = np.dot(vec1, vec2)
+  # Compute the L2 norms (a.k.a. Euclidean norms) of vec1 and vec2
+  norm_vec1 = np.linalg.norm(vec1)
+  norm_vec2 = np.linalg.norm(vec2)
+  # Compute cosine similarity and return it
+  # We add a small number to the denominator for numerical stability,
+  # just in case both norms are zero.
+  similarity = dot_product / (norm_vec1 * norm_vec2 + 1e-9)
+  return similarity
+
+
 

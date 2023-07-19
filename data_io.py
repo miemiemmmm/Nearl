@@ -53,11 +53,18 @@ def array2dataset(data, dtypes):
   return template
 
 class hdf_operator:
-  def __init__(self, filename, overwrite=False):
-    if overwrite or (not os.path.isfile(filename)):
-      self.hdffile = h5.File(filename, "w")
-    else: 
-      self.hdffile = h5.File(filename, "a")
+  def __init__(self, filename, overwrite=False, read_only=False, append=False, new=False):
+    if read_only:
+      # Enabling read-only mode for concurrent access to one file
+      self.hdffile = h5.File(filename, "r");
+    elif append:
+      self.hdffile = h5.File(filename, "a");
+    elif overwrite or new:
+      self.hdffile = h5.File(filename, "w");
+    elif not os.path.isfile(filename):
+      self.hdffile = h5.File(filename, "w");
+    else:
+      self.hdffile = h5.File(filename, "r");
 
   def __enter__(self):
     return self

@@ -15,7 +15,7 @@ def parallelize_transform(tasks):
   new_frames = []
   for r, p, z in tasks:
     # Compute the transformation matrix and apply it to the coordinates
-    trans_matrix = utils.transform_by_euler_angle(r, p, z, translate);
+    trans_matrix = utils.TM_euler(r, p, z, translate);
     coord_transformed = utils.transform_pcd(coord, trans_matrix);
     # Create a new frame and append the new frame to the trajectory
     new_frame = pt.Frame(traj.top.n_atoms);
