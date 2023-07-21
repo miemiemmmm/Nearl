@@ -124,7 +124,7 @@ def parallelize_traj(traj_list):
 
     feat.register_traj(trajectory)
     # NOTE: Register frame's starting index is 0
-    feat.register_frames(range(0, 100, 40))
+    feat.register_frames(range(0, 100, 10))
     print("In the featurizer function: ", trajectory.top_filename)
 
     # index_selected = trajectory.top.select(":LIG,MOL")
@@ -133,8 +133,8 @@ def parallelize_traj(traj_list):
     repr_traji, features_traji = feat.run_by_atom(index_selected, focus_mode="cog");
     ret_list.append(features_traji);
     if len(ret_list) % 25 == 0:
-      printit(f"Processed {len(ret_list)}/({len(traj_list)}) trajectories; Time elapsed: {time.perf_counter() - st} seconds");
-      savelog(f"runtime_{os.getpid()}.log")
+      printit(f"Processed {len(ret_list)}/({len(traj_list)}) trajectories; Time elapsed: {time.perf_counter() - st_total} seconds");
+      savelog(f"/tmp/runtime_{os.getpid()}.log")
   return ret_list;
 
 # The misato trajectory type, inherit from the trajloader.Trajectory class
@@ -149,16 +149,24 @@ class misato_traj(trajloader.Trajectory):
 
 
 if __name__ == "__main__":
-  st_total = time.perf_counter()
+  # Define the output file before running the script
+  output_hdffile = "/media/yzhang/MieT5/BetaPose/data/trainingdata/misato_randomforest_step10.h5"
+  worker_num = 32;
+  thread_per_worker = 1;
+
+
+  st_total = time.perf_counter();
   # Check the PDB bind affinity table
-  pdbbind_csv = "/media/yzhang/MieT5/BetaPose/data/PDBBind_general_v2020.csv"
+  pdbbind_csv = "/media/yzhang/MieT5/BetaPose/data/PDBBind_general_v2020.csv";
   # Misato MD trajectory and QM reference
   misato_md_hdf = "/home/yzhang/Downloads/misato_database/MD.hdf5";
   misato_parm_dir = "/home/yzhang/Downloads/misato_database/parameter_restart_files_MD";
+
   # Misato MD trajectory index to featurize
   misato_md_index = "/media/yzhang/MieT5/BetaPose/data/misato_train_with_ligand.txt"
   with open(misato_md_index, "r") as f:
     trajlist = f.read().strip("\n").split("\n");
+  print("The number of trajectories to be featurized is ", len(trajlist));
 
   FEATURIZER_PARMS = {
     # POCKET SETTINGS
@@ -166,28 +174,24 @@ if __name__ == "__main__":
     "CUBOID_LENGTH": [24, 24, 24],  # Unit: Angstorm (Need scaling)
   }
 
-
   with open("/media/yzhang/MieT5/BetaPose/data/misato_ligand_indices.json", "r") as f:
     ligand_indices_map = json.load(f)
 
   production = True;
-
   if production == True:
-    worker_num = 24;
-    thread_per_worker = 1;
     split_groups = np.array_split(trajlist, worker_num);
     with Client(processes=True, n_workers=worker_num, threads_per_worker=thread_per_worker) as client:
       tasks = [dask.delayed(parallelize_traj)(traj_list) for traj_list in split_groups];
-      print("##################Tasks are generated##################")
+      printit("##################Tasks are generated##################")
       futures = client.compute(tasks);
       results = client.gather(futures);
   else:
     # TODO This is the test code: to be removed
-    trajlist = trajlist[-20:]
+    trajlist = trajlist[:20]
     result1 = parallelize_traj(trajlist);
     results = [result1];
 
-  print("##################Tasks are finished################")
+  printit("##################Tasks are finished################")
   box_array = utils.data_from_tbagresults(results, 0);
   penalty_array = utils.data_from_tbagresults(results, 1)
   rf_array = utils.data_from_tbagresults(results, 2)
@@ -195,31 +199,18 @@ if __name__ == "__main__":
 
   print(box_array.shape, penalty_array.shape, rf_array.shape, label_array.shape)
 
-  with data_io.hdf_operator("/media/yzhang/MieT5/BetaPose/data/trainingdata/misato_randomforest.h5", overwrite=True) as h5file:
+  with data_io.hdf_operator(output_hdffile, overwrite=True) as h5file:
     h5file.create_dataset("box", box_array)
     h5file.create_dataset("penalty", penalty_array)
     h5file.create_dataset("rf", rf_array)
     h5file.create_dataset("label", label_array)
     h5file.draw_structure()
-  print("##################Data are collected################")
-
+  printit("##################Data are collected################")
 
   savelog("prodrun.log")
 
 
 # loader = trajloader.TrajectoryLoader(trajlist, trajlist);
 # loader.set_outtype(misato_traj);
-
-# st = time.perf_counter()
-# for idx, traj in enumerate(loader):
-#   coord = traj.xyz;
-#   if (idx + 1) % 50 == 0:
-#     print(f"Processed {idx+1} trajectories in {time.perf_counter()-st} seconds");
-#     st = time.perf_counter()
-#
-# print(f"Total time: {time.perf_counter()-st_total} seconds");
-
-# mdfile = "/home/yzhang/Downloads/misato_database/MD.hdf5";
-# parmdir = "/home/yzhang/Downloads/misato_database/parameter_restart_files_MD";
 
 
