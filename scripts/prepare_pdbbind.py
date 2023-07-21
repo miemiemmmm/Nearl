@@ -11,7 +11,7 @@ from dask.distributed import Client
 from BetaPose import chemtools, trajloader, features, data_io, utils, printit, savelog
 
 class FeatureLabel(features.Feature):
-  def __init__(self, affinity_file, delimiter="\t", header=None):
+  def __init__(self, affinity_file, delimiter=",", header=0):
     """
     Use the topology name as the identifier of the molecule since it specific to the PDB ID of the protein
     Pre-generate the affinity table and use the topology name list to index the affinity
@@ -23,35 +23,29 @@ class FeatureLabel(features.Feature):
       label: the affinity label of the frame (float, baseline_affinity*penalty1*penalty2)
     """
     super().__init__();
-    self.TABLE = pd.read_csv(affinity_file, delimiter=delimiter, header=None);
-    # PDB in the first column and the affinity in the second column
-    PLACEHOLDER = "#TEMPLATE#";
-    self.TOPFILE_TEMPLATE = "/media/yzhang/MieT5/BetaPose/data/complexes/#TEMPLATE#_complex.pdb";
-    self.FILES = [self.TOPFILE_TEMPLATE.replace(PLACEHOLDER, i) for i in self.TABLE[0].values];
-    notfoundfile = 0;
-    for i in self.FILES:
-      if not os.path.exists(i):
-        print(f"File {i} not found");
-        notfoundfile += 1;
-    if notfoundfile > 0:
-      print(f"Total {notfoundfile} files not found");
-    else:
-      print(f"All files found !!!");
+    self.TABLE = pd.read_csv(affinity_file, delimiter=delimiter, header=header);
+    self.PDBCODES = self.TABLE["pdbcode"].tolist();
+    self.PKS = self.TABLE["pK"].tolist();
+    self.FAIL_FLAG = False;
 
   def featurize(self):
     topfile = self.traj.top_filename;
-    if topfile in self.FILES:
-      idx = self.FILES.index(topfile);
-      baseline_affinity = self.TABLE[1].values[idx];
+    topfile = os.path.basename(topfile)
+    pdbcode = topfile[:4];
+    if pdbcode in self.PDBCODES:
+      idx = self.PDBCODES.index(pdbcode);
+      baseline_affinity = self.PKS[idx];
+    elif pdbcode in SUPERSEDES:
+      pdbcode = SUPERSEDES[pdbcode.lower()];
+      idx = self.PDBCODES.index(pdbcode);
+      baseline_affinity = self.PKS[idx];
     else:
-      print(f"File {topfile} not found in the affinity table");
-      print(f"Please check the file name template: {self.TOPFILE_TEMPLATE}");
-      raise IOError("File not found");
-    penalty1 = 1
-    penalty2 = 1
-    return baseline_affinity*penalty1*penalty2;
+      print(f"PDB code {pdbcode} not found in the affinity table");
+      raise ValueError("PDB code not found");
 
-def combine_complex(idx, row):
+    return baseline_affinity;
+
+def combine_complex(idx, row, ref_filedir):
   ligfile = os.path.join(ref_filedir, f"{row[0]}/{row[0]}_ligand.mol2")
   profile = os.path.join(ref_filedir, f"{row[0]}/{row[0]}_protein.pdb")
   if False not in [profile, ligfile]: 
@@ -87,15 +81,15 @@ def parallelize_traj(traj_list):
     print(f"Processing trajectory {trajectory.top_filename}")
     if trajectory.top.select(":T3P,HOH,WAT").__len__() > 0:
       trajectory.strip(":T3P,HOH,WAT")
+    mask = ":LIG"
 
     # Initialize the featurizer since different trajectory might have distinct parameters
     feat = features.Featurizer3D(FEATURIZER_PARMS);
     # NOTE: in this step, the feature hooks back the feature and could access the featurizer by feat.featurer
     feat.register_feature(features.BoxFeature());
-    feat.register_feature(features.PenaltyFeature("(:LIG)&(!@H=)", "(:LIG<:5)&(!@H=)&(!:LIG)", ref=0));
-    # feat.register_feature(features.TopFileNameFeature());
+    feat.register_feature(features.PenaltyFeature(f"({mask})&(!@H=)", f"({mask}<:5)&(!@H=)&(!{mask})", ref=0));
 
-    feat.register_feature(features.RFFeature1D(":LIG"));
+    feat.register_feature(features.RFFeature1D(mask));
     feat.register_feature(FeatureLabel(PDBBind_datafile));
 
     feat.register_traj(trajectory)
@@ -115,37 +109,80 @@ def parallelize_traj(traj_list):
 if __name__ == '__main__':
   st = time.perf_counter();
 
-  ref_filedir = "/home/yzhang/Documents/Personal_documents/KDeep/dataset/refined-set-2016/";
-  out_filedir = "/media/yzhang/MieT5/BetaPose/data/complexes/";
-  PDBBind_datafile = "/media/yzhang/MieT5/KDeep/squeezenet/PDBbind_refined16.txt";
-  output_hdffile = "/media/yzhang/MieT5/BetaPose/data/trainingdata/pdbbindrefined_v2016_randomforest.h5";
+  #################################################################################
+  ########### Part1: Combine protein-ligand to complex PDB file ###################
+  #################################################################################
+  ref_filedir1 = "/media/yzhang/MieT5/PDBbind_v2020_refined/";
+  ref_filedir2 = "/media/yzhang/MieT5/PDBbind_v2020_other_PL/";
+  out_filedir = "/media/yzhang/MieT5/BetaPose/data/complexes/";           # Output directory for the combined complex PDB file
+  PDBBind_datafile = "/media/yzhang/MieT5/BetaPose/data/PDBBind_general_v2020.csv";   # PDBBind V2020
+  SKIP_COMBINE = True
 
-  table = pd.read_csv(PDBBind_datafile, delimiter="\t", header=None)
-  PDBNUMBER = len(table)
+  # Read the PDBBind dataset
+  table = pd.read_csv(PDBBind_datafile, delimiter=",", header=0);
+  PDBNUMBER = len(table);
 
-  with Client(processes=True, n_workers=16, threads_per_worker=2) as client:
-    tasks = [dask.delayed(combine_complex)(idx, row) for idx, row in table.iterrows() if not os.path.exists(os.path.join(out_filedir, f"{row[0]}_complex.pdb"))]
-    futures = client.compute(tasks);
-    results = client.gather(futures);
+  if SKIP_COMBINE != True:
+    refdirs = []
+    for pdbcode in table.pdbcode.tolist():
+      if os.path.exists(os.path.join(ref_filedir1, pdbcode)):
+        refdirs.append(ref_filedir1);
+      elif os.path.exists(os.path.join(ref_filedir2, pdbcode)):
+        refdirs.append(ref_filedir2);
+      else:
+        print(f"Cannot find the reference directory for {pdbcode}");
+        exit(1);
 
-  printit(f"Complex combination finished. Used {time.perf_counter() - st:.2f} seconds.")
-  printit(f"Success: {np.sum(results)}, Failed: {len(results) - np.sum(results)}");
+    if len(refdirs) == len(table.pdbcode.tolist()):
+      print("All reference directories are found.")
+
+
+    with Client(processes=True, n_workers=24, threads_per_worker=1) as client:
+      tasks = [dask.delayed(combine_complex)(idx, row, refdir) for (idx, row),refdir in zip(table.iterrows(), refdirs) if not os.path.exists(os.path.join(out_filedir, f"{row[0]}_complex.pdb"))]
+      futures = client.compute(tasks);
+      results = client.gather(futures);
+
+    printit(f"Complex combination finished. Used {time.perf_counter() - st:.2f} seconds.")
+    printit(f"Success: {np.sum(results)}, Failed: {len(results) - np.sum(results)}");
+
+  #################################################################################
+  ########### Part2: Check the existence of required PDB complexes ################
+  #################################################################################
+  pdb_listfile = "/media/yzhang/MieT5/BetaPose/data/misato_original_index/train_MD.txt"
+  output_hdffile = "/media/yzhang/MieT5/BetaPose/data/trainingdata/misato_trainset_randomforest.h5";
+  complex_dir = "/media/yzhang/MieT5/BetaPose/data/complexes/";
+
+  SUPERSEDES = {
+    "4dgo": "6qs5",
+    "4otw": "6op9",
+    "4v1c": "6iso",
+    "5v8h": "6nfg",
+    "5v8j": "6nfo",
+    "6fim": "6fex",
+    "6h7k": "6ibl",
+    "3m8t": "5wcm",
+    "4n3l": "6eo8",
+    "4knz": "6nnr",
+  }
+
+  with open(pdb_listfile, "r") as f1:
+    pdb_to_featurize = f1.read().strip("\n").split("\n");
+    pdb_to_featurize = [SUPERSEDES[i.lower()] if i.lower() in SUPERSEDES else i for i in pdb_to_featurize];
 
   # Serial check the existence of the output complex files
-  found_PDB = [];
-  for idx, row in table.iterrows():
-    filename = os.path.join(out_filedir, f"{row[0]}_complex.pdb")
-    if os.path.exists(filename):
-      found_PDB.append(filename)
-    else:
-      printit(f"Complex file not found: {filename}")
+  complex_files = [os.path.join(complex_dir, f"{pdbcode.lower()}_complex.pdb") for pdbcode in pdb_to_featurize];
+  found_state = [os.path.exists(pdbfile) for pdbfile in complex_files];
 
-  if PDBNUMBER != len(found_PDB):
-    printit(f"Found {len(found_PDB)} complexes, {PDBNUMBER - len(found_PDB)} complexes are missing")
-    exit(0)
+  if np.count_nonzero(found_state) == len(found_state):
+    print(f"Congretulations: All complexes found ({np.count_nonzero(found_state)}/{len(found_state)})");
   else:
-    printit(f"All complexes found; There are {len(found_PDB)} complexes in total")
-
+    print(f"Error: {len(found_state) - np.count_nonzero(found_state)}/{len(found_state)} complexes are not found in the complex directory")
+    print(np.array(pdb_to_featurize)[np.where(np.array(found_state) == False)[0]].tolist());
+    exit(0);
+  # exit(0);
+  #################################################################################
+  ########### Part3: Featurize the required PDB complexes #########################
+  #################################################################################
   FEATURIZER_PARMS = {
     # POCKET SETTINGS
     "CUBOID_DIMENSION": [48, 48, 48],  # Unit: 1 (Number of lattice in one dimension)
@@ -153,7 +190,8 @@ if __name__ == '__main__':
   }
 
   # TODO;  for debug only select subset of complexes
-  # found_PDB = found_PDB[:100];
+  # found_PDB = complex_files[:100];
+  found_PDB = complex_files;
   worker_num = 32;
   thread_per_worker = 1;
 
