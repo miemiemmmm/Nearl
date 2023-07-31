@@ -400,7 +400,7 @@ def fpfh_similarity2(fp1, fp2):
   similarity = 1 / (1 + np.abs(np.mean(dist_matrix)))
   return similarity
 
-
+# @profile
 def write_ply(coords, normals=[], triangles=[], filename=""):
   """
   Write the PLY file for further visualization
@@ -429,15 +429,15 @@ def write_ply(coords, normals=[], triangles=[], filename=""):
   # Write the vertex data
   if len(normals) > 0: 
     for xyz, normal in zip(coords, normals):
-      finalstr += (f"{xyz[0]:<8.3f} {xyz[1]:<8.3f} {xyz[2]:<8.3f} {normal[0]:8.3f} {normal[1]:8.3f} {normal[2]:8.3f}\n")
+      finalstr += f"{xyz[0]:<8.3f} {xyz[1]:<8.3f} {xyz[2]:<8.3f} {normal[0]:8.3f} {normal[1]:8.3f} {normal[2]:8.3f}\n";
   else: 
     for xyz in coords:
-      finalstr += (f"{xyz[0]:<8.3f} {xyz[1]:<8.3f} {xyz[2]:<8.3f}\n")
+      finalstr += f"{xyz[0]:<8.3f} {xyz[1]:<8.3f} {xyz[2]:<8.3f}\n";
   if len(triangles) > 0: 
     triangles = np.asarray(triangles).astype(int)
     # Write the triangle data
     for tri in triangles:
-      finalstr += (f"3 {tri[0]:4d} {tri[1]:4d} {tri[2]:4d}\n")
+      finalstr += f"3 {tri[0]:4d} {tri[1]:4d} {tri[2]:4d}\n";
   if len(filename) == 0:
     return finalstr
   else:
@@ -629,7 +629,7 @@ class generator:
       print(f"{self.segment2mesh.__name__:15s}: Failed to generate the mesh object for segment {theidxi}")
       return False
 
-
+  # @profile
   def vectorize(self, segment):
     """
     Vectorize the segments (at maximum 6) of a frame
@@ -733,7 +733,12 @@ class generator:
     ############ END of the segment iteration ##############
     ########################################################
     try:
-      combined_mesh = functools.reduce(lambda a, b: a + b, segment_objects)
+      for idx, mesh in enumerate(segment_objects):
+        if idx == 0:
+          combined_mesh = mesh;
+        else:
+          combined_mesh += mesh;
+      # combined_mesh = functools.reduce(lambda a, b: a + b, segment_objects)
       if _verbose:
         printit("Final 3D object: ", combined_mesh)
     except:
@@ -845,7 +850,6 @@ class generator:
       pp_lj: Pseudo Lenar-Jones potential
       pp_elec: Pseudo Electrostatic potential
     """
-
     # Compute the pseudo-lj and pseudo-elec potential
     pp_elec = 0;
     pp_lj = 0;
@@ -853,9 +857,7 @@ class generator:
     K_ELEC = 8.98
     EPSILON_LJ = 1
     SIGMA_LJ = 1
-
     atomnr = self.seg_mol.GetNumAtoms();
-
     conf = self.seg_mol.GetConformer();
     positions = conf.GetPositions();
     charges = np.array([atom.GetDoubleProp('_GasteigerCharge') for atom in self.seg_mol.GetAtoms()])
