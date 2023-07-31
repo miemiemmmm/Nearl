@@ -28,7 +28,9 @@ def traj_to_rdkit(traj, atomidx, frameidx):
   mol = Chem.MolFromPDBBlock(pdbstr, sanitize=False, removeHs=False);
   mol = sanitize_bond(mol);
   try:
-    mol = Chem.AddHs(mol, addCoords=True)
+    mol = Chem.AddHs(mol, addCoords=True);
+    # AllChem.UFFOptimizeMolecule(mol, maxIters=10)
+    # AllChem.MMFFOptimizeMolecule(mol, maxIters=10)
     Chem.SanitizeMol(mol, Chem.SanitizeFlags.SANITIZE_ALL^Chem.SanitizeFlags.SANITIZE_ADJUSTHS)
     AllChem.ComputeGasteigerCharges(mol);
     # Deal with the NaN in the Gasteiger charges

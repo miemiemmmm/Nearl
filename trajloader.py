@@ -67,7 +67,7 @@ class TrajectoryLoader:
 
 # Trajectory object
 class Trajectory(pt.Trajectory):
-  def __init__(self, trajfile, pdbfile, **kwarg):
+  def __init__(self, trajfile=None, pdbfile=None, **kwarg):
     """
     Initialize the trajectory object from pytraj.Trajectory
     Add more customizable functions
@@ -96,6 +96,9 @@ class Trajectory(pt.Trajectory):
       tmptraj = trajfile;
       timeinfo = tmptraj.time;
       boxinfo = tmptraj._boxes;
+    elif trajfile is None and pdbfile is None:
+      super().__init__()
+      return;
 
     # NOTE: Adding mask in the first pt.load function causes lose of time information;
     if mask is not None:
@@ -136,7 +139,9 @@ class Trajectory(pt.Trajectory):
       printit(f"Module {self.__class__.__name__}: Index {index} out of range ({len(self)}). Reset active to frame 0.");
 
   def copy_traj(self):
-    thecopy = pt.Trajectory(xyz=self.xyz.copy(), top=self.top.copy(),
+    xyzcopy = self.xyz.copy();
+    topcopy = self.top.copy();
+    thecopy = pt.Trajectory(xyz=xyzcopy, top=topcopy,
                             velocity=self.velocities.copy() if self.velocities else None,
                             force=self.forces.copy() if self.velocities else None);
     thecopy._boxes = self._boxes;

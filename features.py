@@ -4,9 +4,14 @@ import builtins, json, tempfile, functools
 import numpy as np
 import pytraj as pt
 
-from scipy.interpolate import griddata
+from numba import jit
+from scipy.interpolate import griddata, Rbf
 from scipy.spatial import KDTree;
+from scipy.spatial.distance import cdist;
 from scipy.stats import entropy;
+
+from rdkit import Chem
+from rdkit.Chem import AllChem;
 
 # open3d related modules
 from open3d.io import write_triangle_mesh
@@ -14,6 +19,7 @@ from open3d.pipelines.registration import compute_fpfh_feature
 from open3d.geometry import KDTreeSearchParamHybrid, TriangleMesh, PointCloud
 
 from . import utils, CONFIG, printit, representations
+from BetaPose import chemtools
 
 _clear = CONFIG.get("clear", False);
 _verbose = CONFIG.get("verbose", False);
@@ -41,6 +47,16 @@ When registering the customised feature, the following needs to be defined by th
     
 """
 
+@jit(nopython=True)
+def entropy_jit(x):
+  x_set = list(set(x))
+  counts = np.zeros(len(x_set))
+  for xi in x:
+    counts[x_set.index(xi)] += 1;
+  probs = counts/len(x);
+  entropy = -np.sum(probs * np.log2(probs + 1e-10))  # add small constant to avoid log2(0)
+  return entropy
+
 class Featurizer3D:
   def __init__(self, parms):
     """
@@ -59,16 +75,6 @@ class Featurizer3D:
     self.__dims = np.array([int(i) for i in parms["CUBOID_DIMENSION"]]);
     self.__lengths = np.array([float(i) for i in parms["CUBOID_LENGTH"]]);
 
-    # if isinstance(parms["MASK_INTEREST"], str):
-    #   self.__MOI = parms["MASK_INTEREST"]
-    # else:
-    #   printit("MASK_INTEREST is not a string. It should be a iterable object")
-    #
-    # if isinstance(parms["MASK_ENVIRONMENT"], str):
-    #   self.__MOE = parms["MASK_ENVIRONMENT"]
-    # else:
-    #   printit("MASK_ENVIRONMENT is not a string. It should be a iterable object")
-
     # Zero feature space
     self.FEATURESPACE = [];
     self.FEATURENUMBER = 0;
@@ -81,6 +87,8 @@ class Featurizer3D:
 
     # Identity vector generation related variables
     self.mesh = TriangleMesh();
+    self.BOX_MOLS = {};
+    self.active_frame_index = 0;
     self.SEGMENTNR = CONFIG.get("SEGMENT_LIMIT", 6);
     self.VPBINS = 12 + CONFIG.get("VIEWPOINT_BINS", 30);
 
@@ -271,6 +279,62 @@ class Featurizer3D:
       print(f"Error: {e}")
     self.disconnect();
 
+  def boxed_to_mol(self, selection):
+    if isinstance(selection, str):
+      atom_sel = self.traj.top.select(selection);
+    elif isinstance(selection, (list, tuple, np.ndarray)):
+      atom_sel = selection;
+
+    string_prep = f"{self.traj.top_filename}%{len(atom_sel)}%{atom_sel}";
+    string_hash = utils.get_hash(string_prep);
+    if string_hash in self.BOX_MOLS.keys():
+      return self.BOX_MOLS[string_hash];
+
+    # try:
+    if True:
+      print("======>>>> Generating a new boxed molecule <<<<======")
+      rdmol = chemtools.traj_to_rdkit(self.traj, atom_sel, self.active_frame_index);
+      if rdmol is None:
+        with tempfile.NamedTemporaryFile(suffix=".pdb") as temp:
+          outmask = "@"+",".join((atom_sel+1).astype(str));
+          print(self.traj[outmask])
+          _traj = self.traj[outmask].copy_traj();
+          print(f"======>>>> Generating a new trajectory object: {_traj.n_frames} frames <<<<======")
+          pt.write_traj(temp.name, _traj, frame_indices=[self.active_frame_index], overwrite=True);
+
+          with open(temp.name, "r") as f:
+            print(f.read());
+
+          rdmol = Chem.MolFromMol2File(temp.name, sanitize=False, removeHs=False);
+          print("RdMol ==>> ", rdmol)
+      self.BOX_MOLS[string_hash] = rdmol;
+      return rdmol;
+      # pdbstr = chemtools.write_pdb_block(self.traj, atom_sel, frame_index=self.active_frame_index);
+      # rdmol = Chem.MolFromPDBBlock(pdbstr, sanitize=False, removeHs=False);
+      # rdmol = chemtools.sanitize_bond(rdmol);
+      # Chem.SanitizeMol(rdmol, Chem.SanitizeFlags.SANITIZE_ALL ^ Chem.SanitizeFlags.SANITIZE_ADJUSTHS);
+      # rdmol = Chem.AddHs(rdmol, addCoords=True);
+      # AllChem.EmbedMolecule(rdmol);
+      # AllChem.ComputeGasteigerCharges(rdmol);
+      # # Double check the number of atoms and the match of atom names
+      # if len(atom_sel) != rdmol.GetNumAtoms():
+      #   printit("Warning: The number of atoms in the box does not match the number of atoms in the trajectory");
+      # traj_atoms = [i for i in self.traj.top.atoms];
+      # for atomidx, atom in zip(atom_sel, rdmol.GetAtoms()):
+      #   atomname = atom.GetPDBResidueInfo().GetName();
+      #   if np.isnan(atom.GetDoubleProp('_GasteigerCharge')):
+      #     if atomsymbol in chemtools.DEFAULT_PARTIAL_CHARGE.keys():
+      #       atom.SetDoubleProp('_GasteigerCharge', chemtools.DEFAULT_PARTIAL_CHARGE[atomsymbol]);
+      #     else:
+      #       printit("Warning: Cannot determine the partial charge of the atom {atomname}, settting to 0");
+      #       atom.SetDoubleProp('_GasteigerCharge', 0.0);
+      #   if atomname.strip() != traj_atoms[atomidx].name:
+      #     printit(f"Warning: Atom name mismatch between pytraj {traj_atoms[atomidx]} and rdkit{atomname}");
+    # except Exception as e:
+    #   printit(f"The following Exception occurred while reading pdb into rdkit mol: {e}")
+    #   return None
+
+
   def write_box(self, pdbfile="", elements=[], bfactors=[], write_pdb=False):
     """
     Write the 3D grid box with or without protein structure to a PDB file
@@ -333,6 +397,10 @@ class Featurizer3D:
     repr_processed = np.zeros((self.FRAMENUMBER * len(atoms), self.SEGMENTNR * self.VPBINS));
     feat_processed = np.zeros((self.FRAMENUMBER * len(atoms), self.FEATURENUMBER)).tolist();
 
+    # Compute the one-time-functions of each feature
+    for feature in self.FEATURESPACE:
+      feature.before_frame();
+
     # Step3: Iterate registered frames
     c = 0;
     c_total = 0;
@@ -348,12 +416,13 @@ class Featurizer3D:
       # For each frame, run number of atoms times to compute the features/segmentations
       repr_vec, feat_vec = self.runframe(focuses);
 
-
       c_1 = c + len(repr_vec);
       c_total += len(repr_vec);
       repr_processed[c:c_1] = repr_vec;
       feat_processed[c:c_1] = feat_vec;
       c = c_1;
+    for feature in self.FEATURESPACE:
+      feature.after_frame();
     return repr_processed[:c_total], feat_processed[:c_total]
 
   def run_by_center(self, center):
@@ -385,7 +454,6 @@ class Featurizer3D:
         printit(f"Frame {frame}: Generated {center_number} centers");
         # For each frame, run number of centers times to compute the features/segmentations
         repr_vec, feat_vec = self.runframe(_centers);
-        print(repr_vec.shape, feat_vec.__len__())
 
         c_1 = c + len(repr_vec);
         c_total += len(repr_vec);
@@ -394,7 +462,7 @@ class Featurizer3D:
         c = c_1;
       return id_processed[:c_total], feature_processed[:c_total]
 
-  # @profile
+
   def runframe(self, centers):
     """
     Generate the feature vectors for each center in the current frame
@@ -413,7 +481,7 @@ class Featurizer3D:
       printit(f"Expected to generate {len(centers)} identity vectors");
     # Compute the one-time-functions of each feature
     for feature in self.FEATURESPACE:
-      feature.before();
+      feature.before_focus();
 
     """Step2: Iterate each center"""
     for idx, center in enumerate(centers):
@@ -457,7 +525,14 @@ class Featurizer3D:
 
       """Step2.5: Iterate different features"""
       for fidx, feature in enumerate(self.FEATURESPACE):
-        feat_vector[idx][fidx] = feature.featurize();
+        feat_arr = feature.featurize();
+        if isinstance(feat_arr, np.ndarray):
+          if isinstance(feat_arr.dtype, (int, float, complex, np.float32, np.float64,
+                                         np.int32, np.int64, np.complex64, np.complex128)):
+            feat_arr = np.nan_to_num(feat_arr, copy=False, nan=0.0, posinf=0.0, neginf=0.0);
+        elif isinstance(feat_arr, str):
+          print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>TEST HERE", feat_arr)
+        feat_vector[idx][fidx] = feat_arr
 
     """
     Step3: Remove the masked identity vector and feature vector
@@ -467,7 +542,7 @@ class Featurizer3D:
     ret_feat_vector = [item for item, use in zip(feat_vector, mask) if use];
     # Compute the one-time-functions of each feature
     for feature in self.FEATURESPACE:
-      feature.after();
+      feature.after_focus();
     # DEBUG ONLY: After the iteration, check the shape of the feature vectors
     if _verbose:
       printit(f"Result identity vector: {ret_repr_vector.shape} ; Feature vector: {ret_feat_vector.__len__()} - {ret_feat_vector[0].__len__()}");
@@ -535,6 +610,10 @@ class Feature:
     lbstate = np.all(thecoord > lowerbound, axis=1);
     mask_inbox = ubstate * lbstate;
     return mask_inbox
+  
+  def query_mol(self, selection):
+    retmol = self.featurizer.boxed_to_mol(selection);
+    return retmol
 
   def interpolate(self, points, weights):
     """
@@ -548,22 +627,39 @@ class Feature:
     Returns:
     np.array: A 3D mesh grid of shape (grid_size, grid_size, grid_size) with the interpolated density.
     """
-    thegrid = tuple(self.grid);
-    grid_density = griddata(points, weights, thegrid, method='linear', fill_value=0);
+    weights = np.nan_to_num(weights, copy=False, nan=0.0, posinf=0.0, neginf=0.0);
+    x = points[:, 0]
+    y = points[:, 1]
+    z = points[:, 2]
+
+    # Create a grid for interpolation
+    grid_x, grid_y, grid_z = self.grid
+
+    # Perform 3D Gaussian RBF interpolation
+    rbf = Rbf(x, y, z, weights, function='gaussian')
+    grid_density = rbf(grid_x, grid_y, grid_z)
+
+    # thegrid = tuple(self.grid);
+    # grid_density = griddata(points, weights, thegrid, method='linear', fill_value=0);
     return grid_density
 
-  def before(self):
+  def before_frame(self):
     """
     This function is called before the feature is computed, it does nothing by default
     NOTE: User should override this function, if there is one-time expensive computation
     """
     pass
 
-  def after(self):
+  def after_frame(self):
     """
     This function is called after the feature is computed, it does nothing by default
     NOTE: User should override this function, if there is one-time expensive computation
     """
+    pass
+
+  def before_focus(self):
+    pass
+  def after_focus(self):
     pass
 
   def next(self):
@@ -595,19 +691,21 @@ class Feature:
     print(f"Feature {self.__class__.__name__}: {round(time.perf_counter()-sttime, 3)} seconds")
     return self.feature_array; 
 
-class MassFeature(Feature):
+class Mass(Feature):
   """
   Auxiliary class for featurizer. Needs to be hooked to the featurizer after initialization.
   Atomic mass as a feature
   """
-  def __init__(self):
+  def __init__(self, mask="*"):
     super().__init__()
+    self.MASK = mask;
 
-  def before(self):
+  def before_frame(self):
     """
     Since topology does not change during the simulation, we can precompute the atomic mass
     """
-    self.atomic_nrs = np.array([int(i.atomic_number) for i in self.traj.top.atoms]);
+    self.ATOMIC_NUMBERS = np.array([int(i.atomic_number) for i in self.traj.top.atoms]);
+    self.INDEX_CANDIDATES = self.traj.top.select(self.MASK);
 
   def featurize(self): 
     """
@@ -615,25 +713,26 @@ class MassFeature(Feature):
     2. Update the feature 
     """
     # Get the atoms within the bounding box
-    mask_inbox = self.crop_box(self.active_frame.xyz);
+    COORD_CANDIDATES = self.active_frame.xyz[self.INDEX_CANDIDATES];
+    MASS_CANDIDATES = self.ATOMIC_NUMBERS[self.INDEX_CANDIDATES];
+    mask_inbox = self.crop_box(COORD_CANDIDATES);
 
     # Get the coordinate/required atomic features within the bounding box
-    coords  = self.active_frame.xyz[mask_inbox]
-    weights = self.atomic_nrs[mask_inbox]
-    feature_mass = self.interpolate(coords, weights)
-    print("feature_mass => ", feature_mass.shape)
-    return feature_mass;
+    coords  = COORD_CANDIDATES[mask_inbox]
+    weights = MASS_CANDIDATES[mask_inbox]
 
-class PartialChargeFeature(Feature):
+    feature_arr = self.interpolate(coords, weights)
+    return feature_arr;
+
+class PartialCharge(Feature):
   """
   Auxiliary class for featurizer. Needs to be hooked to the featurizer after initialization.
   Atomic charge feature for the structure of interest;
   Compute the charge based on the self.featurizer.boxed_pdb;
   """
-  def __init__(self, moi="*", value=[]):
+  def __init__(self, mask="*", value=[]):
     super().__init__()
-    self.moi = moi;          # moiety of interest
-    self.cmd_template = "";  # command template for external charge computation programs
+    self.MASK = mask;          # moiety of interest
     if len(value) > 0:
       self.mode = "manual";
       self.charge_values = [i for i in value];
@@ -641,40 +740,34 @@ class PartialChargeFeature(Feature):
       self.mode = "gasteiger";
       self.charge_values = [];
 
+  def before_frame(self):
+    self.ATOM_INDICES = self.traj.top.select(self.MASK);
+    if (self.mode == "gasteiger"):
+      retmol = self.query_mol(self.ATOM_INDICES);
+      if retmol is not None:
+        self.charge_values = np.array([float(atom.GetProp("_GasteigerCharge")) for atom in retmol.GetAtoms()]).astype(float);
+        self.charge_values = self.charge_values[:len(self.ATOM_INDICES)];
+      else:
+        self.charge_values = np.zeros(len(self.ATOM_INDICES)).astype(float);
+    elif self.mode == "manual":
+      self.charge_values = np.asarray(self.charge_values).astype(float);
+
+    if len(self.charge_values) != len(self.ATOM_INDICES):
+      printit("Warning: The number of atoms in PDB does not match the number of charge values");
+
   def featurize(self):
-    from rdkit import Chem, AllChem;
     """
     NOTE:
     The self.boxed_pdb is already cropped and atom are reindexed in the PDB block.
     Hence use the self.boxed_indices to get the original atom indices standing for the PDB block
     """
-    mask = f"(@{','.join([str(i+1) for i in self.featurizer.boxed_indices])})&({self.moi})";
-    try:
-      pdbstr = chemtools.write_pdb_block(self.traj, self.traj.top.select(mask), frame_index=self.active_frame_index);
-      rdmol = Chem.MolFromPDBBlock(pdbstr);
-      AllChem.EmbedMolecule(rdmol);
-    except:
-      printit("The active pdb file is not currectly read by rdkit, skipping the partical charge calculation");
-      return np.zeros(tuple(self.dims));
-
-    if (self.mode == "gasteiger"):
-      AllChem.ComputeGasteigerCharges(rdmol);
-      self.charge_values = np.array([float(i.GetProp("_GasteigerCharge")) for i in rdmol.GetAtoms()]).astype(float);
-    elif self.mode == "manual":
-      self.charge_values = np.asarray(self.charge_values).astype(float);
-
     # Get the atoms within the bounding box
-    coords_pdb = np.array([i for i in rdmol.GetConformer().GetPositions()]);
-    if len(coords_pdb) != len(self.charge_values):
-      printit("Warning: The number of atoms in PDB does not match the number of charge values");
-    mask_inbox = self.crop_box(coords_pdb);
-
-    # Interpolate the feature values to the grid points
-    coords  = coords_pdb[mask_inbox]
-    weights = self.charge_values[mask_inbox];
+    COORD_CANDIDATES = self.active_frame.xyz[self.ATOM_INDICES];
+    mask_inbox = self.crop_box(COORD_CANDIDATES);
+    coords  = COORD_CANDIDATES[mask_inbox]
+    weights = self.charge_values[mask_inbox]
     feature_charge = self.interpolate(coords, weights)
-    print("feature_charge => ", feature_mass.shape)
-    return feature_charge
+    return feature_charge;
 
 
 def AM1BCCChargeFeature(Feature):
@@ -717,7 +810,7 @@ class AtomTypeFeature(Feature):
   def __init__(self, aoi="*"):
     super().__init__()
     self.aoi = aoi;
-  def before(self):
+  def before_frame(self):
     if (self.traj.top.select(self.aoi) == 0):
       raise ValueError("No atoms selected for atom type calculation");
 
@@ -727,15 +820,162 @@ class AtomTypeFeature(Feature):
 class HydrophobicityFeature(Feature):
   def __int__(self):
     super().__init__()
+
   def featurize(self):
+
     pass
 
-class AromaticityFeature(Feature):
-  def __int__(self):
+class Aromaticity(Feature):
+  def __init__(self, mask="*"):
     super().__init__()
+    self.MASK = mask;
+
+  def before_frame(self):
+    """
+    Compute the aromaticity of each atom in the moiety of interest
+    The atomic index matches between the
+    """
+    from rdkit import Chem
+    self.ATOM_INDICES = self.traj.top.select(self.MASK);
+    retmol = self.query_mol(self.ATOM_INDICES);
+    if retmol is not None:
+      self.AROMATICITY = np.array([atom.GetIsAromatic() for atom in retmol.GetAtoms()]).astype(int);
+      self.AROMATICITY = self.AROMATICITY[:len(self.ATOM_INDICES)];
+    else:
+      self.AROMATICITY = np.zeros(len(self.ATOM_INDICES)).astype(int);
 
   def featurize(self):
-    pass
+    # Interpolate the feature values to the grid points
+    COORD_CANDIDATES = self.active_frame.xyz[self.ATOM_INDICES];
+    mask_inbox = self.crop_box(COORD_CANDIDATES);
+    coords  = COORD_CANDIDATES[mask_inbox];
+    weights = self.AROMATICITY[mask_inbox];
+    feature_arr = self.interpolate(coords, weights);
+    return feature_arr;
+
+class HeavyAtom(Feature):
+  def __init__(self, mask="*", reverse=False):
+    """
+    Compute the heavy atom feature (or non-heavy atom feature) for the atoms of interest
+    Args:
+      mask: The mask for the atoms of interest
+      reverse: Whether or not to reverse the function to compute the non-heavy atoms (hydrogen atoms)
+    """
+    super().__init__()
+    self.MASK = mask;
+    self.REVERSE = bool(reverse);
+
+  def before_frame(self):
+    self.ATOM_INDICES = self.traj.top.select(self.MASK);
+    self.ATOMIC_NUMBERS = np.array([int(i.atomic_number) for i in self.traj.top.atoms]);
+    if self.REVERSE:
+      self.ATOM_STATE = np.array(self.ATOMIC_NUMBERS == 1, dtype=bool);
+    else:
+      self.ATOM_STATE = np.array(self.ATOMIC_NUMBERS > 1, dtype=bool);
+
+  def featurize(self):
+    COORD_CANDIDATES = self.active_frame.xyz[self.ATOM_INDICES];
+    mask_inbox = self.crop_box(COORD_CANDIDATES);
+    coords  = COORD_CANDIDATES[mask_inbox];
+    weights = self.ATOM_STATE[self.ATOM_INDICES][mask_inbox];
+    feature_arr = self.interpolate(coords, weights);
+    return feature_arr;
+
+class Ring(Feature):
+  def __init__(self, mask="*"):
+    super().__init__()
+    self.MASK = mask;
+
+  def before_frame(self):
+    self.ATOM_INDICES = self.traj.top.select(self.MASK);
+    retmol = self.query_mol(self.ATOM_INDICES);
+    if retmol is not None:
+      self.RING = np.array([atom.IsInRing() for atom in retmol.GetAtoms()])
+      self.RING = self.RING[:len(self.ATOM_INDICES)].astype(int);
+    else:
+      self.RING = np.zeros(len(self.ATOM_INDICES)).astype(int);
+    if len(self.RING) != len(self.ATOM_INDICES):
+      printit("Warning: The number of atoms in PDB does not match the number of aromaticity values");
+
+  def featurize(self):
+    COORD_CANDIDATES = self.active_frame.xyz[self.ATOM_INDICES];
+    mask_inbox = self.crop_box(COORD_CANDIDATES);
+    coords  = COORD_CANDIDATES[mask_inbox];
+    weights = self.RING[mask_inbox];
+    feature_arr = self.interpolate(coords, weights);
+    return feature_arr;
+class Hybridization(Feature):
+  def __init__(self, mask="*"):
+    super().__init__()
+    self.MASK = mask;
+    self.HYBRIDIZATION_DICT = {'SP': 1, 'SP2': 2, 'SP3': 3, "UNSPECIFIED": 0}
+
+  def before_frame(self):
+    self.ATOM_INDICES = self.traj.top.select(self.MASK);
+    retmol = self.query_mol(self.ATOM_INDICES);
+    if retmol is not None:
+      self.HYBRIDIZATION = [atom.GetHybridization() for atom in retmol.GetAtoms()]
+      self.HYBRIDIZATION = np.array([self.HYBRIDIZATION_DICT[i] if i in self.HYBRIDIZATION_DICT else 0 for i in self.HYBRIDIZATION]).astype(int);
+      self.HYBRIDIZATION = self.HYBRIDIZATION[:len(self.ATOM_INDICES)];
+    else:
+      self.HYBRIDIZATION = np.zeros(len(self.ATOM_INDICES)).astype(int);
+    if len(self.HYBRIDIZATION) != len(self.ATOM_INDICES):
+      printit("Warning: The number of atoms in PDB does not match the number of HYBRIDIZATION values");
+  def featurize(self):
+    COORD_CANDIDATES = self.active_frame.xyz[self.ATOM_INDICES];
+    mask_inbox = self.crop_box(COORD_CANDIDATES);
+    coords  = COORD_CANDIDATES[mask_inbox];
+    weights = self.HYBRIDIZATION[mask_inbox];
+    feature_arr = self.interpolate(coords, weights);
+    return feature_arr;
+
+class HydrogenBond(Feature):
+  def __init__(self, mask="*", donor=False, acceptor=False):
+    super().__init__()
+    self.MASK = mask;
+    if not donor and not acceptor:
+      raise ValueError("Either donor or acceptor should be True");
+    self.FIND_DONOR = bool(donor);
+    self.FIND_ACCEPTOR = bool(acceptor);
+  def before_frame(self):
+    self.ATOM_INDICES = self.traj.top.select(self.MASK);
+    retmol = self.query_mol(self.ATOM_INDICES);
+    result = [];
+    if retmol is not None:
+      for atom in retmol.GetAtoms():
+        symbol = atom.GetSymbol()
+        hydrogen_count = atom.GetTotalNumHs()
+        if self.FIND_DONOR:
+          is_hbp = symbol in ['N', 'O', 'F'] and hydrogen_count > 0
+        elif self.FIND_ACCEPTOR:
+          is_hbp = symbol in ['N', 'O', 'F']
+        result.append(is_hbp)
+    else:
+      atoms = np.array([i for i in self.traj.top.atoms]);
+      for atom in atoms[self.ATOM_INDICES]:
+        symbol = atom.atomic_number;
+        partners = atom.bonded_indices();
+        atom_partners = atoms[partners];
+        atom_numbers = np.array([i.atomic_number for i in atom_partners]);
+        hydrogen_count = np.count_nonzero(atom_numbers == 1);
+        if self.FIND_DONOR:
+          is_hbp = symbol in [7, 8, 9] and hydrogen_count > 0;
+        elif self.FIND_ACCEPTOR:
+          is_hbp = symbol in [7, 8, 9];
+        result.append(is_hbp)
+
+    self.HBP_STATE = np.array(result)[:len(self.ATOM_INDICES)].astype(int);
+    # if len(self.HBP_STATE) != len(self.ATOM_INDICES):
+    #   printit("Warning: The number of atoms in PDB does not match the number of HBP_STATE values");
+
+  def featurize(self):
+    COORD_CANDIDATES = self.active_frame.xyz[self.ATOM_INDICES];
+    mask_inbox = self.crop_box(COORD_CANDIDATES);
+    coords  = COORD_CANDIDATES[mask_inbox];
+    weights = self.HBP_STATE[mask_inbox];
+    feature_arr = self.interpolate(coords, weights);
+    return feature_arr;
+
 
 
 class BoxFeature(Feature):
@@ -750,7 +990,6 @@ class BoxFeature(Feature):
     Get the box configuration (generally not used as a feature)
     """
     box_feature = np.array([self.center, self.lengths, self.dims]).ravel();
-    # print("Box feature: ", box_feature)
     return box_feature
 
 class FPFHFeature(Feature):
@@ -759,7 +998,7 @@ class FPFHFeature(Feature):
   Fast Point Feature Histograms
   """
   def __init__(self):
-    super().__init__()
+    super().__init__();
 
   def featurize(self):
     down_sample_nr = CONFIG.get("DOWN_SAMPLE_POINTS", 600)
@@ -780,7 +1019,8 @@ class PenaltyFeature(Feature):
     self.use_mean = kwargs.get("use_mean", False);
     self.ref_frame = kwargs.get("ref_frame", 0);
     self.FAIL_FLAG = False;
-  def before(self):
+
+  def before_frame(self):
     """
     Get the mean pairwise distance
     """
@@ -839,7 +1079,7 @@ class MSCVFeature(Feature):
     self.use_mean = kwargs.get("use_mean", False);
     self.ref_frame = kwargs.get("ref_frame", 0);
     self.WINDOW_SIZE = CONFIG.get("WINDOW_SIZE", 10);
-  def before(self):
+  def before_frame(self):
     """
     Get the mean pairwise distance
     """
@@ -874,99 +1114,97 @@ class MSCVFeature(Feature):
     mscv = utils.MSCV(pdists);
     return mscv;
 
-class EntropyResidueFeature(Feature):
-  def __init__(self):
+class EntropyResidueID(Feature):
+  def __init__(self, mask="*"):
     super().__init__();
     self.WINDOW_SIZE = CONFIG.get("WINDOW_SIZE", 10);
+    self.MASK = mask;
+
+  def before_focus(self):
+    """
+    Before processing focus points, get the correct slice of frames
+    """
+    # Determine the slice of frames from a trajectory
+    framenr = self.traj.n_frames;
+    if framenr < self.WINDOW_SIZE:
+      print("The slice is larger than the total frames, using the whole trajectory");
+      frames = np.arange(0, framenr);
+    elif (self.active_frame_index + self.WINDOW_SIZE > framenr):
+      print("Unable to fill the last frame and unable not enough to fill the window, then use the last window");
+      frames = np.arange(framenr - self.WINDOW_SIZE, framenr);
+    else:
+      frames = np.arange(self.active_frame_index, self.active_frame_index + self.WINDOW_SIZE);
+    self.ENTROPY_CUTOFF = np.linalg.norm(self.lengths / self.dims);  # Automatically set the cutoff for each grid
+    self.ATOM_INDICES = self.top.select(self.MASK);
+    self._COORD = self.traj.xyz[frames, self.ATOM_INDICES].reshape((-1, 3));
+    self.RESID_ENSEMBLE = np.array([i.resid for idx,i in enumerate(self.top.atoms) if idx in self.ATOM_INDICES] * len(frames));
+    self.FRAME_NUMBER = len(frames);
+    if len(self._COORD) != len(self.RESID_ENSEMBLE):
+      raise Exception("Warning: The number of coordinates and the number of residue indices are not equal")
+
+
+  # @profile
+  def featurize(self):
+    """
+    Get the information entropy(Chaoticity in general) of the box
+    """
+    entropy_arr = np.zeros(tuple(self.dims));
+    distances = cdist(self.points3d, self._COORD)
+    distances = distances.reshape(self.dims[0], self.dims[1], self.dims[2], self.FRAME_NUMBER, len(self.ATOM_INDICES));
+    for I in range(self.dims[0]):
+      for J in range(self.dims[1]):
+        for K in range(self.dims[2]):
+          _distances_status = distances[I, J, K, :] < self.ENTROPY_CUTOFF;
+          if True in _distances_status:
+            _distances_status = _distances_status.ravel();
+            entropy_arr[I,J,K] = entropy_jit(self.RESID_ENSEMBLE[_distances_status])
+          else:   # All False
+            continue
+    return entropy_arr
+
+class EntropyAtomID(Feature):
+  def __init__(self, mask="*"):
+    super().__init__();
+    self.WINDOW_SIZE = CONFIG.get("WINDOW_SIZE", 10);
+    self.MASK = mask;
+
+  def before_focus(self):
+    # Determine the slice of frames from a trajectory
+    framenr = self.traj.n_frames;
+    if framenr < self.WINDOW_SIZE:
+      print("The slice is larger than the total frames, using the whole trajectory");
+      frames = np.arange(0, framenr);
+    elif (self.active_frame_index + self.WINDOW_SIZE > framenr):
+      print("Unable to fill the last frame and unable not enough to fill the window, then use the last window");
+      frames = np.arange(framenr - self.WINDOW_SIZE, framenr);
+    else:
+      frames = np.arange(self.active_frame_index, self.active_frame_index + self.WINDOW_SIZE);
+    self.ENTROPY_CUTOFF = np.linalg.norm(self.lengths / self.dims);  # Automatically set the cutoff for each grid
+    self.ATOM_INDICES = self.top.select(self.MASK);
+    self._COORD = self.traj.xyz[frames, self.ATOM_INDICES].reshape((-1, 3));
+    self.INDEX_ENSEMBLE = np.array(
+      [i.index for idx, i in enumerate(self.top.atoms) if idx in self.ATOM_INDICES] * len(frames));
+    self.FRAME_NUMBER = len(frames);
+    if len(self._COORD) != len(self.INDEX_ENSEMBLE):
+      raise Exception("Warning: The number of coordinates and the number of residue indices are not equal")
 
   def featurize(self):
     """
     Get the information entropy(Chaoticity in general) of the box
     """
-    """Adjust the range of the frames (if necessary)"""
-    self.ENTROPY_CUTOFF = np.linalg.norm(self.lengths / self.dims);  # Automatically set the cutoff for each grid
-    framenr = self.traj.n_frames;
-    if framenr < self.WINDOW_SIZE:
-      # If the window size is larger than the number of frames, then use the whole trajectory
-      frames = np.arange(0, framenr);
-    elif (self.active_frame_index+self.WINDOW_SIZE > framenr):
-      # If the last frame is not enough to fill the window, then use the last window
-      frames = np.arange(framenr-self.WINDOW_SIZE, framenr);
-    else:
-      frames = np.arange(self.active_frame_index, self.active_frame_index+self.WINDOW_SIZE);
-    """Stack the required coordinates and the residue indices, and fit the KDTree"""
-    coords = self.active_frame.xyz[frames].reshape((-1, 3))
-    resids = np.array([i.resid for i in self.top.atoms] * len(frames));
-    if len(coords) == len(resids):
-      printit("Warning: The number of coordinates and the number of residue indices are not equal");
     entropy_arr = np.zeros(tuple(self.dims));
-    tree = KDTree(coords);
-    """Iterate through the grid and calculate the entropy for each grid"""
-    for pidx, _point in enumerate(self.points3d):
-      _idxs = tree.query_ball_point(_point, self.ENTROPY_CUTOFF);
-      _, counts = np.unique(resids[_idxs], return_counts=True);
-      _entropy_val = entropy(counts, base=2);
-      pidx_coord = self.featurizer.distance_to_index(pidx);
-      entropy_arr[pidx_coord] = _entropy_val;
-    print("entropy_residue => ", entropy_arr.shape)
+    distances = cdist(self.points3d, self._COORD)
+    distances = distances.reshape(self.dims[0], self.dims[1], self.dims[2], self.FRAME_NUMBER, len(self.ATOM_INDICES));
+    for I in range(self.dims[0]):
+      for J in range(self.dims[1]):
+        for K in range(self.dims[2]):
+          _distances_status = distances[I, J, K, :] < self.ENTROPY_CUTOFF;
+          if True in _distances_status:
+            _distances_status = _distances_status.ravel();
+            entropy_arr[I, J, K] = entropy_jit(self.INDEX_ENSEMBLE[_distances_status])
+          else:  # All False"""
+            continue
     return entropy_arr
-
-class EntropyAtomicFeature(Feature):
-  def __init__(self):
-    super().__init__();
-    self.WINDOW_SIZE = CONFIG.get("WINDOW_SIZE", 10);
-
-  def featurize(self):
-    """
-    Get the information entropy(Chaoticity in general) of the box
-    """
-    """Adjust the range of the frames (if necessary)"""
-    self.ENTROPY_CUTOFF = np.linalg.norm(self.lengths / self.dims);  # Automatically set the cutoff for each grid
-    framenr = self.traj.n_frames;
-    if framenr < self.WINDOW_SIZE:
-      # If the window size is larger than the number of frames, then use the whole trajectory
-      frames = np.arange(0, framenr);
-    elif (self.active_frame_index+self.WINDOW_SIZE > framenr):
-      # If the last frame is not enough to fill the window, then use the last window
-      frames = np.arange(framenr-self.WINDOW_SIZE, framenr);
-    else:
-      frames = np.arange(self.active_frame_index, self.active_frame_index+self.WINDOW_SIZE);
-    """Stack the required coordinates and the residue indices, and fit the KDTree"""
-    coords = self.active_frame.xyz[frames].reshape((-1, 3))
-    atomids = np.array([i.index for i in self.top.atoms] * len(frames));
-    if len(coords) == len(atomids):
-      printit("Warning: The number of coordinates and the number of residue indices are not equal");
-    entropy_arr = np.zeros(tuple(self.dims));
-    tree = KDTree(coords);
-    """Iterate through the grid and calculate the entropy for each grid"""
-    for pidx, _point in enumerate(self.points3d):
-      _idxs = tree.query_ball_point(_point, self.ENTROPY_CUTOFF);
-      _, counts = np.unique(atomids[_idxs], return_counts=True);
-      _entropy_val = entropy(counts, base=2);
-      pidx_coord = self.featurizer.distance_to_index(pidx);
-      entropy_arr[pidx_coord] = _entropy_val;
-    print("entropy_atomic => ", entropy_arr.shape)
-    return entropy_arr
-
-class AromaticityFeature(Feature):
-  def __init__(self):
-    super().__init__();
-    self.WINDOW_SIZE = CONFIG.get("WINDOW_SIZE", 10);
-  def featurize(self):
-    """
-    Get the aromaticity of the box
-    """
-
-    # self.CUTOFF_GRID = np.linalg.norm(self.lengths / self.dims);  # Automatically set the cutoff for each grid
-    # framenr = self.traj.n_frames;
-    # if framenr < self.WINDOW_SIZE:
-    #   # If the window size is larger than the number of frames, then use the whole trajectory
-    #   frames = np.arange(0, framenr);
-    # elif (self.active_frame_index + self.WINDOW_SIZE > framenr):
-    #   # If the last frame is not enough to fill the window, then use the last window
-    #   frames = np.arange(framenr - self.WINDOW_SIZE, framenr);
-    # else:
-    #   frames = np.arange(self.active_frame_index, self.active_frame_index + self.WINDOW_SIZE);
 
 
 class RFFeature1D(Feature):
@@ -1012,14 +1250,13 @@ class RFFeature1D(Feature):
     return rf_arr.reshape(-1);
 
 
-class TopFileNameFeature(Feature):
+class TopologySource(Feature):
   def __init__(self):
     super().__init__();
   def featurize(self):
-    return self.traj.top_filename
-
-
-
+    top_source = str(self.traj.top_filename);
+    print("############################################################## TOPFILE NAME: ", top_source)
+    return [top_source];
 
 
 

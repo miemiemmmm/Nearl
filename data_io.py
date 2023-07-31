@@ -194,14 +194,14 @@ class hdf_operator:
     print(f"Appended {newdata.shape[0]} entries to {dataset_name}")
     
   def draw_structure(self):
-    print("####### HDF File Structure #######")
+    print("############## HDF File Structure ##############")
     def print_structure(name, obj):
       if isinstance(obj, h5.Group):
         print(f"$ /{name:20s}/")
       else:
         print(f"$ /{name:20s}: Shape-{obj.shape}")
     self.hdffile.visititems(print_structure)
-    print("##### END HDF File Structure #####")
+    print("############ END HDF File Structure ############")
     
   def alter_entry(self, dataset_name, index, new_data):
     """

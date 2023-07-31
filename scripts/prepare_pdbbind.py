@@ -1,4 +1,5 @@
 import os, time
+import h5py as h5
 from itertools import chain
 
 import numpy as np
@@ -42,7 +43,7 @@ class FeatureLabel(features.Feature):
     else:
       print(f"PDB code {pdbcode} not found in the affinity table");
       raise ValueError("PDB code not found");
-
+    # print("#############Penalty 1#############", baseline_affinity, type(baseline_affinity));
     return baseline_affinity;
 
 def combine_complex(idx, row, ref_filedir):
@@ -69,6 +70,7 @@ def combine_complex(idx, row, ref_filedir):
     print(ligfile, os.path.exists(ligfile)); 
     return False; 
 
+
 def parallelize_traj(traj_list):
   """
   Featurizer and the features initialized within the scope of this function
@@ -77,8 +79,10 @@ def parallelize_traj(traj_list):
   print(traj_list)
   traj_loader = trajloader.TrajectoryLoader(traj_list, traj_list);
   ret_list = [];
+  st = time.perf_counter();
   for trajectory in traj_loader:
-    print(f"Processing trajectory {trajectory.top_filename}")
+    print(f"Processing trajectory {trajectory.top_filename}, Last structure took {time.perf_counter()-st} seconds");
+    st = time.perf_counter();
     if trajectory.top.select(":T3P,HOH,WAT").__len__() > 0:
       trajectory.strip(":T3P,HOH,WAT")
     mask = ":LIG"
@@ -86,12 +90,60 @@ def parallelize_traj(traj_list):
     # Initialize the featurizer since different trajectory might have distinct parameters
     feat = features.Featurizer3D(FEATURIZER_PARMS);
     # NOTE: in this step, the feature hooks back the feature and could access the featurizer by feat.featurer
+    # Following are the 1D RandomForest features
     feat.register_feature(features.BoxFeature());
-    feat.register_feature(features.PenaltyFeature(f"({mask})&(!@H=)", f"({mask}<:5)&(!@H=)&(!{mask})", ref=0));
-
-    feat.register_feature(features.RFFeature1D(mask));
+    # feat.register_feature(features.PenaltyFeature(f"({mask})&(!@H=)", f"({mask}<:5)&(!@H=)&(!{mask})", ref=0));
+    # feat.register_feature(features.RFFeature1D(mask));
     feat.register_feature(FeatureLabel(PDBBind_datafile));
+    feat.register_feature(features.TopologySource());
 
+    mask1 = ":LIG<:10&(!@H=)";
+    mask2 = ":LIG&(!@H=)";
+
+    # Following are the 3D based features
+    feat.register_feature(features.Mass(mask=mask1));
+    feat.register_feature(features.Mass(mask=mask2));
+
+    feat.register_feature(features.EntropyResidueID(mask=mask1));
+    feat.register_feature(features.EntropyResidueID(mask=mask2));
+
+    feat.register_feature(features.EntropyAtomID(mask=mask1));
+    feat.register_feature(features.EntropyAtomID(mask=mask2));
+
+    feat.register_feature(features.Aromaticity(mask=mask1));
+    feat.register_feature(features.Aromaticity(mask=mask2));
+
+    feat.register_feature(features.PartialCharge(mask=mask1));
+    feat.register_feature(features.PartialCharge(mask=mask2));
+
+    feat.register_feature(features.HeavyAtom(mask=mask1));
+    feat.register_feature(features.HeavyAtom(mask=mask2));
+
+    feat.register_feature(features.HeavyAtom(mask=mask1, reverse=True));
+    feat.register_feature(features.HeavyAtom(mask=mask2, reverse=True));
+
+    feat.register_feature(features.Ring(mask=mask1));
+    feat.register_feature(features.Ring(mask=mask2));
+
+    feat.register_feature(features.HydrogenBond(mask=mask1, donor=True));
+    feat.register_feature(features.HydrogenBond(mask=mask2, donor=True));
+
+    feat.register_feature(features.HydrogenBond(mask=mask1, acceptor=True));
+    feat.register_feature(features.HydrogenBond(mask=mask2, acceptor=True));
+
+    feat.register_feature(features.Hybridization(mask=mask1));
+    feat.register_feature(features.Hybridization(mask=mask2));
+
+
+
+    # feat.register_feature(features.MassFeature(mask=":T3P"));
+    # feat.register_feature(features.EntropyResidueIDFeature(mask=":T3P"));
+    # feat.register_feature(features.EntropyAtomIDFeature(mask=":T3P"));
+
+    # feat.register_feature(features.TopFileFeature());
+    # feat.register_feature(FeatureLabel(PDBBind_datafile));
+
+    trajectory.top.set_reference(trajectory[0]);
     feat.register_traj(trajectory)
     # Fit the standardizer of the input features
     feat.register_frames(range(1))
@@ -108,7 +160,6 @@ def parallelize_traj(traj_list):
 
 if __name__ == '__main__':
   st = time.perf_counter();
-
   #################################################################################
   ########### Part1: Combine protein-ligand to complex PDB file ###################
   #################################################################################
@@ -149,19 +200,13 @@ if __name__ == '__main__':
   ########### Part2: Check the existence of required PDB complexes ################
   #################################################################################
   pdb_listfile = "/media/yzhang/MieT5/BetaPose/data/misato_original_index/train_MD.txt"
-  output_hdffile = "/media/yzhang/MieT5/BetaPose/data/trainingdata/misato_trainset_randomforest.h5";
+  output_hdffile = "/media/yzhang/MieT5/BetaPose/data/trainingdata/test_3d_data.h5";
   complex_dir = "/media/yzhang/MieT5/BetaPose/data/complexes/";
 
   SUPERSEDES = {
-    "4dgo": "6qs5",
-    "4otw": "6op9",
-    "4v1c": "6iso",
-    "5v8h": "6nfg",
-    "5v8j": "6nfo",
-    "6fim": "6fex",
-    "6h7k": "6ibl",
-    "3m8t": "5wcm",
-    "4n3l": "6eo8",
+    "4dgo": "6qs5", "4otw": "6op9", "4v1c": "6iso",
+    "5v8h": "6nfg", "5v8j": "6nfo", "6fim": "6fex",
+    "6h7k": "6ibl", "3m8t": "5wcm", "4n3l": "6eo8",
     "4knz": "6nnr",
   }
 
@@ -179,40 +224,101 @@ if __name__ == '__main__':
     print(f"Error: {len(found_state) - np.count_nonzero(found_state)}/{len(found_state)} complexes are not found in the complex directory")
     print(np.array(pdb_to_featurize)[np.where(np.array(found_state) == False)[0]].tolist());
     exit(0);
-  # exit(0);
+
   #################################################################################
   ########### Part3: Featurize the required PDB complexes #########################
   #################################################################################
   FEATURIZER_PARMS = {
     # POCKET SETTINGS
-    "CUBOID_DIMENSION": [48, 48, 48],  # Unit: 1 (Number of lattice in one dimension)
+    "CUBOID_DIMENSION": [32, 32, 32],  # Unit: 1 (Number of lattice in one dimension)
     "CUBOID_LENGTH": [24, 24, 24],     # Unit: Angstorm (Need scaling)
   }
 
-  # TODO;  for debug only select subset of complexes
-  # found_PDB = complex_files[:100];
-  found_PDB = complex_files;
-  worker_num = 32;
+  worker_num = 20;
   thread_per_worker = 1;
+  do_test = False;
 
-  split_groups = np.array_split(found_PDB, worker_num);
-  with Client(processes=True, n_workers=worker_num, threads_per_worker=thread_per_worker) as client:
-    tasks = [dask.delayed(parallelize_traj)(traj_list) for traj_list in split_groups];
-    printit("##################Tasks are generated##################")
-    futures = client.compute(tasks);
-    results = client.gather(futures);
+  if do_test:
+    found_PDB = complex_files[:10];
+    result1 = parallelize_traj(found_PDB);
+    results = [result1];
+  else:
+    found_PDB = complex_files[:20];
+    split_groups = np.array_split(found_PDB, worker_num);
+    with Client(processes=True, n_workers=worker_num, threads_per_worker=thread_per_worker) as client:
+      tasks = [dask.delayed(parallelize_traj)(traj_list) for traj_list in split_groups];
+      printit("##################Tasks are generated##################")
+      futures = client.compute(tasks);
+      results = client.gather(futures);
 
   printit("Tasks are finished, Collecting data")
   box_array = utils.data_from_tbagresults(results, 0);
-  penalty_array = utils.data_from_tbagresults(results, 1);
-  rf_array = utils.data_from_tbagresults(results, 2);
-  label_array = utils.data_from_tbagresults(results, 3);
+  label_array = utils.data_from_tbagresults(results, 1);
+  pdbcode_array = utils.data_from_tbagresults(results, 2);
+  pdbcode_array = np.array([s.encode('utf8') for s in pdbcode_array.ravel()]).reshape((len(pdbcode_array), 1));
+
+  mass_pro = utils.data_from_tbagresults(results, 3);
+  mass_lig = utils.data_from_tbagresults(results, 4);
+  entres_pro = utils.data_from_tbagresults(results, 5);
+  entres_lig = utils.data_from_tbagresults(results, 6);
+  entatm_pro = utils.data_from_tbagresults(results, 7);
+  entatm_lig = utils.data_from_tbagresults(results, 8);
+
+
+  arom_pro = utils.data_from_tbagresults(results, 9);
+  arom_lig = utils.data_from_tbagresults(results, 10);
+
+  pc_pro = utils.data_from_tbagresults(results, 11);
+  pc_lig = utils.data_from_tbagresults(results, 12);
+
+  ha_pro = utils.data_from_tbagresults(results, 13);
+  ha_lig = utils.data_from_tbagresults(results, 14);
+
+  nha_pro = utils.data_from_tbagresults(results, 15);
+  nha_lig = utils.data_from_tbagresults(results, 16);
+
+  r_pro = utils.data_from_tbagresults(results, 17);
+  r_lig = utils.data_from_tbagresults(results, 18);
+
+  donor_pro = utils.data_from_tbagresults(results, 19);
+  donor_lig = utils.data_from_tbagresults(results, 20);
+
+  acceptor_pro = utils.data_from_tbagresults(results, 21);
+  acceptor_lig = utils.data_from_tbagresults(results, 22);
+
+  hyb_pro = utils.data_from_tbagresults(results, 23);
+  hyb_lig = utils.data_from_tbagresults(results, 24);
 
   with data_io.hdf_operator(output_hdffile, overwrite=True) as h5file:
     h5file.create_dataset("box", box_array)
-    h5file.create_dataset("penalty", penalty_array)
-    h5file.create_dataset("rf", rf_array)
     h5file.create_dataset("label", label_array)
+    h5file.create_dataset("pdbcode", pdbcode_array);
+
+    h5file.create_dataset("mass_pro", mass_pro)
+    h5file.create_dataset("mass_lig", mass_lig)
+    h5file.create_dataset("entres_pro", entres_pro)
+    h5file.create_dataset("entres_lig", entres_lig)
+    h5file.create_dataset("entatm_pro", entatm_pro)
+    h5file.create_dataset("entatm_lig", entatm_lig)
+
+    h5file.create_dataset("arom_pro", arom_pro)
+    h5file.create_dataset("arom_lig", arom_lig)
+    h5file.create_dataset("pc_pro", pc_pro)
+    h5file.create_dataset("pc_lig", pc_lig)
+    h5file.create_dataset("ha_pro", ha_pro)
+    h5file.create_dataset("ha_lig", ha_lig)
+    h5file.create_dataset("nha_pro", nha_pro)
+    h5file.create_dataset("nha_lig", nha_lig)
+
+    h5file.create_dataset("r_pro", r_pro)
+    h5file.create_dataset("r_lig", r_lig)
+    h5file.create_dataset("donor_pro", donor_pro)
+    h5file.create_dataset("donor_lig", donor_lig)
+    h5file.create_dataset("acceptor_pro", acceptor_pro)
+    h5file.create_dataset("acceptor_lig", acceptor_lig)
+    h5file.create_dataset("hyb_pro", hyb_pro)
+    h5file.create_dataset("hyb_lig", hyb_lig)
+
     h5file.draw_structure()
   printit("##################Data are collected################")
 
