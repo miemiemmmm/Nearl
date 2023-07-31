@@ -8,7 +8,7 @@ from itertools import combinations
 from scipy.spatial.distance import cdist, pdist, squareform
 from rdkit import Chem
 from . import utils, chemtools
-from . import CONFIG, printit, savelog
+from . import CONFIG, printit, savelog, PACKAGE_DIR
 
 _clear = CONFIG.get("clear", False);
 _verbose = CONFIG.get("verbose", False);
@@ -480,13 +480,13 @@ class generator:
     self.VIEWPOINTBINS = CONFIG.get("VIEWPOINT_BINS", 8);
 
     # Check the availability of the MSMS executable
-    self.MSMS_EXE = CONFIG.get("msms", "");
-    if len(self.MSMS_EXE) == 0:
-      self.MSMS_EXE = os.environ.get("MSMS_EXE", "");
-    if (not self.MSMS_EXE) or (len(self.MSMS_EXE) == 0):
-      print(f"Warning: Cannot find the executable for msms program. Use the following ways to find the MSMS executable:\n\"msms\": \"/path/to/MSMS/executable\" in configuration file\nor\nexport MSMS_EXE=/path/to/MSMS/executable", file=sys.stderr)
-    elif not os.path.isfile(self.MSMS_EXE):
-      print(f"Warning: Designated MSMS executable({self.MSMS_EXE}) not found. Please check the following path: {self.MSMS_EXE}", file=sys.stderr)
+    # self.MSMS_EXE = CONFIG.get("msms", "");
+    # if len(self.MSMS_EXE) == 0:
+    #   self.MSMS_EXE = os.environ.get("MSMS_EXE", "");
+    # if (not self.MSMS_EXE) or (len(self.MSMS_EXE) == 0):
+    #   print(f"Warning: Cannot find the executable for msms program. Use the following ways to find the MSMS executable:\n\"msms\": \"/path/to/MSMS/executable\" in configuration file\nor\nexport MSMS_EXE=/path/to/MSMS/executable", file=sys.stderr)
+    # elif not os.path.isfile(self.MSMS_EXE):
+    #   print(f"Warning: Designated MSMS executable({self.MSMS_EXE}) not found. Please check the following path: {self.MSMS_EXE}", file=sys.stderr)
 
     if _verbose:
       # Summary the configuration of the identity generator
@@ -494,7 +494,6 @@ class generator:
       printit(f"SEGMENT_LIMIT: {self.SEGMENT_LIMIT}", end=" | ")
       print(f"DOWN_SAMPLE_POINTS: {self.FPFH_DOWN_SAMPLES}", end=" | ")
       print(f"VIEWPOINT_BINS: {self.VIEWPOINTBINS}", end=" | ")
-      print(f"MSMS_EXE: {self.MSMS_EXE}")
 
     # Create a temporary name for intermediate files
     if (not _clear):
@@ -559,14 +558,24 @@ class generator:
       # else case not needed, s_final[idx] is already 0
     return xyz[s_final > 0], s_final[s_final > 0]
 
-  def segment2mesh(self, theidxi, force=False, d=4, r=1.5):
+  def segment2mesh(self, theidxi, d=4, r=1.5):
     """
+    Generate a mesh object from a segment of atoms
     Use ChimeraX's method to generate molecular surface
     Avoids the use of MSMS to generate intermediate .xyzr, .vert, .face files
+    Args:
+      theidxi: the indices of atoms in the segment
+      d: density of the surface
+      r: radius of the atoms
     """
     indice = np.asarray(theidxi);
     resnames = np.array([a.name for a in self.traj.top.residues])
     rads = [getRadius(i, j) for i, j in [(a.name, resnames[a.resid]) for a in self.atoms[indice]]]
+    # xyzrline = "";
+    # for (x, y, z), rad in zip(self.traj.xyz[self.frame][indice], rads):
+    #   xyzrline += f"{x:10.3f}{y:10.3f}{z:10.3f}{rad:6.2f}\n"
+    # with open(f"{filename}.xyzr", "w") as file1:
+    #   file1.write(xyzrline);
     vertices, normals, faces = ses_surface_geometry(self.traj.xyz[self.frame][indice], rads)
 
     mesh = o3d.geometry.TriangleMesh();
@@ -581,53 +590,6 @@ class generator:
       print(
         f"{msms2mesh.__name__:15s}: Failed to convert the MSMS output files to triangle mesh, please check the MSMS output files");
       return o3d.geometry.TriangleMesh();
-
-  def _segment2mesh(self, theidxi, force=False, d=4, r=1.5):
-    """
-    Generate a mesh object from a segment of atoms
-    Args:
-      theidxi: the index of atoms in the segment
-      force: force to generate the mesh object even if it is already generated
-      d: the density of the mesh for the MSMS program
-      r: the radius of probe for the MSMS program
-    """
-    indice = np.asarray(theidxi);
-    self.set_tempprefix();
-    if mp.current_process().name == 'MainProcess':
-      filename = self.tempprefix + "msms";
-    else:
-      filename = self.tempprefix + "msms_" + str(mp.current_process().pid);
-
-    # Prepare the xyzr file for MSMS
-    resnames = np.array([a.name for a in self.traj.top.residues])
-    rads = [getRadius(i, j) for i, j in [(a.name, resnames[a.resid]) for a in self.atoms[indice]]]
-    xyzrline = "";
-    for (x, y, z), rad in zip(self.traj.xyz[self.frame][indice], rads):
-      xyzrline += f"{x:10.3f}{y:10.3f}{z:10.3f}{rad:6.2f}\n"
-    with open(f"{filename}.xyzr", "w") as file1:
-      file1.write(xyzrline);
-
-    # Generate the vertices and faces file by program MSMS
-    ret = runmsms(self.MSMS_EXE, f"{filename}.xyzr", filename, d=d, r=r);
-
-    # Already check the existence of output files
-    if ret:
-      if _clear:
-        mesh = msms2mesh(f"{filename}.vert", f"{filename}.face", filename="");
-      else:
-        mesh = msms2mesh(f"{filename}.vert", f"{filename}.face", filename=f"{filename}.ply");
-      if (_clear and os.path.isfile(f"{filename}.vert")):
-        os.remove(f"{filename}.vert")
-      if (_clear and os.path.isfile(f"{filename}.face")):
-        os.remove(f"{filename}.face")
-      if (_clear and os.path.isfile(f"{filename}.xyzr")):
-        os.remove(f"{filename}.xyzr")
-      if mesh.is_empty() and _verbose:
-        raise Exception(f"{self.segment2mesh.__name__:15s}:Failed to generate the 3d object");
-      return mesh
-    else:
-      print(f"{self.segment2mesh.__name__:15s}: Failed to generate the mesh object for segment {theidxi}")
-      return False
 
   # @profile
   def vectorize(self, segment):
@@ -1204,7 +1166,7 @@ def ses_surface_geometry(xyz, radii, probe_radius=1.4, grid_spacing=0.5, sas=Fal
   If sas is true then the solvent accessible surface is returned instead.
   This avoid generating the
   '''
-  sys.path.insert(0, "/media/yzhang/MieT5/BetaPose/static")
+  sys.path.insert(0, os.path.join(PACKAGE_DIR, "static"));
   import _geometry, _surface, _map
 
   radii = np.asarray(radii, np.float32)

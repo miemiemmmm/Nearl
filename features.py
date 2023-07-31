@@ -530,8 +530,6 @@ class Featurizer3D:
           if isinstance(feat_arr.dtype, (int, float, complex, np.float32, np.float64,
                                          np.int32, np.int64, np.complex64, np.complex128)):
             feat_arr = np.nan_to_num(feat_arr, copy=False, nan=0.0, posinf=0.0, neginf=0.0);
-        elif isinstance(feat_arr, str):
-          print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>TEST HERE", feat_arr)
         feat_vector[idx][fidx] = feat_arr
 
     """
@@ -1255,7 +1253,6 @@ class TopologySource(Feature):
     super().__init__();
   def featurize(self):
     top_source = str(self.traj.top_filename);
-    print("############################################################## TOPFILE NAME: ", top_source)
     return [top_source];
 
 

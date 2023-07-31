@@ -1,6 +1,5 @@
 {
   "####################" : "System settings",
-  "msms" : "/media/yzhang/MieT5/BetaPose/msms_i86_64Linux2_2.6.1/msms.x86_64Linux2.2.6.1",
   "tempfolder" : "/tmp/",
   "clear" : true,
   "verbose" : false,

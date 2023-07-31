@@ -21,6 +21,8 @@ if os.path.isfile(configfile):
 else: 
   print("Warning: Not found the config file", file=stderr)
 
+PACKAGE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 _clear = CONFIG.get("clear", False);
 _verbose = CONFIG.get("verbose", False);
 _tempfolder = CONFIG.get("tempfolder", "/tmp");
