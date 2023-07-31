@@ -234,7 +234,7 @@ if __name__ == '__main__':
     "CUBOID_LENGTH": [24, 24, 24],     # Unit: Angstorm (Need scaling)
   }
 
-  worker_num = 20;
+  worker_num = 64;
   thread_per_worker = 1;
   do_test = False;
 
