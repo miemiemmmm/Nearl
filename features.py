@@ -4,7 +4,7 @@ import builtins, json, tempfile, functools
 import numpy as np
 import pytraj as pt
 
-from numba import jit
+#from numba import jit
 from scipy.interpolate import griddata, Rbf
 from scipy.spatial import KDTree;
 from scipy.spatial.distance import cdist;
@@ -47,7 +47,7 @@ When registering the customised feature, the following needs to be defined by th
     
 """
 
-@jit(nopython=True)
+# @jit(nopython=True)
 def entropy_jit(x):
   x_set = list(set(x))
   counts = np.zeros(len(x_set))

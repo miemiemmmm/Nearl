@@ -15,6 +15,8 @@ DEFAULT_PARTIAL_CHARGE = {
   "F": -0.22,   # <Atom name="F21" type="FETH-F21" charge="-0.22"/>  FLUOROETHANE
   "P": 1.5,     # <Atom name="PA" type="ATP-PA" charge="1.5"/>
   "S": -0.09,   # <Atom name="SD" type="MET-SD" charge="-0.09"/>  ADENOSINE TRIPHOSPHATE
+  "NA": 1.0,  "K": 1.0,
+  "MG": 2.0,  "ZN": 2.0,  "CA": 2.0,
   "CL": -0.04,  # <Atom name="CL" type="CALD-CL" charge="-0.04"/>  CHLOROACETALDEHYDE
   "BR": -0.1,   # <Atom name="BR11" type="BRET-BR11" charge="-0.1"/>  BROMOETHANE
   "B": 0.13,    # <Atom name="B1" type="BORE-B1" charge="-0.13"/>  ETHYL BORONIC ACID

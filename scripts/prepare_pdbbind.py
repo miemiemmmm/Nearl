@@ -1,13 +1,12 @@
 import os, time
 import h5py as h5
 from itertools import chain
-
 import numpy as np
 import pytraj as pt
 import pandas as pd
 
 import dask 
-from dask.distributed import Client
+from dask.distributed import Client, performance_report, LocalCluster
 
 from BetaPose import chemtools, trajloader, features, data_io, utils, printit, savelog
 
@@ -85,6 +84,7 @@ def parallelize_traj(traj_list):
     st = time.perf_counter();
     if trajectory.top.select(":T3P,HOH,WAT").__len__() > 0:
       trajectory.strip(":T3P,HOH,WAT")
+    trajectory.top.set_reference(trajectory[0]);
     mask = ":LIG"
 
     # Initialize the featurizer since different trajectory might have distinct parameters
@@ -96,6 +96,7 @@ def parallelize_traj(traj_list):
     # feat.register_feature(features.RFFeature1D(mask));
     feat.register_feature(FeatureLabel(PDBBind_datafile));
     feat.register_feature(features.TopologySource());
+
 
     mask1 = ":LIG<:10&(!@H=)";
     mask2 = ":LIG&(!@H=)";
@@ -143,7 +144,7 @@ def parallelize_traj(traj_list):
     # feat.register_feature(features.TopFileFeature());
     # feat.register_feature(FeatureLabel(PDBBind_datafile));
 
-    trajectory.top.set_reference(trajectory[0]);
+
     feat.register_traj(trajectory)
     # Fit the standardizer of the input features
     feat.register_frames(range(1))
@@ -230,26 +231,32 @@ if __name__ == '__main__':
   #################################################################################
   FEATURIZER_PARMS = {
     # POCKET SETTINGS
-    "CUBOID_DIMENSION": [32, 32, 32],  # Unit: 1 (Number of lattice in one dimension)
+    "CUBOID_DIMENSION": [48, 48, 48],  # Unit: 1 (Number of lattice in one dimension)
     "CUBOID_LENGTH": [24, 24, 24],     # Unit: Angstorm (Need scaling)
   }
 
-  worker_num = 64;
-  thread_per_worker = 1;
   do_test = False;
-
   if do_test:
     found_PDB = complex_files[:10];
     result1 = parallelize_traj(found_PDB);
     results = [result1];
   else:
-    found_PDB = complex_files[:20];
+    # TODO: Change these settings before running for production
+    worker_num = 10;
+    thread_per_worker = 1;
+    found_PDB = complex_files[:80];
     split_groups = np.array_split(found_PDB, worker_num);
-    with Client(processes=True, n_workers=worker_num, threads_per_worker=thread_per_worker) as client:
-      tasks = [dask.delayed(parallelize_traj)(traj_list) for traj_list in split_groups];
-      printit("##################Tasks are generated##################")
-      futures = client.compute(tasks);
-      results = client.gather(futures);
+    cluster = LocalCluster(
+      n_workers=worker_num,
+      threads_per_worker=thread_per_worker,
+      memory_limit='10GB',
+    );
+    with Client(cluster) as client:
+      with performance_report(filename="dask-report.html"):
+        tasks = [dask.delayed(parallelize_traj)(traj_list) for traj_list in split_groups];
+        printit("##################Tasks are generated##################")
+        futures = client.compute(tasks);
+        results = client.gather(futures);
 
   printit("Tasks are finished, Collecting data")
   box_array = utils.data_from_tbagresults(results, 0);

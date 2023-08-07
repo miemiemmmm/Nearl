@@ -12,6 +12,7 @@ import pkg_resources
 # from . import utils
 # from . import session_prep
 from . import test
+from . import interpolate
 
 configfile = pkg_resources.resource_filename("BetaPose", "myconfig.json")
 if os.path.isfile(configfile):
