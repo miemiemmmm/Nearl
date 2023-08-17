@@ -637,7 +637,11 @@ def data_from_fbagresults(results, feature_idx):
   data = [];
   for fbag in results:
     data += data_from_fbag(fbag, feature_idx)
-  return np.array(data)
+  try:
+    data = np.array(data);
+  except:
+    data = np.array(data, dtype=object);
+  return data
 
 def misato_traj(thepdb, mdfile, parmdir, *args, **kwargs):
   from BetaPose import data_io

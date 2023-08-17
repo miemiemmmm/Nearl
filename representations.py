@@ -1,23 +1,18 @@
-import os, sys, re, time, subprocess, tempfile, datetime, copy, functools
+import os, sys, re, time, subprocess, tempfile, datetime, copy
+from itertools import combinations
+
 import pytraj as pt
 import numpy as np 
-import open3d as o3d
+
 from scipy import spatial
-import multiprocessing as mp
-from itertools import combinations
 from scipy.spatial.distance import cdist, pdist, squareform
+
+import open3d as o3d
 from rdkit import Chem
+
 from . import utils, chemtools
 from . import CONFIG, printit, savelog, PACKAGE_DIR
-
-_clear = CONFIG.get("clear", False);
-_verbose = CONFIG.get("verbose", False);
-_tempfolder = CONFIG.get("tempfolder", "/tmp");
-_debug = CONFIG.get("debug", False);
-
-_usegpu = CONFIG.get("usegpu", False);
-if _usegpu:
-  import cupy as cp
+from . import _clear, _verbose, _tempfolder, _usegpu, _debug
 
 ACCEPTOR_PATTERN = '[!$([#6,F,Cl,Br,I,o,s,nX3,#7v5,#15v5,#16v4,#16v6,*+1,*+2,*+3])]'
 DONOR_PATTERN = "[!H0;#7,#8,#9]"
@@ -700,7 +695,6 @@ class generator:
           combined_mesh = mesh;
         else:
           combined_mesh += mesh;
-      # combined_mesh = functools.reduce(lambda a, b: a + b, segment_objects)
       if _verbose:
         printit("Final 3D object: ", combined_mesh)
     except:

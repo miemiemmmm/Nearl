@@ -1,9 +1,9 @@
 {
   "####################" : "System settings",
-  "tempfolder" : "/tmp/",
+  "tempfolder" : "/home/yzhang/Documents/tests/tempfolder_mlproj/",
   "clear" : true,
   "verbose" : false,
-  "usegpu": false,
+  "usegpu": true,
   "debug" : true,
 
   "####################" : "Featurizer settings",
