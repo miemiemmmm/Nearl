@@ -5,7 +5,6 @@ import numpy as np
 import pytraj as pt
 
 #from numba import jit
-from scipy.interpolate import griddata, Rbf
 from scipy.spatial import KDTree;
 from scipy.spatial.distance import cdist;
 from scipy.stats import entropy;
@@ -19,10 +18,8 @@ from open3d.pipelines.registration import compute_fpfh_feature
 from open3d.geometry import KDTreeSearchParamHybrid, TriangleMesh, PointCloud
 
 from . import utils, CONFIG, printit, representations
+from . import _usegpu, _clear, _verbose, _debug
 from BetaPose import chemtools
-
-_clear = CONFIG.get("clear", False);
-_verbose = CONFIG.get("verbose", False);
 
 """
 When writing the customised feature, the following variables are automatically available:
@@ -105,6 +102,8 @@ class Featurizer3D:
       finalstr += f"Feature: {i.__str__()}\n"
     return finalstr
 
+
+
   @property
   def origin(self):
     return np.array(self.__points3d[0]);
@@ -149,6 +148,17 @@ class Featurizer3D:
   @property
   def resolutions(self):
     return self.__resolutions
+
+  @property
+  def status_flag(self):
+    return self.__status_flag;
+
+  @status_flag.setter
+  def status_flag(self, newstatus):
+    self.__status_flag.append(bool(newstatus));
+
+  def reset_status(self):
+    self.__status_flag = [];
 
   def translate(self, offsets, relative=True, **kwarg):
     """
@@ -493,7 +503,7 @@ class Featurizer3D:
       slices, segments = self.repr_generator.slicebyframe();
 
       # DEBUG ONLY
-      if _verbose:
+      if _verbose or _debug:
         printit(f"Found {len(set(segments))-1} non-empty segments", {i:j for i,j in zip(*np.unique(segments, return_counts=True)) if i != 0});
 
       """
@@ -519,9 +529,6 @@ class Featurizer3D:
         mask[idx] = False
         continue
       repr_vector[idx] = feature_vector;
-
-      # Identity vector computation time only occupies 10% of the total time
-      # E.G. 1.686 (clock time) vs 0.174 (cpu time)
 
       """Step2.5: Iterate different features"""
       for fidx, feature in enumerate(self.FEATURESPACE):
@@ -595,6 +602,9 @@ class Feature:
   @property
   def points3d(self):
     return np.array(self.featurizer.points3d);
+  @property
+  def status_flag(self):
+    return self.featurizer.status_flag;
 
   def crop_box(self, points):
     """
@@ -613,6 +623,7 @@ class Feature:
     retmol = self.featurizer.boxed_to_mol(selection);
     return retmol
 
+  # @profile
   def interpolate(self, points, weights):
     """
     Interpolate density from a set of weighted 3D points to an N x N x N mesh grid.
@@ -625,20 +636,25 @@ class Feature:
     Returns:
     np.array: A 3D mesh grid of shape (grid_size, grid_size, grid_size) with the interpolated density.
     """
+    from . import interpolate;
     weights = np.nan_to_num(weights, copy=False, nan=0.0, posinf=0.0, neginf=0.0);
-    x = points[:, 0]
-    y = points[:, 1]
-    z = points[:, 2]
+    atom_coords = points.reshape(-1, 3)
 
-    # Create a grid for interpolation
-    grid_x, grid_y, grid_z = self.grid
+    # Interpolate the density
+    if _usegpu:
+      grid_density = interpolate.interpolate_gpu(self.points3d, atom_coords, weights);
+    else:
+      grid_density = interpolate.interpolate(self.points3d, atom_coords, weights);
+    # grid_density = interpolate.interpolate_gpu(self.points3d, atom_coords, weights);
+    # _grid_density = interpolate.interpolate(self.points3d, atom_coords, weights);
+    # print(f"Check the interpolated density: ")
+    # print(f"Cpu_version: sum {np.sum(_grid_density)}, Gpu_version: sum {np.sum(grid_density)}, "
+    #       f"Difference with GPU version: {np.sum(grid_density)-np.sum(_grid_density)}");
 
-    # Perform 3D Gaussian RBF interpolation
-    rbf = Rbf(x, y, z, weights, function='gaussian')
-    grid_density = rbf(grid_x, grid_y, grid_z)
-
-    # thegrid = tuple(self.grid);
-    # grid_density = griddata(points, weights, thegrid, method='linear', fill_value=0);
+    # if _verbose:
+    # print(f"Check the interpolated density: ")
+    # print(f"Shape: {grid_density.shape}, max: {np.max(grid_density):.3f}, min: {np.min(grid_density):.3f}, mean: {np.mean(grid_density):.3f}, std: {np.std(grid_density):.3f}");
+    grid_density = grid_density.reshape(self.dims);
     return grid_density
 
   def before_frame(self):
@@ -1140,24 +1156,14 @@ class EntropyResidueID(Feature):
     if len(self._COORD) != len(self.RESID_ENSEMBLE):
       raise Exception("Warning: The number of coordinates and the number of residue indices are not equal")
 
-
-  # @profile
   def featurize(self):
     """
     Get the information entropy(Chaoticity in general) of the box
     """
-    entropy_arr = np.zeros(tuple(self.dims));
-    distances = cdist(self.points3d, self._COORD)
-    distances = distances.reshape(self.dims[0], self.dims[1], self.dims[2], self.FRAME_NUMBER, len(self.ATOM_INDICES));
-    for I in range(self.dims[0]):
-      for J in range(self.dims[1]):
-        for K in range(self.dims[2]):
-          _distances_status = distances[I, J, K, :] < self.ENTROPY_CUTOFF;
-          if True in _distances_status:
-            _distances_status = _distances_status.ravel();
-            entropy_arr[I,J,K] = entropy_jit(self.RESID_ENSEMBLE[_distances_status])
-          else:   # All False
-            continue
+    from . import interpolate;
+    entropy_arr = interpolate.grid4entropy(self.points3d, self._COORD, self.RESID_ENSEMBLE, cutoff = self.ENTROPY_CUTOFF);
+    print(f"Check the entropy array: {entropy_arr.shape}")
+    entropy_arr = entropy_arr.reshape(self.dims);
     return entropy_arr
 
 class EntropyAtomID(Feature):
@@ -1190,20 +1196,11 @@ class EntropyAtomID(Feature):
     """
     Get the information entropy(Chaoticity in general) of the box
     """
-    entropy_arr = np.zeros(tuple(self.dims));
-    distances = cdist(self.points3d, self._COORD)
-    distances = distances.reshape(self.dims[0], self.dims[1], self.dims[2], self.FRAME_NUMBER, len(self.ATOM_INDICES));
-    for I in range(self.dims[0]):
-      for J in range(self.dims[1]):
-        for K in range(self.dims[2]):
-          _distances_status = distances[I, J, K, :] < self.ENTROPY_CUTOFF;
-          if True in _distances_status:
-            _distances_status = _distances_status.ravel();
-            entropy_arr[I, J, K] = entropy_jit(self.INDEX_ENSEMBLE[_distances_status])
-          else:  # All False"""
-            continue
+    from . import interpolate;
+    entropy_arr = interpolate.grid4entropy(self.points3d, self._COORD, self.INDEX_ENSEMBLE, cutoff=self.ENTROPY_CUTOFF);
+    print(f"Check the entropy array: {entropy_arr.shape}")
+    entropy_arr = entropy_arr.reshape(self.dims);
     return entropy_arr
-
 
 class RFFeature1D(Feature):
   def __init__(self, moiety_of_interest, cutoff=12):
@@ -1255,5 +1252,18 @@ class TopologySource(Feature):
     top_source = str(self.traj.top_filename);
     return [top_source];
 
+class XYZCoord(Feature):
+  def __init__(self, mask="*"):
+    super().__init__()
+    self.MASK = mask;
+  def before_frame(self):
+    self.ATOM_INDICES = self.traj.top.select(self.MASK);
+  def featurize(self):
+    return self.active_frame.xyz[self.ATOM_INDICES];
 
+class FeaturizationStatus(Feature):
+  def __init__(self):
+    super().__init__();
 
+  def featurize(self):
+    return

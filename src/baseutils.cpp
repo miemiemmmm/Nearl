@@ -7,7 +7,6 @@ double gaussian(double x, double mu, double sigma) {
   return exp(-0.5 * a * a) / (sigma * sqrt_2_pi);
 }
 
-
 double entropy(const std::vector<int>& x){
 	// Use a hashmap to count occurrences of each unique element
 	if (x.size() == 1){return 0.0;}
@@ -22,5 +21,12 @@ double entropy(const std::vector<int>& x){
 	// Add a small constant to avoid log2(0)
 	for (const auto& prob : probs){_entropy -= prob * log2(prob + 1e-10);}
 	return _entropy;
+}
+
+#pragma acc routine seq
+double gaussian_gpu(double x, double mu, double sigma) {
+  const double sqrt_2_pi = sqrt(2.0 * M_PI);
+  double a = (x - mu) / sigma;
+  return exp(-0.5 * a * a) / (sigma * sqrt_2_pi);
 }
 

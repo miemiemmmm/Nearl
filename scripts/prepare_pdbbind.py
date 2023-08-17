@@ -8,7 +8,7 @@ import pandas as pd
 import dask 
 from dask.distributed import Client, performance_report, LocalCluster
 
-from BetaPose import chemtools, trajloader, features, data_io, utils, printit, savelog
+from BetaPose import chemtools, trajloader, features, data_io, utils, printit, savelog, _tempfolder
 
 class FeatureLabel(features.Feature):
   def __init__(self, affinity_file, delimiter=",", header=0):
@@ -79,7 +79,8 @@ def parallelize_traj(traj_list):
   traj_loader = trajloader.TrajectoryLoader(traj_list, traj_list);
   ret_list = [];
   st = time.perf_counter();
-  for trajectory in traj_loader:
+
+  for trajidx, trajectory in enumerate(traj_loader):
     print(f"Processing trajectory {trajectory.top_filename}, Last structure took {time.perf_counter()-st} seconds");
     st = time.perf_counter();
     if trajectory.top.select(":T3P,HOH,WAT").__len__() > 0:
@@ -100,6 +101,9 @@ def parallelize_traj(traj_list):
 
     mask1 = ":LIG<:10&(!@H=)";
     mask2 = ":LIG&(!@H=)";
+
+    feat.register_feature(features.XYZCoord(mask=mask1));
+    feat.register_feature(features.XYZCoord(mask=mask2));
 
     # Following are the 3D based features
     feat.register_feature(features.Mass(mask=mask1));
@@ -153,10 +157,25 @@ def parallelize_traj(traj_list):
           f"Total generated molecule block is {feat.FRAMENUMBER * len(index_selected)}")
     repr_traji, features_traji = feat.run_by_atom(index_selected, focus_mode="cog")
     ret_list.append(features_traji);
-    if len(ret_list) % 25 == 0:
+
+    if ((trajidx+1) % 25 == 0):
       printit(f"Processed {len(ret_list)}/({len(traj_list)}) trajectories; Time elapsed: {time.perf_counter() - st} seconds");
-      savelog(f"/tmp/runtime_{os.getpid()}.log")
-  return ret_list;
+
+    if ((trajidx+1) % 10 == 0 or trajidx == len(traj_list)-1):
+      tempfilename =os.path.join(_tempfolder, f"temp{os.getpid()}.npy");
+      if os.path.exists(tempfilename):
+        prev_data = np.load(tempfilename, allow_pickle=True);
+        # Convert the results to numpy array
+        new_data = np.array(ret_list, dtype=object);
+        new_data = np.concatenate([prev_data, new_data], axis=0)
+        data_io.temporary_dump(new_data, tempfilename);
+        ret_list = [];
+      else:
+        data_io.temporary_dump(ret_list, tempfilename);
+        ret_list = [];
+      repr_traji = None;
+      features_traji = None;
+  return str(tempfilename);
 
 
 if __name__ == '__main__':
@@ -229,6 +248,7 @@ if __name__ == '__main__':
   #################################################################################
   ########### Part3: Featurize the required PDB complexes #########################
   #################################################################################
+  st_compute = time.perf_counter();
   FEATURIZER_PARMS = {
     # POCKET SETTINGS
     "CUBOID_DIMENSION": [48, 48, 48],  # Unit: 1 (Number of lattice in one dimension)
@@ -237,12 +257,12 @@ if __name__ == '__main__':
 
   do_test = False;
   if do_test:
-    found_PDB = complex_files[:10];
+    found_PDB = complex_files[:50];
     result1 = parallelize_traj(found_PDB);
     results = [result1];
   else:
     # TODO: Change these settings before running for production
-    worker_num = 10;
+    worker_num = 3;
     thread_per_worker = 1;
     found_PDB = complex_files[:80];
     split_groups = np.array_split(found_PDB, worker_num);
@@ -258,77 +278,58 @@ if __name__ == '__main__':
         futures = client.compute(tasks);
         results = client.gather(futures);
 
-  printit("Tasks are finished, Collecting data")
-  box_array = utils.data_from_tbagresults(results, 0);
-  label_array = utils.data_from_tbagresults(results, 1);
-  pdbcode_array = utils.data_from_tbagresults(results, 2);
-  pdbcode_array = np.array([s.encode('utf8') for s in pdbcode_array.ravel()]).reshape((len(pdbcode_array), 1));
+  printit(f"Tasks are finished, Collecting data... Pure computation time: {time.perf_counter() - st_compute:.2f} seconds.")
 
-  mass_pro = utils.data_from_tbagresults(results, 3);
-  mass_lig = utils.data_from_tbagresults(results, 4);
-  entres_pro = utils.data_from_tbagresults(results, 5);
-  entres_lig = utils.data_from_tbagresults(results, 6);
-  entatm_pro = utils.data_from_tbagresults(results, 7);
-  entatm_lig = utils.data_from_tbagresults(results, 8);
+  # Process the results from the computation
+  os.remove(output_hdffile) if os.path.exists(output_hdffile) else None;
 
+  keydict = {
+    0: "box", 1: "label", 2: "pdbcode",
+    3: "xyz_pro", 4: "xyz_lig",
+    5: "mass_pro", 6: "mass_lig", 7: "entres_pro", 8: "entres_lig",
+    9: "entatm_pro", 10: "entatm_lig", 11: "arom_pro", 12: "arom_lig",
+    13: "pc_pro", 14: "pc_lig", 15: "ha_pro", 16: "ha_lig",
+    17: "nha_pro", 18: "nha_lig", 19: "r_pro", 20: "r_lig",
+    21: "donor_pro", 22: "donor_lig", 23: "acceptor_pro", 24: "acceptor_lig",
+    25: "hyb_pro", 26: "hyb_lig",
+  };
 
-  arom_pro = utils.data_from_tbagresults(results, 9);
-  arom_lig = utils.data_from_tbagresults(results, 10);
+  for idx, key in keydict.items():
+    for tmpfile in results:
+      dataobj = np.load(tmpfile, allow_pickle=True);
+      print(f"Loaded {tmpfile}, shape of it, {dataobj.shape}");
+      thisdataset = utils.data_from_fbagresults(dataobj, idx);
+      if tmpfile == results[0]:
+        datai = thisdataset;
+      else:
+        datai = np.concatenate((datai, thisdataset), axis=0);
+      if key in ["pdbcode"]:
+        datai = np.array([s.encode('utf8') for s in datai.ravel()]).reshape((-1, 1));
 
-  pc_pro = utils.data_from_tbagresults(results, 11);
-  pc_lig = utils.data_from_tbagresults(results, 12);
+    if key in ["xyz_pro", "xyz_lig"]:
+      # The dimensions of coordinate array (X*3) is not aligned, Hence save separately
+      datai = np.array(datai, dtype=object);
+      # tmpfile = os.path.join(_tempfolder, f"dataset_{key}.npy");
+      # np.save(tmpfile, datai);
+      with data_io.hdf_operator(output_hdffile, append=True) as h5file:
+        h5file.create_heterogeneous(key, datai)
+    else:
+      print(f"Shape of datai: {np.array(datai).shape}");
+      with data_io.hdf_operator(output_hdffile, append=True) as h5file:
+        h5file.dump_dataset(key, datai);
 
-  ha_pro = utils.data_from_tbagresults(results, 13);
-  ha_lig = utils.data_from_tbagresults(results, 14);
+  # Finally show the structure of the output hdf5 file
+  with data_io.hdf_operator(output_hdffile, append=True) as h5file:
+    h5file.draw_structure();
 
-  nha_pro = utils.data_from_tbagresults(results, 15);
-  nha_lig = utils.data_from_tbagresults(results, 16);
-
-  r_pro = utils.data_from_tbagresults(results, 17);
-  r_lig = utils.data_from_tbagresults(results, 18);
-
-  donor_pro = utils.data_from_tbagresults(results, 19);
-  donor_lig = utils.data_from_tbagresults(results, 20);
-
-  acceptor_pro = utils.data_from_tbagresults(results, 21);
-  acceptor_lig = utils.data_from_tbagresults(results, 22);
-
-  hyb_pro = utils.data_from_tbagresults(results, 23);
-  hyb_lig = utils.data_from_tbagresults(results, 24);
-
-  with data_io.hdf_operator(output_hdffile, overwrite=True) as h5file:
-    h5file.create_dataset("box", box_array)
-    h5file.create_dataset("label", label_array)
-    h5file.create_dataset("pdbcode", pdbcode_array);
-
-    h5file.create_dataset("mass_pro", mass_pro)
-    h5file.create_dataset("mass_lig", mass_lig)
-    h5file.create_dataset("entres_pro", entres_pro)
-    h5file.create_dataset("entres_lig", entres_lig)
-    h5file.create_dataset("entatm_pro", entatm_pro)
-    h5file.create_dataset("entatm_lig", entatm_lig)
-
-    h5file.create_dataset("arom_pro", arom_pro)
-    h5file.create_dataset("arom_lig", arom_lig)
-    h5file.create_dataset("pc_pro", pc_pro)
-    h5file.create_dataset("pc_lig", pc_lig)
-    h5file.create_dataset("ha_pro", ha_pro)
-    h5file.create_dataset("ha_lig", ha_lig)
-    h5file.create_dataset("nha_pro", nha_pro)
-    h5file.create_dataset("nha_lig", nha_lig)
-
-    h5file.create_dataset("r_pro", r_pro)
-    h5file.create_dataset("r_lig", r_lig)
-    h5file.create_dataset("donor_pro", donor_pro)
-    h5file.create_dataset("donor_lig", donor_lig)
-    h5file.create_dataset("acceptor_pro", acceptor_pro)
-    h5file.create_dataset("acceptor_lig", acceptor_lig)
-    h5file.create_dataset("hyb_pro", hyb_pro)
-    h5file.create_dataset("hyb_lig", hyb_lig)
-
-    h5file.draw_structure()
-  printit("##################Data are collected################")
-
+  printit(f"##################Data are collected {time.perf_counter()-st:.3f} ################")
+# 239.7 seconds for 80 complexes: 20 workers, OMP_NUM_THREADS=20
+# 257.9 seconds for 80 complexes: 20 workers, OMP_NUM_THREADS=12
+# 284.0 seconds for 80 complexes: 20 workers, OMP_NUM_THREADS=8
+# 286.4 seconds for 80 complexes: 20 workers, OMP_NUM_THREADS=6
+# 251.3 seconds for 80 complexes: 20 workers, OMP_NUM_THREADS=4
+# 262.1 seconds for 80 complexes: 20 workers, OMP_NUM_THREADS=2
+# 429.0 seconds for 80 complexes: 20 workers, OMP_NUM_THREADS=1
 
 
 

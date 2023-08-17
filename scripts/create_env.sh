@@ -73,6 +73,7 @@ fi
 conda install -c conda-forge -c anaconda notebook nglview=3.0.3 trimesh -y
 conda install -c conda-forge requests biopython -y
 pip3 install line_profiler
+pip3 install pybind11
 
 # Other packages
 # imageio=2.9.0 # hilbertcurve=2.0.5
