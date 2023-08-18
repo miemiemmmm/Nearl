@@ -1,6 +1,12 @@
 import os, sys, subprocess, platform
 from setuptools import setup, find_packages, Extension
 from setuptools.command.build_ext import build_ext
+# import pybind11
+
+__version__ = "0.1"
+
+pybinddir = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'external/pybind11')
+sys.path.append(pybinddir)
 import pybind11
 
 class CMakeExtension(Extension):
@@ -13,7 +19,6 @@ class CMakeBuild(build_ext):
   def run(self):
     for ext in self.extensions:
       self.build_cmake(ext)
-    super().run()
 
   def build_cmake(self, ext):
     cwd = os.path.abspath(os.getcwd())
@@ -38,29 +43,30 @@ class CMakeBuild(build_ext):
     if not os.path.exists(self.build_temp):
       os.makedirs(self.build_temp)
 
+    print("temp build dir: ",build_temp)
+    print("CMake args: ", cmake_args)
+    print("Build args: ", build_args)
     subprocess.check_call(['cmake', ext.sourcedir] + cmake_args, cwd=self.build_temp)
     subprocess.check_call(['cmake', '--build', '.'] + build_args, cwd=self.build_temp)
-
+    subprocess.run(["ls", "-l", build_temp]); # debug
+# include_paths = [os.path.join(os.path.abspath(os.getcwd()), "external/pybind11")]
+# include_paths = [os.path.join(os.path.dirname(os.path.realpath(__file__)), 'external/pybind11')];
 include_paths = [os.path.dirname(pybind11.__file__)]
 print(f"The include path is {include_paths}")
+
 setup(
   name='BetaPose',
-  version='0.1',
-  # packages=find_packages(exclude=["tests*", "notebooks*", "scripts*"]),
-  packages=find_packages(),
-  install_requires=[
-    # list of dependencies (if any)
-    'numpy',
-    "pybind11", 
+  version=__version__,
+  author="Yang Zhang",
+  author_email="y.zhang@bioc.uzh.ch",
+  packages = [
+    "BetaPose",
   ],
-  package_data={
-      # If any package contains *.txt or *.rst files, include them:
-    "BetaPose" : ["data/PDBBind_general_v2020.csv", "data/PDBBind_refined_v2020.csv", "myconfig.json"],
-  },  # Optional
   ext_modules=[
-    CMakeExtension('interpolate', sourcedir='src', include_dirs=include_paths),
-    CMakeExtension("testmodule", sourcedir='src', include_dirs=include_paths),
+    CMakeExtension("parent", include_dirs=include_paths),
+    CMakeExtension("BetaPose.interpolate", sourcedir='src', include_dirs=include_paths),
+    CMakeExtension("BetaPose.testmodule", sourcedir='src', include_dirs=include_paths),
   ],
   cmdclass={'build_ext': CMakeBuild},
-
+  python_requires=">=3.7",
 )

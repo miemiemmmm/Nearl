@@ -4,8 +4,8 @@ from json import load
 
 import pkg_resources
 
-from . import test
-from . import interpolate
+# from . import test
+import interpolate
 
 configfile = pkg_resources.resource_filename("BetaPose", "myconfig.json")
 if os.path.isfile(configfile):
