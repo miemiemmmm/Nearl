@@ -6,16 +6,17 @@ import numpy as np
 #################################
 # Build a database from scratch #
 #################################
-from BetaPose import data_io, utils; 
+from BetaPose.io import hdf5
+from BetaPose.utils import utils; 
 import numpy as np 
-hdf = data_io.hdf_operator("/tmp/test.h5", new=True)
+hdf = hdf5.hdf_operator("/tmp/test.h5", new=True)
 
 # Complex 
 datatype1 = [("atom_number", int), ("carbon_number", int), ("donor_number", int), ("acceptor_number", int),
              ("positive_charge", float), ("negative_charge", float), ("pseudo_lj", float), ("pseudo_elec", float),
              ("surface_area", float), ("volume", float), ("mean_radius", float), ("convex_ratio", float)]*6
 data1 = np.zeros((1, 73)); 
-data1 = data_io.array2dataset(data1, [("repr_md5", "S32")] + [(f"repr{(i/7)+1}_{(i%7)+1}", float) for i in range(72)]); 
+data1 = hdf5.array2dataset(data1, [("repr_md5", "S32")] + [(f"repr{(i/7)+1}_{(i%7)+1}", float) for i in range(72)]); 
 hdf.create_dataset("repr_form", data1); 
 # hdf.append_entry("repr_form", np.zeros((16, 72))); 
 
@@ -23,14 +24,14 @@ hdf.create_dataset("repr_form", data1);
 datatype2 = [("ID",int), ("repr_md5", "S32"), ("fingerprint",float,(33,600))]
 zero_fpfh = np.zeros((1, 33,600))
 data2 = np.array([(0, utils.get_hash(), zero_fpfh)], dtype=object)
-data2 = data_io.array2dataset(data2, datatype2)
+data2 = hdf5.array2dataset(data2, datatype2)
 hdf.create_table("FPFH", data2, dtype=datatype2)
 
 
 datatype3 = [("ID",int), ("repr_md5", "S32"), ("feature_mass",float,(12,12,12))]
 feature_0 = np.zeros((1, 12,12,12))
 data3 = np.array([(0, utils.get_hash(), feature_0)], dtype=object)
-data3 = data_io.array2dataset(data3, datatype3)
+data3 = hdf5.array2dataset(data3, datatype3)
 hdf.create_table("feature_mass", data3)
 
 hdf.draw_structure()
