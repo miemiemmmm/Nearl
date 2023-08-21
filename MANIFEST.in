@@ -1,0 +1,13 @@
+include README.md
+include LICENSE
+recursive-include BetaPose *.so
+
+include CMakeLists.txt
+include test.cpp
+
+include src/CMakeLists.txt 
+include src/*.cpp 
+include src/*.h
+recursive-include external/pybind11 *
+
+
