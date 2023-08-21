@@ -51,7 +51,7 @@ else
   logit "Successfully activated the environment ${CONDA_DEFAULT_ENV}";
   logit "Installing other necessary packages";
 
-  pip install scipy pandas scikit-learn h5py seaborn matplotlib numba
+  pip3 install scipy pandas scikit-learn h5py seaborn matplotlib numba
   python -m pip install "dask[complete]"
   pip3 install open3d rdkit
 
@@ -60,7 +60,7 @@ else
     pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
   elif (( ${1} == "jax" )); then
     logit "Installing Jax ecosystem";
-    pip install --upgrade "jax[cuda12_pip]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+    pip3 install --upgrade "jax[cuda12_pip]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
     pip3 install optax flax
   else
     logit "Not designated machine learning model to install (jax|torch), omitting ..."
