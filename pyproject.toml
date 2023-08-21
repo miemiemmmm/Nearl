@@ -1,0 +1,10 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "BetaPose"  # as it would appear on PyPI
+version = "0.1"
+
+[tool.setuptools]
+include-package-data = true

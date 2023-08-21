@@ -5,9 +5,12 @@ from json import load
 import pkg_resources
 
 # from . import test
-import interpolate
+from . import interpolate
 
-configfile = pkg_resources.resource_filename("BetaPose", "myconfig.json")
+configfile = pkg_resources.resource_filename("BetaPose", "../myconfig.json")
+configfile = "/media/yzhang/MieT5/BetaPose/myconfig.json"
+print(configfile)
+
 if os.path.isfile(configfile):
   print("Loading configuation file", file=stdout)
   with open(configfile, "r") as f: 

@@ -1,16 +1,11 @@
 cmake_minimum_required(VERSION 3.12)
+set(CMAKE_CXX_COMPILER "${PGCPP}")
 project(interpolate)
 
-# set(CMAKE_PREFIX_PATH "/diskssd/yzhang/miniconda3/envs/mlenv/lib/python3.9/site-packages/pybind11")
-# set(CMAKE_PREFIX_PATH "/diskssd/yzhang/miniconda3/envs/mlprod/lib/python3.10/site-packages/pybind11")
-# set(CMAKE_PREFIX_PATH "/home/yzhang/miniconda3/envs/mlenv/lib/python3.9/site-packages/pybind11")
-
 # set(CMAKE_PREFIX_PATH "${PYBIND11_INCLUDE_DIR}")
-# add_subdirectory(pybind11)
-# set(CMAKE_CXX_STANDARD 17)
-# set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_COMPILER pgc++)
 
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(OpenMP)
 if(OPENMP_FOUND)
@@ -24,13 +19,14 @@ endif()
 # set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fopenacc")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -acc -Minfo=accel")
 
-find_package(pybind11 REQUIRED)
+add_subdirectory("${PYBIND11_DIR}"  ${CMAKE_BINARY_DIR}/_deps/pybind11-build)
+
 find_package(OpenMP)
 
 # pybind11_add_module(cutils cutils.cpp)
 pybind11_add_module(testmodule hello.cpp)
-# pybind11_add_module(interpolate interpolate.cpp baseutils.cpp)
-pybind11_add_module(interpolate baseutils.cpp interpolate.cpp)
+pybind11_add_module(interpolate interpolate.cpp baseutils.cpp)
+# pybind11_add_module(interpolate baseutils.cpp interpolate.cpp)
 
 if(OPENMP_FOUND)
     target_link_libraries(testmodule PUBLIC OpenMP::OpenMP_CXX)
