@@ -4,7 +4,16 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "BetaPose"  # as it would appear on PyPI
-version = "0.1"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "Yang Zhang", email = "credo_zhang@163.com"},
+    {name = "Yang Zhang", email = "y.zhang@bioc.uzh.ch"},
+]
+dependencies = []
+requires-python = ">=3.7"
+readme = "README.md"
+license = {text = "MIT"}
 
 [tool.setuptools]
 include-package-data = true
