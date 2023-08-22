@@ -1,28 +1,28 @@
 # [ Necessary general-purpose packages ]
-numpy=1.24.4
-scipy=1.11.1
-scikit-learn=1.3.0
-h5py=3.9.0
-matplotlib=3.7.2
-notebook=6.5.4 	          # For development
-line_profiler=4.0.3       # For development
-dask[complete]=2023.7.1   # For multiprocessing
+numpy==1.24.4
+scipy==1.11.1
+scikit-learn==1.3.0
+h5py==3.9.0
+matplotlib==3.7.2
+notebook==6.5.4 	         # For development
+line_profiler==4.0.3       # For development
+dask[complete]==2023.7.1   # For multiprocessing
 
 # [ Necessary cheminformatics packages ]
-ambertools=22.0
-rdkit=2023.3.2
+ambertools==22.0
+rdkit==2023.3.2
 
 # [ Not frequently used packages ]
-nglview=3.0.3
-pandas=2.0.3
+nglview==3.0.3
+pandas==2.0.3
 # Pytorch packages
-torch=2.0.1
-torchaudio=2.0.2
-torchvision=0.15.2
+# torch=2.0.1
+# torchaudio=2.0.2
+# torchvision=0.15.2
 # JAX packages
-jax=0.4.13
-optax=0.1.5
-flax=0.7.0
+# jax=0.4.13
+# optax=0.1.5
+# flax=0.7.0
 
 # Possible packages to use in the future
 # trimesh
