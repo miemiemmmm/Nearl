@@ -6,7 +6,7 @@ from rdkit import Chem
 
 from open3d.geometry import TriangleMesh
 
-from ..utils import chemtools, utils
+from ..utils import chem, utils
 from ..io import hdf5
 
 from . import fingerprint
@@ -311,7 +311,7 @@ class Featurizer3D:
     # try:
     if True:
       print("======>>>> Generating a new boxed molecule <<<<======")
-      rdmol = chemtools.traj_to_rdkit(self.traj, atom_sel, self.active_frame_index)
+      rdmol = chem.traj_to_rdkit(self.traj, atom_sel, self.active_frame_index)
       if rdmol is None:
         with tempfile.NamedTemporaryFile(suffix=".pdb") as temp:
           outmask = "@"+",".join((atom_sel+1).astype(str))

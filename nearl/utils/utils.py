@@ -1,28 +1,30 @@
-import tempfile, os, sys, time, re, itertools
-from hashlib import md5;
+import tempfile, os, time, re
+from hashlib import md5
 
 import numpy as np 
 import pytraj as pt 
 
-from scipy.interpolate import griddata, Rbf
-from scipy.spatial import distance_matrix, distance
+from scipy.interpolate import Rbf
+from scipy.spatial import distance_matrix
 
-def conflictfactor(pdbfile, ligname, cutoff=5):
-  VDWRADII = {'1': 1.1, '2': 1.4, '3': 1.82, '4': 1.53, '5': 1.92, '6': 1.7, '7': 1.55, '8': 1.52,
+
+def conflict_factor(pdbfile, ligname, cutoff=5):
+  VDWRADII = {
+    '1': 1.1, '2': 1.4, '3': 1.82, '4': 1.53, '5': 1.92, '6': 1.7, '7': 1.55, '8': 1.52,
     '9': 1.47, '10': 1.54, '11': 2.27, '12': 1.73, '13': 1.84, '14': 2.1, '15': 1.8,
     '16': 1.8, '17': 1.75, '18': 1.88, '19': 2.75, '20': 2.31, '28': 1.63, '29': 1.4,
     '30': 1.39, '31': 1.87, '32': 2.11, '34': 1.9, '35': 1.85, '46': 1.63, '47': 1.72,
     '48': 1.58, '50': 2.17, '51': 2.06, '53': 1.98, '54': 2.16, '55': 3.43, '56': 2.68,
     '78': 1.75, '79': 1.66, '82': 2.02, '83': 2.07
   }
-  traj = pt.load(pdbfile, top=pdbfile);
-  traj.top.set_reference(traj[0]);
-  pocket_atoms = traj.top.select(f":{ligname}<:{cutoff}");
-  atoms = np.array([*traj.top.atoms])[pocket_atoms];
-  coords = traj.xyz[0][pocket_atoms];
-  atomnr = len(pocket_atoms);
-  cclash=0;
-  ccontact = 0;
+  traj = pt.load(pdbfile, top=pdbfile)
+  traj.top.set_reference(traj[0])
+  pocket_atoms = traj.top.select(f":{ligname}<:{cutoff}")
+  atoms = np.array([*traj.top.atoms])[pocket_atoms]
+  coords = traj.xyz[0][pocket_atoms]
+  atomnr = len(pocket_atoms)
+  cclash = 0
+  ccontact = 0
   for i, coord in enumerate(coords):
     partners = [atoms[i].index]
     for j in list(atoms[i].bonded_indices()):
@@ -36,51 +38,17 @@ def conflictfactor(pdbfile, ligname, cutoff=5):
     cclash += np.count_nonzero(ret < vdw_pairs - 1.25)
     ccontact += np.count_nonzero(ret < vdw_pairs + 0.4)
 
-    st = (ret < vdw_pairs - 1.25)[0];
+    st = (ret < vdw_pairs - 1.25)[0]
     if np.count_nonzero(st) > 0:
-      partatoms = np.array([*traj.top.atoms])[otheratoms][st];
-      thisatom = np.array([*traj.top.atoms])[atoms[i].index];
+      partatoms = np.array([*traj.top.atoms])[otheratoms][st]
+      thisatom = np.array([*traj.top.atoms])[atoms[i].index]
       for part in partatoms:
-        dist = distance_matrix([traj.xyz[0][part.index]], [traj.xyz[0][thisatom.index]]);
+        dist = distance_matrix([traj.xyz[0][part.index]], [traj.xyz[0][thisatom.index]])
         print(f"Found clash between: {thisatom.name}({thisatom.index}) and {part.name}({part.index}); Distance: {dist.squeeze().round(3)}")
 
   factor = 1 - ((cclash/2)/((ccontact/2)/atomnr))
-  print(f"Clashing factor: {round(factor,3)}; Atom selected: {atomnr}; Contact number: {ccontact}; Clash number: {cclash}");
+  print(f"Clashing factor: {round(factor,3)}; Atom selected: {atomnr}; Contact number: {ccontact}; Clash number: {cclash}")
   return factor
-
-def interpolate(points, weights, grid_dims):
-  """
-  Interpolate density from a set of weighted 3D points to an N x N x N mesh grid.
-
-  Args:
-  points (np.array): An array of shape (num_points, 3) containing the 3D coordinates of the points.
-  weights (np.array): An array of shape (num_points,) containing the weights of the points.
-  grid_size (int): The size of the output mesh grid (N x N x N).
-
-  Returns:
-  np.array: A 3D mesh grid of shape (grid_size, grid_size, grid_size) with the interpolated density.
-
-  Note: 
-    Interpolation box is in accordance with the bound box
-  """
-  # Compute the bounding box
-  min_coords = np.min(points, axis=0)
-  max_coords = np.max(points, axis=0)
-  # Create the X x Y x Z grid
-  grid_dims = [int(i) for i in grid_dims]; 
-  grid_y, grid_x, grid_z = np.mgrid[min_coords[0]:max_coords[0]:grid_dims[0]*1j, 
-                                    min_coords[1]:max_coords[1]:grid_dims[1]*1j, 
-                                    min_coords[2]:max_coords[2]:grid_dims[2]*1j]; 
-  grid_x, grid_y, grid_z = np.meshgrid(np.linspace(min_coords[0], max_coords[0], grid_dims[0]),
-                                       np.linspace(min_coords[1], max_coords[1], grid_dims[1]),
-                                       np.linspace(min_coords[2], max_coords[2], grid_dims[2]), indexing="xy")
-  # Interpolate the density to the grid
-  # grid_density = griddata(points, weights, (grid_x, grid_y, grid_z), method='linear', fill_value=0); 
-  # Perform RBF interpolation
-  rbf = Rbf(points[:, 0], points[:, 1], points[:, 2], weights)
-  grid_density = rbf(grid_x, grid_y, grid_z)
-
-  return grid_density, (grid_x, grid_y, grid_z)
 
 def get_hash(thestr=""):
   if isinstance(thestr, str) and len(thestr)>0:
@@ -107,8 +75,8 @@ def GetProteinMask(pdbfile):
   """
   Method 2: Get the mask of protein via a PDB file name 
   """
-  reslst = [];
-  traj = pt.load(pdbfile, top=pdbfile);
+  reslst = []
+  traj = pt.load(pdbfile, top=pdbfile)
   for i in traj.top.atoms:
     if i.name=="CA":
       reslst.append(i.resid+1)
@@ -121,57 +89,56 @@ def PairwiseDistance(traj, mask1, mask2, use_mean=False, ref_frame=None):
   Usually they are the heavy atoms of ligand and protein within the pocket
   """
   if isinstance(mask1, str):
-    selmask1 = traj.top.select(mask1);
+    selmask1 = traj.top.select(mask1)
   elif isinstance(mask1, (list, tuple, np.ndarray)):
-    selmask1 = np.asarray(mask1);
+    selmask1 = np.asarray(mask1)
 
   if isinstance(mask2, str):
-    selmask2 = traj.top.select(mask2);
+    selmask2 = traj.top.select(mask2)
   elif isinstance(mask2, (list, tuple, np.ndarray)):
-    selmask2 = np.asarray(mask2);
+    selmask2 = np.asarray(mask2)
 
   if len(selmask1) == 0:
     print("No target atom selected, please check the mask")
-    return None, None;
+    return None, None
   elif len(selmask2) == 0:
     print("No counter part atom selected, please check the mask")
-    return None, None;
+    return None, None
 
   # Compute the distance matrix between the target and reference atoms
   if use_mean == True:
-    frame_mean = np.mean(traj.xyz, axis=0);
-    mask1_xyz = frame_mean[selmask1];
-    mask2_xyz = frame_mean[selmask2];
-    ref_frame = distance_matrix(mask1_xyz, mask2_xyz);
+    frame_mean = np.mean(traj.xyz, axis=0)
+    mask1_xyz = frame_mean[selmask1]
+    mask2_xyz = frame_mean[selmask2]
+    ref_frame = distance_matrix(mask1_xyz, mask2_xyz)
   else:
-    mask1_xyz = traj.xyz[ref_frame if ref_frame is not None else 0][selmask1];
-    mask2_xyz = traj.xyz[ref_frame if ref_frame is not None else 0][selmask2];
-    ref_frame = distance_matrix(mask1_xyz, mask2_xyz);
+    mask1_xyz = traj.xyz[ref_frame if ref_frame is not None else 0][selmask1]
+    mask2_xyz = traj.xyz[ref_frame if ref_frame is not None else 0][selmask2]
+    ref_frame = distance_matrix(mask1_xyz, mask2_xyz)
 
   # Find closest atom pairs
-  minindex = np.argmin(ref_frame, axis=1);
-  selclosest = selmask2[minindex];
+  minindex = np.argmin(ref_frame, axis=1)
+  selclosest = selmask2[minindex]
 
   # Compute the evolution of distance between closest-pairs
   # NOTE: Add 1 to pytraj index (Unlike Pytraj, in Cpptraj, Atom index starts from 1)
-  distarr = np.zeros((len(selmask1), traj.n_frames));
-  c = 0;
+  distarr = np.zeros((len(selmask1), traj.n_frames))
+  c = 0
   for i, j in zip(selmask1, selclosest):
-    distancei = traj.xyz[:,i,:] - traj.xyz[:,j,:];
-    distarr[c, :] = np.sqrt(np.sum(distancei**2, axis=1));
-    c+=1;
+    distancei = traj.xyz[:,i,:] - traj.xyz[:,j,:]
+    distarr[c, :] = np.sqrt(np.sum(distancei**2, axis=1))
+    c+=1
 
   pdist_info = {"atom_name_group1": [], "indices_group1": [], "atom_name_group2": [], "indices_group2": []}
 
   # TODO: This is the most time-consuming part, need to be optimized
   atoms = [i for i in traj.top.atoms]
   for idx in selmask1:
-    pdist_info["atom_name_group1"].append(atoms[idx].name);
-    pdist_info["indices_group1"].append(atoms[idx].index);
+    pdist_info["atom_name_group1"].append(atoms[idx].name)
+    pdist_info["indices_group1"].append(atoms[idx].index)
   for idx in selclosest:
-    pdist_info["atom_name_group2"].append(atoms[idx].name);
-    pdist_info["indices_group2"].append(atoms[idx].index);
-
+    pdist_info["atom_name_group2"].append(atoms[idx].name)
+    pdist_info["indices_group2"].append(atoms[idx].index)
   return distarr, pdist_info
 
 
@@ -180,21 +147,21 @@ def ASALig(pdbfile, lig_mask):
   """
   Calculate the Ligand accessible surface area (SAS) contribution with respect to the protein-ligand complex.
   """
-  import subprocess; 
-  temp = tempfile.NamedTemporaryFile(suffix=".dat");
-  tempname = temp.name;
-  pro_mask = GetProteinMask(pdbfile);
+  import subprocess
+  temp = tempfile.NamedTemporaryFile(suffix=".dat")
+  tempname = temp.name
+  pro_mask = GetProteinMask(pdbfile)
 
-  cpptraj_str = f"parm {pdbfile}\ntrajin {pdbfile}\nsurf {lig_mask} solutemask {pro_mask},{lig_mask} out {tempname}";
-  p1 = subprocess.Popen(["echo", "-e", cpptraj_str], stdout=subprocess.PIPE) ;
-  p2 = subprocess.Popen(["cpptraj"], stdin=p1.stdout, stdout=subprocess.DEVNULL);
-  p1.wait();
-  p2.wait();
+  cpptraj_str = f"parm {pdbfile}\ntrajin {pdbfile}\nsurf {lig_mask} solutemask {pro_mask},{lig_mask} out {tempname}"
+  p1 = subprocess.Popen(["echo", "-e", cpptraj_str], stdout=subprocess.PIPE)
+  p2 = subprocess.Popen(["cpptraj"], stdin=p1.stdout, stdout=subprocess.DEVNULL)
+  p1.wait()
+  p2.wait()
 
   with open(tempname, "r") as file1: 
-    lines = [i.strip() for i in file1.read().strip("\n").split("\n") if i.strip()[0]!="#"]; 
-    f_val = float(lines[0].split()[1]); 
-  temp.close();
+    lines = [i.strip() for i in file1.read().strip("\n").split("\n") if i.strip()[0]!="#"]
+    f_val = float(lines[0].split()[1])
+  temp.close()
   return f_val
 
 def ASALigOnly(pdbfile, lig_mask): 
@@ -211,12 +178,12 @@ def EmbeddingFactor(basepath, pdbcode, mask=":LIG"):
   Embedding factor is measured by the accessible surface area (ASA) contribution of ligand in a complex
   to the pure ligand ASA
   """
-  import os; 
-  pdbcode = pdbcode.lower(); 
-  basepath = os.path.abspath(basepath); 
-  ligfile = os.path.join(basepath, f"{pdbcode}/{pdbcode}_ligand.mol2");
-  pdbfile = os.path.join(basepath, f"{pdbcode}/{pdbcode}_protein.pdb");
-  outfile = os.path.join(basepath, f"{pdbcode}/{pdbcode}_complex.pdb");
+
+  pdbcode = pdbcode.lower()
+  basepath = os.path.abspath(basepath)
+  ligfile = os.path.join(basepath, f"{pdbcode}/{pdbcode}_ligand.mol2")
+  pdbfile = os.path.join(basepath, f"{pdbcode}/{pdbcode}_protein.pdb")
+  outfile = os.path.join(basepath, f"{pdbcode}/{pdbcode}_complex.pdb")
 
   if (os.path.isfile(ligfile)) and (os.path.isfile(pdbfile)):
     outfile = combineMOL2PDB(ligfile, pdbfile, outfile)
@@ -231,9 +198,9 @@ def EmbeddingFactor(basepath, pdbcode, mask=":LIG"):
 
 
 def fetch(code):
-  import requests; 
-  pdb = code.lower();
-  response = requests.post(f'http://files.rcsb.org/download/{pdb}.pdb'); 
+  import requests
+  pdb = code.lower()
+  response = requests.post(f'http://files.rcsb.org/download/{pdb}.pdb')
   return response.text
 
 def PRO_nha(pdbfile):
@@ -264,11 +231,11 @@ def cgenff2dic(filename):
   return {"name":theatom, "type":atomtype, "charge":charge, "penalty":penalty}
 
 def cgenff2xmls(cgenffname):
-  cgenffdic = cgenff2dic(cgenffname); 
+  cgenffdic = cgenff2dic(cgenffname)
   root = ET.Element('ForceField')
   info = ET.SubElement(root, 'Info')
   info_date = ET.SubElement(info, "date")
-  info_date.text = datetime.datetime.now().strftime('%y-%m-%dT%H:%M:%S');
+  info_date.text = datetime.datetime.now().strftime('%y-%m-%dT%H:%M:%S')
   data_lig = ET.SubElement(root, 'LIG')
   for i in range(len(cgenffdic["name"])):
     tmpattrib={
@@ -283,7 +250,7 @@ def cgenff2xmls(cgenffname):
   return ligxml_str
 
 def cgenff2xml(cgenffname, outfile):
-  xmlstr = cgenff2xmls(cgenffname); 
+  xmlstr = cgenff2xmls(cgenffname)
   with open(outfile, "w") as file1: 
     file1.write(xmlstr)
   return 
@@ -298,36 +265,36 @@ def DistanceLigPro(theid, mode="session", ligname="LIG"):
   if mode == "session":
     from rdkit import Chem
     if len(theid) != 8: 
-      print("Session ID length not equil to 8");
+      print("Session ID length not equil to 8")
       return
     with tempfile.NamedTemporaryFile("w", suffix=".pdb") as file1, tempfile.NamedTemporaryFile("w", suffix=".mol2") as file2:
       session = session_prep.RecallSession(theid)
-      file1.write(session["pdbfile"]); 
-      protcom = pt.center_of_mass(pt.load(file1.name), "@CA"); 
+      file1.write(session["pdbfile"])
+      protcom = pt.center_of_mass(pt.load(file1.name), "@CA")
       try:
         # Mol2 could successfully be parsed in pytraj
-        file2.write(session["molfile"]); 
+        file2.write(session["molfile"])
         traj = pt.load(file2.name)
-        ligcom = pt.center_of_mass(pt.load(file2.name)); 
+        ligcom = pt.center_of_mass(pt.load(file2.name))
       except Exception as e: 
         # Directly calculate the COM of the ligand 
         # print(f"Error occurred while calculating the Ligand COM: {e}")
-        atoms = session["molfile"].split("@<TRIPOS>ATOM\n")[1].split("@<TRIPOS>")[0]; 
-        atoms = [i.strip().split() for i in atoms.strip("\n").split("\n")]; 
-        coord = np.array([i[2:5] for i in atoms]).astype(np.float32); 
-        atomtypes = [re.sub(r"[0-9]", "", i[1]) for i in atoms]; 
-        masses = []; 
+        atoms = session["molfile"].split("@<TRIPOS>ATOM\n")[1].split("@<TRIPOS>")[0]
+        atoms = [i.strip().split() for i in atoms.strip("\n").split("\n")]
+        coord = np.array([i[2:5] for i in atoms]).astype(np.float32)
+        atomtypes = [re.sub(r"[0-9]", "", i[1]) for i in atoms]
+        masses = []
         for i in atomtypes:
           try: 
             m = Chem.Atom(i).GetMass()
-            masses.append(m); 
+            masses.append(m)
           except: 
-            masses.append(0); 
+            masses.append(0)
         com = np.average(coord, axis=0, weights=masses)
         ligcom = np.array([com])
-      return distance_matrix(ligcom, protcom).item(); 
+      return distance_matrix(ligcom, protcom).item()
   elif mode == "file": 
-    traj = pt.load(theid); 
+    traj = pt.load(theid)
     dist = pt.distance(traj, f"@CA  :{ligname}")
     return dist.item()
   else:
@@ -339,10 +306,10 @@ def getSeqCoord(filename):
   """
   from Bio.PDB.Polypeptide import three_to_one
   traj = pt.load(filename)
-  resnames = [i.name for i in traj.top.residues];
-  trajxyz = traj.xyz[0];
-  retxyz = [];
-  retseq = "";
+  resnames = [i.name for i in traj.top.residues]
+  trajxyz = traj.xyz[0]
+  retxyz = []
+  retseq = ""
   for atom in traj.top.atoms:
     if atom.name == "CA":
       try:
@@ -363,104 +330,104 @@ def CompareStructures(tokens, modes, url="http://130.60.168.149/fcgi-bin/ACyang.
         Uses the coordinates of the CA atom as the center of the residue
         Skip unknown residues
   """
-  from tmtools import tm_align;
-  from BetaPose.test import ACGUIKIT_REQUESTS
+  from tmtools import tm_align
+  from nearl.test import ACGUIKIT_REQUESTS
   if isinstance(tokens, list) and isinstance(modes, list):
     results = []
     for token, mode in zip(tokens, modes): 
       if mode == "traj":
-        acg_kit = ACGUIKIT_REQUESTS(url); 
-        acg_kit.recall(token[4:]); 
-        pdbstr = acg_kit.recallTraj(token)["PDBFile"]; 
+        acg_kit = ACGUIKIT_REQUESTS(url)
+        acg_kit.recall(token[4:])
+        pdbstr = acg_kit.recallTraj(token)["PDBFile"]
       elif mode == "str":
-        pdbstr = token; 
+        pdbstr = token
       elif mode == "fetch":
-        assert len(token) == 4, "PDB with length of 4";
-        pdbstr = fetch(token); 
+        assert len(token) == 4, "PDB with length of 4"
+        pdbstr = fetch(token)
       elif mode == "file":
         with open(token, "r") as file1: 
-          pdbstr = file1.read(); 
+          pdbstr = file1.read()
       elif mode == "session":
-        acg_kit = ACGUIKIT_REQUESTS(url); 
-        pdbstr = acg_kit.recall(token)["pdbfile"]; 
+        acg_kit = ACGUIKIT_REQUESTS(url)
+        pdbstr = acg_kit.recall(token)["pdbfile"]
       if token == tokens[0]: 
         with tempfile.NamedTemporaryFile("w", suffix=".pdb") as file1:
-          file1.write(pdbstr); 
-          coord_ref, seq_ref = getSeqCoord(file1.name);
-        continue; 
+          file1.write(pdbstr)
+          coord_ref, seq_ref = getSeqCoord(file1.name)
+        continue
       else: 
         with tempfile.NamedTemporaryFile("w", suffix=".pdb") as file1:
-          file1.write(pdbstr); 
-          coord_i, seq_i = getSeqCoord(file1.name);
+          file1.write(pdbstr)
+          coord_i, seq_i = getSeqCoord(file1.name)
         
         result = tm_align(coord_ref, coord_i, seq_ref, seq_i)
-        results.append(max([result.tm_norm_chain1, result.tm_norm_chain2])); 
+        results.append(max([result.tm_norm_chain1, result.tm_norm_chain2]))
         # print(f"CoorSet 1 {coord_ref.shape}:{result.tm_norm_chain1:.3f} ; CoorSet 2 {coord_i.shape}:{result.tm_norm_chain2:.3f}; ")
   else: 
     print("Please provide a list of PDB structure of interest")
   return results  
 
 def getPdbTitle(pdbcode):
-  pdb = pdbcode.lower().strip().replace(" ", ""); 
-  assert len(pdb) == 4, "Please enter a valid PDB name";
-  pdbstr = fetch(pdb);
-  title = " ".join([i.strip("TITLE").strip() for i in pdbstr.split("\n") if "TITLE" in i]); 
+  pdb = pdbcode.lower().strip().replace(" ", "")
+  assert len(pdb) == 4, "Please enter a valid PDB name"
+  pdbstr = fetch(pdb)
+  title = " ".join([i.strip("TITLE").strip() for i in pdbstr.split("\n") if "TITLE" in i])
   return title
   
   
   
 def getPdbSeq(pdbcode):
-  from Bio.SeqUtils import seq1;
-  pdb = pdbcode.lower().strip().replace(" ", ""); 
-  assert len(pdb) == 4, "Please enter a valid PDB name";
-  pdbstr = fetch(pdb);
+  from Bio.SeqUtils import seq1
+  pdb = pdbcode.lower().strip().replace(" ", "")
+  assert len(pdb) == 4, "Please enter a valid PDB name"
+  pdbstr = fetch(pdb)
   
-  chainids = [i[11] for i in pdbstr.split("\n") if re.search(r"SEQRES.*[A-Z].*[0-9]", i)];
-  chainid = chainids[0];
-  title = " ".join([i[19:] for i in pdbstr.split("\n") if re.search(f"SEQRES.*{chainid}.*[0-9]", i)]); 
-  seqstr = "".join(title.split());
-  seqstr = seq1(seqstr); 
+  chainids = [i[11] for i in pdbstr.split("\n") if re.search(r"SEQRES.*[A-Z].*[0-9]", i)]
+  chainid = chainids[0]
+  title = " ".join([i[19:] for i in pdbstr.split("\n") if re.search(f"SEQRES.*{chainid}.*[0-9]", i)])
+  seqstr = "".join(title.split())
+  seqstr = seq1(seqstr)
   if len(seqstr) > 4:
     return seqstr
   else: 
     print("Not found a proper single chain")
     title = " ".join([i[19:] for i in pdbstr.split("\n") if re.search(r"SEQRES", i)])
-    seqstr = "".join(title.split());
-    seqstr = seq1(seqstr); 
+    seqstr = "".join(title.split())
+    seqstr = seq1(seqstr)
     return seqstr
 
 def colorgradient(mapname, gradient, cmin=0.1, cmax=0.9): 
   import matplotlib.pyplot as plt
-  cmap = plt.get_cmap(mapname);
+  cmap = plt.get_cmap(mapname)
   # Define N equally spaced values between 0.1 and 0.9
-  values = np.linspace(cmin, cmax, gradient);
+  values = np.linspace(cmin, cmax, gradient)
   # Get the RGB values for each of the 6 values
-  colors = cmap(values); 
+  colors = cmap(values)
   return colors[:,:3].tolist()
 
 def getAxisIndex(idx, colnr):
-  x = np.floor(idx/colnr).astype(int); 
-  y = idx%colnr ; 
+  x = np.floor(idx/colnr).astype(int)
+  y = idx%colnr
   return (x,y)
 
 def smartsSupplier(smarts):
   from rdkit import Chem
-  mols = []; 
+  mols = []
   for idx, m in enumerate(smarts): 
-    mol = Chem.MolFromSmarts(m); 
-    mols.append(mol); 
+    mol = Chem.MolFromSmarts(m)
+    mols.append(mol)
   return mols
 
 def DrawGridMols(axes, mols, colnr):
   from rdkit.Chem import Draw
   for axis in axes.reshape((-1,1)):
-    axis[0].axis("off"); 
+    axis[0].axis("off")
   for idx, mol in enumerate(mols): 
-    figi = Draw.MolToImage(mol); 
-    figi.thumbnail((100, 100)); 
-    index = getAxisIndex(idx, colnr); 
-    axes[index].imshow(figi); 
-    axes[index].set_title(f"SubStruct {idx+1}"); 
+    figi = Draw.MolToImage(mol)
+    figi.thumbnail((100, 100))
+    index = getAxisIndex(idx, colnr)
+    axes[index].imshow(figi)
+    axes[index].set_title(f"SubStruct {idx+1}")
 
 def getmask(traj, mask): 
   selected = traj.top.select(mask)
@@ -469,20 +436,20 @@ def getmask(traj, mask):
   return finalmask
 
 def getmaskbyidx(traj, idxs):
-  idxs = np.array(idxs);
-  aids = [i.index for i in np.array(list(traj.top.atoms))[idxs]]; 
-  aids = list(set(aids)); 
-  aids.sort(); 
-  selected_str = [f"{i+1}," for i in aids]; 
-  finalmask = "@"+"".join(selected_str).strip(","); 
+  idxs = np.array(idxs)
+  aids = [i.index for i in np.array(list(traj.top.atoms))[idxs]]
+  aids = list(set(aids))
+  aids.sort()
+  selected_str = [f"{i+1}," for i in aids]
+  finalmask = "@"+"".join(selected_str).strip(",")
   return finalmask
 
 def getresmask(traj, mask):
-  selected = traj.top.select(mask); 
-  rids = [i.resid for i in np.array(list(traj.top.atoms))[selected]]; 
-  rids = list(set(rids)); 
-  selected_str = [f"{i+1}," for i in rids]; 
-  finalmask = ":"+"".join(selected_str).strip(","); 
+  selected = traj.top.select(mask)
+  rids = [i.resid for i in np.array(list(traj.top.atoms))[selected]]
+  rids = list(set(rids))
+  selected_str = [f"{i+1}," for i in rids]
+  finalmask = ":"+"".join(selected_str).strip(",")
   return finalmask
 
 def filter_points_within_bounding_box(thearr, grid_center, grid_length, return_state=False):
@@ -494,30 +461,30 @@ def filter_points_within_bounding_box(thearr, grid_center, grid_length, return_s
     grid_length: length(s) of the box
     return_state: return the acceptance of the array, otherwise return the coordinates array
   """
-  thearr = np.asarray(thearr);
-  upperbound = np.asarray(grid_center) + np.asarray(grid_length)/2;
-  lowerbound = np.asarray(grid_center) - np.asarray(grid_length)/2;
-  state = np.all((thearr < upperbound) & (thearr > lowerbound), axis=1);
+  thearr = np.asarray(thearr)
+  upperbound = np.asarray(grid_center) + np.asarray(grid_length)/2
+  lowerbound = np.asarray(grid_center) - np.asarray(grid_length)/2
+  state = np.all((thearr < upperbound) & (thearr > lowerbound), axis=1)
   if return_state: 
     return state 
   else: 
     return thearr[state]
 
 def coordfilter(coord, refcoord): 
-  refcoord = [tuple(i) for i in np.array(refcoord).round(2)];
-  _coord   = [tuple(i) for i in np.array(coord).round(2)];
-  ret = [];
+  refcoord = [tuple(i) for i in np.array(refcoord).round(2)]
+  _coord   = [tuple(i) for i in np.array(coord).round(2)]
+  ret = []
   for idx, c in enumerate(_coord): 
     if c in refcoord: 
-      ret.append(coord[idx]);
+      ret.append(coord[idx])
   return np.array(ret)
 
 def ordersegments(lst):
   from collections import Counter
-  counter = Counter(lst);
-  sorted_elements = sorted(counter, key=lambda x: counter[x], reverse=True);
+  counter = Counter(lst)
+  sorted_elements = sorted(counter, key=lambda x: counter[x], reverse=True)
   if 0 in sorted_elements:
-    sorted_elements.remove(0);
+    sorted_elements.remove(0)
   return sorted_elements
 
 def NormalizePDB(refpdb, testpdb, outpdb):
@@ -560,7 +527,7 @@ def TM_euler(roll, pitch, yaw, translate=[0, 0, 0]):
   Generate a transformation matrix from Euler angles
   NOTE: Could also use this function to do xyz rotation
   >>> from scipy.spatial.transform import Rotation
-  >>> R = Rotation.from_euler('xyz', [roll, pitch, yaw], degrees=False).as_matrix();
+  >>> R = Rotation.from_euler('xyz', [roll, pitch, yaw], degrees=False).as_matrix()
   """
   # Precompute trigonometric functions
   cos_roll, sin_roll = np.cos(roll), np.sin(roll)
@@ -573,99 +540,104 @@ def TM_euler(roll, pitch, yaw, translate=[0, 0, 0]):
   # Combine rotations
   R = Rz @ Ry @ Rx
   # Create the final transformation matrix
-  H = np.eye(4);
-  H[:3, :3] = R;
+  H = np.eye(4)
+  H[:3, :3] = R
   H[:3, 3] = np.array(translate).ravel()
   return H
+
 def TM_quaternion(q, translate=[0, 0, 0]):
   from scipy.spatial.transform import Rotation
   # Generate rotation matrix
   R = Rotation.from_quat(q).as_matrix()
   # Create the final transformation matrix
-  H = np.eye(4);
-  H[:3, :3] = R;
+  H = np.eye(4)
+  H[:3, :3] = R
   H[:3, 3] = np.array(translate).ravel()
   return H
 
 
 def transform_pcd(pcd, trans_mtx): 
   # Homogenize the point cloud (add a row of ones)
-  homogeneous_pcd = np.hstack((pcd, np.ones((pcd.shape[0], 1))));
+  homogeneous_pcd = np.hstack((pcd, np.ones((pcd.shape[0], 1))))
   # Apply the transformation matrix to the point cloud
-  transformed_pcd = np.dot(homogeneous_pcd, trans_mtx.T);
+  transformed_pcd = np.dot(homogeneous_pcd, trans_mtx.T)
   # Remove the homogeneous coordinate (last column)
-  transformed_pcd = transformed_pcd[:, :3];
+  transformed_pcd = transformed_pcd[:, :3]
   return transformed_pcd
 
 def MSD(arr):
   """
     Mean Spacing Deviation
   """
-  return np.array(arr).std(axis=1).mean(); 
+  return np.array(arr).std(axis=1).mean()
+
 def MSCV(arr):
   """
     Mean Spacing Coefficient of Variation
   """
-  std = np.array(arr).std(axis=1); 
-  mean = np.array(arr).mean(axis=1); 
+  std = np.array(arr).std(axis=1)
+  mean = np.array(arr).mean(axis=1)
   mscv = (std/mean).mean()
-  return min(mscv, 1); 
+  return min(mscv, 1)
 
 
 # Result data extraction
 def data_from_fbag(fbag, feature_idx):
-  data = [];
+  data = []
   for frame_data in fbag:
     if isinstance(frame_data[feature_idx], list):
-      data.append(frame_data[feature_idx]);
+      data.append(frame_data[feature_idx])
     elif isinstance(frame_data[feature_idx], np.ndarray):
-      data.append(frame_data[feature_idx].tolist());
+      data.append(frame_data[feature_idx].tolist())
     elif isinstance(frame_data[feature_idx], (int, float, np.float32, np.float64)):
-      data.append([frame_data[feature_idx]]);
+      data.append([frame_data[feature_idx]])
   return data
+
 def data_from_tbag(bag, feature_idx):
-  data = [];
+  data = []
   for traj_data in bag:
     data += data_from_fbag(traj_data, feature_idx)
   return data
+
 def data_from_tbagresults(results, feature_idx):
-  data = [];
+  data = []
   for tbag in results:
     data += data_from_tbag(tbag, feature_idx)
   return np.array(data)
+
 def data_from_fbagresults(results, feature_idx):
-  data = [];
+  data = []
   for fbag in results:
     data += data_from_fbag(fbag, feature_idx)
   try:
-    data = np.array(data);
+    data = np.array(data)
   except:
-    data = np.array(data, dtype=object);
+    data = np.array(data, dtype=object)
   return data
 
 def misato_traj(thepdb, mdfile, parmdir, *args, **kwargs):
-  from BetaPose import data_io
+  from nearl.io import hdf5
   # Needs dbfile and parm_folder;
-  topfile = f"{parmdir}/{thepdb.lower()}/production.top.gz";
+  topfile = f"{parmdir}/{thepdb.lower()}/production.top.gz"
   if not os.path.exists(topfile):
-    print(f"The topology file of PDB:{thepdb} not found");
+    print(f"The topology file of PDB:{thepdb} not found")
     return pt.Trajectory()
 
-  top = pt.load_topology(topfile);
-  res = set([i.name for i in top.residues]);
+  top = pt.load_topology(topfile)
+  res = set([i.name for i in top.residues])
   if "WAT" in res:
-    top.strip(":WAT");
+    top.strip(":WAT")
   if "Cl-" in res:
-    top.strip(":Cl-");
+    top.strip(":Cl-")
   if "Na+" in res:
-    top.strip(":Na+");
+    top.strip(":Na+")
 
-  with data_io.hdf_operator(mdfile, read_only=True) as f1:
-    keys = f1.hdffile.keys();
+  with hdf5.hdf_operator(mdfile, read_only=True) as f1:
+    keys = f1.hdffile.keys()
     if thepdb.upper() in keys:
-      coord = f1.data(f"/{thepdb.upper()}/trajectory_coordinates");
-      coord = np.array(coord);
-      ret_traj = pt.Trajectory(xyz=coord, top=top);
+      coord = f1.data(f"/{thepdb.upper()}/trajectory_coordinates")
+      coord = np.array(coord)
+      ret_traj = pt.Trajectory(xyz=coord, top=top)
       return ret_traj
     else:
       print(f"Not found the key for PDB code {thepdb.upper()}")

@@ -1,10 +1,9 @@
+import numpy as np
+
 from rdkit import Chem
 from rdkit.Chem import AllChem, rdFMCS, rdMolTransforms;
-import pytraj as pt 
-import numpy as np 
-import tempfile
 
-from . import CONFIG, _clear, _verbose, _tempfolder, printit, savelog
+from .. import _verbose, printit, savelog
 
 # Default charge partially from Charmm36 forcefield
 DEFAULT_PARTIAL_CHARGE = {
