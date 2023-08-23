@@ -4,8 +4,6 @@ project(nearl_static LANGUAGES C CXX)
 # With the `option` clause, this variable could de defined by user. OFF by Default. 
 option(COMPILE_WITH_GPU "Build with GPU support" ON)
 
-
-
 if (COMPILE_WITH_GPU)
   set(CMAKE_CXX_COMPILER "${OPENACC_COMPILER}")
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -acc -Minfo=accel")
@@ -20,10 +18,12 @@ endif()
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Let the compiler know where to find the PyBind11
-# set(CMAKE_PREFIX_PATH "${PYBIND11_INCLUDE_DIR}")
+# With pybind installed in the system (More robust after adding the dependency)
+set(CMAKE_PREFIX_PATH "${PYBIND11_DIR};${CMAKE_PREFIX_PATH}")
+find_package(pybind11 REQUIRED)
 
-add_subdirectory("${PYBIND11_DIR}" ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/_deps/pybind11-build)
+# With the local pybind11 submodule in the repository
+# add_subdirectory("${PYBIND11_DIR}" ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/_deps/pybind11-build)
 
 # pybind11_add_module(cutils cutils.cpp)
 # pybind11_add_module(testmodule hello.cpp)

@@ -1,4 +1,4 @@
-import os, sys, subprocess, platform, shutil
+import os, sys, subprocess, platform, shutil, importlib
 from setuptools import setup, find_packages, Extension
 from setuptools.command.build_ext import build_ext
 
@@ -77,7 +77,12 @@ class CMakeBuild(build_ext):
 
 
 if __name__ == "__main__":
-  path_pybind = os.path.dirname(os.path.realpath(__file__)) + "/external/pybind11"
+  if importlib.util.find_spec("pybind11") is not None:
+    print(f">>>>>>>> Found pybind11, Directly using it for building");
+    path_pybind = importlib.util.find_spec("pybind11").submodule_search_locations[0]
+  else:
+    print(f">>>>>>>> pybind11 not found, using the local copy");
+    path_pybind = os.path.dirname(os.path.realpath(__file__)) + "/external/pybind11"
 
   if "NEARL_BUILD_TYPE" in os.environ:
     if os.environ["NEARL_BUILD_TYPE"].upper() == "CPU":
