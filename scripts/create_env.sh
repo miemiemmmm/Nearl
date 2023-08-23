@@ -8,7 +8,7 @@ logit(){
   echo ">>>> $(date '+%d.%m.%Y %H.%M.%S') : $@"
 }
 
-env_name="mljax"; 
+env_name="mlenv"; 
 
 if [ ${#env_name} -eq 0 ]; then 
   logit "Please define a environment name: bash ${0} <environment name>";
