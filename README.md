@@ -20,7 +20,8 @@ training of specifically focus on their 3D structures and dynamics. <br>
 * [License](#License)
 
 
-Installation
+# Installation
+
 --------
 NEARL supports only the Linux platform for the time being. It is recommended to install via PyPI: <br>
 ```pip install nearl``` <br>
@@ -34,7 +35,8 @@ To test the installation: <br>
 ```python -c "import nearl; nearl.test.vectorize(); nearl.test.featurize_pdbbind()"``` <br>
 
 
-Get started
+# Get started
+
 --------
 ```
 import nearl as nl
@@ -46,7 +48,8 @@ featurizer.register_feature(nl.features.Mass())
 ```
 
 
-Trajectory loader
+# Trajectory loader
+
 --------
 ### Load structures into trajectory container
 NEARL regards every 3D structure as trajectories rather than separate molecules. [pytraj](https://amber-md.github.io/pytraj/latest/index.html) is the backend for trajectory processing. <br>
@@ -69,7 +72,8 @@ traj_list = [pdb1, pdb2, pdb3, ..., pdbn]
 traj_loader = trajloader.TrajectoryLoader(traj_list, range(len(traj_list)))
 ```
 
-Featurizer
+# Featurizer
+
 --------
 Featurizer is the primary hook between features and trajectories. 
 ### Load trajectories to a container and register to a featurizer
@@ -106,7 +110,8 @@ featurizer.register_feature(YourFeature)
 View the example project featurizing a small subset of the [PDBbind](http://www.pdbbind.org.cn/) dataset
 [in this script](https://github.com/miemiemmmm/BetaPose/blob/master/scripts/prepare_pdbbind.py)
 
-Feature deposition
+# Feature deposition
+
 --------
 ### NEARL supports the following features 
 - TEMPLATE_STRING
@@ -124,7 +129,8 @@ with hdf.hdf_operator(output_hdffile, readonly=True) as h5file:
 ```
 
 
-Model training
+# Model training
+
 --------
 There are several pre-defined models in the [nearl.models](https://github.com/miemiemmmm/BetaPose/tree/main/BetaPose/models) using 
 [PyTorch](https://pytorch.org/) and [JAX](https://jax.readthedocs.io/en/latest/) framework.
@@ -137,6 +143,7 @@ You could easily re-use these models or write your own model. <br>
 View the example project training on a small dataset in [PyTorch framework](https://github.com/miemiemmmm/BetaPose/blob/master/scripts/train_simple_network.py) 
 or [JAX framework](https://github.com/miemiemmmm/BetaPose/blob/master/scripts/train_simple_network_Jax.py)
 
-License
+# License
+
 --------
 [MIT License](https://github.com/miemiemmmm/BetaPose/blob/master/LICENSE)

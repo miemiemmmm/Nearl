@@ -25,7 +25,7 @@ class CMakeBuild(build_ext):
     
     cmake_args = [
       # '-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=' + build_temp,
-      '-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=' + os.path.abspath(self.build_lib)+"/BetaPose/",
+      '-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=' + os.path.abspath(self.build_lib)+"/nearl/",
       '-DPYTHON_EXECUTABLE=' + sys.executable
     ]
 
@@ -62,9 +62,9 @@ class CMakeBuild(build_ext):
     print("########### Copy the built files to the source directory");
     for i in self.extensions:
       # print(i._file_name)
-      statobjname = os.path.join(self.build_lib, "BetaPose", i._file_name)
+      statobjname = os.path.join(self.build_lib, "nearl", i._file_name)
       if os.path.exists(statobjname):
-        shutil.copy2( statobjname, os.path.join(cwd, "BetaPose"));
+        shutil.copy2( statobjname, os.path.join(cwd, "nearl"));
       else:
         print("################################")
         print("Not Found the so file")
@@ -87,15 +87,13 @@ setup(
   author_email="y.zhang@bioc.uzh.ch",
   python_requires=">=3.7",
   packages = [
-    "BetaPose",
+    "nearl",
   ],
   ext_modules=[
-    # CMakeExtension("BetaPose.parent", sourcedir = "./", include_dirs=include_paths),
     CMakeExtension("parent", sourcedir = "./", pybind_dir=path_pybind),
     CMakeExtension("interpolate", sourcedir='src', pybind_dir=path_pybind, pgcpp=path_pgcpp),
     CMakeExtension("testmodule", sourcedir='src', pybind_dir=path_pybind, pgcpp=path_pgcpp),
   ],
   cmdclass={'build_ext': CMakeBuild},
-
 )
 
