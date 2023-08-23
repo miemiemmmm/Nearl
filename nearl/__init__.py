@@ -3,10 +3,9 @@ from sys import stdout, stderr
 from json import load
 import importlib.resources as resources
 
-# from . import test
-# from . import interpolate
-
-configfile = resources.files("BetaPose").joinpath("myconfig.json")
+__version__ = "0.0.1"
+_runtimelog = []
+configfile = resources.files("nearl").joinpath("myconfig.json")
 print("Check the configfile later: ", configfile)
 
 if os.path.isfile(configfile):
@@ -30,14 +29,8 @@ elif not os.access(_tempfolder, os.W_OK):
   raise OSError("The temporary folder (tempfolder) is not writable")
 
 
-from . import io
-from .io import trajloader
-from .io import traj
-from .static import interpolate
-
-
 ########################################################
-_runtimelog = []
+
 
 
 def logit(function):
@@ -65,7 +58,6 @@ def savelog(filename="", overwrite=True):
         file.write(i+"\n")
   else:
     printit(f"File {filename} exists, skip saving log file")
-
 
 msg = "Summary: "
 if _clear:

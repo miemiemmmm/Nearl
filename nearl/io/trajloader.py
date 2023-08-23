@@ -1,7 +1,4 @@
-from .traj import  Trajectory;
-from .. import CONFIG;
-
-_verbose = CONFIG.get("verbose", False);
+from .traj import  Trajectory
 
 # Loader of trajectories for iteration
 # Principle way of using it:
@@ -21,14 +18,14 @@ class TrajectoryLoader:
         **kwarg: Keyword arguments for pytraj.load
     """
     if isinstance(trajs, str):
-      self.trajs = [trajs]; 
-      self.tops  = [tops]; 
+      self.trajs = [trajs]
+      self.tops = [tops]
     elif isinstance(trajs, list):
-      self.trajs = trajs; 
-      self.tops  = tops;
-    self.kwargs = kwarg;
+      self.trajs = trajs
+      self.tops = tops
+    self.kwargs = kwarg
     # If the user does not specify the output type, use Trajectory
-    self.OUTPUT_TYPE = Trajectory;
+    self.OUTPUT_TYPE = Trajectory
 
   def __str__(self):
     outstr = ""
@@ -37,24 +34,24 @@ class TrajectoryLoader:
     return outstr.strip("\n")
 
   def __iter__(self):
-    return self.__loadtrajs(self.trajs, self.tops);
+    return self.__loadtrajs(self.trajs, self.tops)
 
   def __len__(self):
-    return len(self.trajs);
+    return len(self.trajs)
 
   def __getitem__(self, index):
-    used_kwargs = self.__desolvekwargs();
+    used_kwargs = self.__desolvekwargs()
     if isinstance(index, int):
-      ret = self.OUTPUT_TYPE(self.trajs[index], self.tops[index], **used_kwargs);
+      ret = self.OUTPUT_TYPE(self.trajs[index], self.tops[index], **used_kwargs)
     elif isinstance(index, slice):
       ret = [self.OUTPUT_TYPE(traj, top, **used_kwargs) for traj, top in zip(self.trajs[index], self.tops[index])]
     return ret
 
   def set_outtype(self, outtype):
-    self.OUTPUT_TYPE = outtype;
+    self.OUTPUT_TYPE = outtype
 
   def __loadtrajs(self, trajs, tops):
-    used_kwargs = self.__desolvekwargs();
+    used_kwargs = self.__desolvekwargs()
     for traj, top in zip(trajs, tops):
       yield self.OUTPUT_TYPE(traj, top, **used_kwargs)
 

@@ -144,7 +144,8 @@ class MDPost:
     elif color == "b":
       print(f'\033[94m{text}', **kwarg); 
     else:
-      print(f'{text}', **kwarg); 
+      print(f'{text}', **kwarg);
+
   @log
   def print_(self, *args, color="r", **kwarg):
     text = " ".join(args);

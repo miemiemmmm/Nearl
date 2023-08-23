@@ -6,8 +6,8 @@ import numpy as np
 #################################
 # Build a database from scratch #
 #################################
-from BetaPose.io import hdf5
-from BetaPose.utils import utils; 
+from nearl.io import hdf5
+from nearl.utils import utils; 
 import numpy as np 
 hdf = hdf5.hdf_operator("/tmp/test.h5", new=True)
 
