@@ -1,4 +1,10 @@
 #!/bin/bash -l
+# Build the package for Developer purpose
+# Four steps:
+# 1. Build the package and wheel
+# 2. Install the wheel to the current environment
+# 3. Install from source distribution as a test
+# 4. Switch back to editable mode
 
 env_name="mlenv";
 
@@ -88,5 +94,11 @@ if ${install_sdist}; then
     logit "Great! Source install succeeded!";
   fi
 fi
+
+echo "####################################################################################"
+echo "####################################################################################"
+echo "####################################################################################"
+echo "Finally switch back to editable mode"
+pip install -v -e . --force-reinstall;
 
 

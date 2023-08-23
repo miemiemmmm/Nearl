@@ -16,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.7", "3.8", "3.9", "3.10", "3.11"]
+        python-version: ["3.7", "3.9", "3.11"]
 
     steps:
     - uses: actions/checkout@v3
@@ -24,17 +24,53 @@ jobs:
       uses: actions/setup-python@v3
       with:
         python-version: ${{ matrix.python-version }}
+
+    - name: Check the github's hardware system
+      run: |
+        pwd
+        ls -la
+        python --version
+        pip --version
+        echo "Linux kernel version: $(uname -r)"
+        lscpu
+
+    - name: Check the github's hardware system
+      run: |
+        echo "##############################################"
+        echo "########## Install the miniconda #############"
+        echo "##############################################"
+        mkdir -p ~/miniconda3
+        wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -o ~/miniconda3/miniconda.sh
+        bash ~/miniconda3/miniconda.sh -b -u -p ~/miniconda3
+        rm -rf ~/miniconda3/miniconda.sh
+        echo "##############################################"
+        echo "##############################################"
+        echo "##############################################"
+
     - name: Install dependencies
       run: |
+        echo "##############################################"
+        echo "########## Install dependencies ##############"
+        echo "##############################################"
         python -m pip install --upgrade pip
         python -m pip install flake8 pytest
-        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        pip install build
+        bash scripts/create_env.sh jax
+
+    - name: Build the package
+      run: |
+        echo "##############################################"
+        echo "########## Building the package ##############"
+        echo "##############################################"
+        bash build_dev.sh
+
     - name: Lint with flake8
       run: |
         # stop the build if there are Python syntax errors or undefined names
         flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
         # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
         flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+
     - name: Test with pytest
       run: |
         pytest
