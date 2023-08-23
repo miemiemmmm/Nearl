@@ -31,8 +31,6 @@ elif not os.access(_tempfolder, os.W_OK):
 
 ########################################################
 
-
-
 def logit(function):
   def adddate(*arg, **kwarg):
     timestamp = datetime.datetime.now().strftime('%y-%m-%dT%H:%M:%S')

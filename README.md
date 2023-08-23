@@ -1,8 +1,7 @@
 # NEARL
-[NEARL](https://github.com/miemiemmmm/BetaPose)(Nanoscale Environment Assessment and Resonance Landscapes) is a tool to featurize bio-molecules for the 
-training of specifically focus on their 3D structures and dynamics. <br>
-
-
+[NEARL](https://github.com/miemiemmmm/BetaPose)(Nanoscale Environment Assessment and Resonance Landscapes) is a 3D structural 
+data generation framework to featurize bio-molecules specifically focus on their 3D coordinate and protein dynamics 
+to make users benefit from the recent development in machine learning algorithms. <br>
 
 - Obtain and embed molecule blocks from 3D molecular structures
 - Load arbitrary number of 3D structures into a trajectory container
@@ -12,11 +11,11 @@ training of specifically focus on their 3D structures and dynamics. <br>
 
 ## NEARL
 * [Installation](#Installation)
-* [Get started](#Get started)
-* [Trajectory loader](#Trajectory loader)
+* [Get started](#Get-started)
+* [Trajectory loader](#Trajectory-loader)
 * [Featurizer](#Featurizer)
-* [Feature deposition](#Feature deposition)
-* [Model training](#Model training)
+* [Feature deposition](#Feature-deposition)
+* [Model training](#Model-training)
 * [License](#License)
 
 
