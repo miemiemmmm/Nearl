@@ -8,7 +8,7 @@ logit(){
   echo ">>>> $(date '+%d.%m.%Y %H.%M.%S') : $@"
 }
 
-env_name="mljax"; 
+env_name="mlenv"; 
 
 if [ ${#env_name} -eq 0 ]; then 
   logit "Please define a environment name: bash ${0} <environment name>";
@@ -53,7 +53,7 @@ else
 
   pip3 install scipy pandas scikit-learn h5py seaborn matplotlib numba
   python -m pip install "dask[complete]"
-  pip3 install open3d rdkit
+  pip3 install open3d rdkit 
 
   if (( ${1} == "torch" )); then
     logit "Installing PyTorch ecosystem";
@@ -68,12 +68,11 @@ else
 fi
 
 
-
 # Packages useful for development
 conda install -c conda-forge -c anaconda notebook nglview=3.0.3 trimesh -y
 conda install -c conda-forge requests biopython -y
 pip3 install line_profiler
-pip3 install pybind11
+pip3 install pybind11 build cmake
 
 # Other packages
 # imageio=2.9.0 # hilbertcurve=2.0.5
