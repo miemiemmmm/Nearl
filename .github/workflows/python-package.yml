@@ -27,41 +27,61 @@ jobs:
 
     - name: Check the github's hardware system
       run: |
+        echo "Check the current working directory" 
         pwd
         ls -la
+        ls ~
+        echo "Linux kernel version:"
+        uname -r
+        echo "Check the CPU information"
+        lscpu
+        echo "Check the GPU information" 
+        lspci | grep -i --color 'vga\|3d\|2d'
+        echo "Check the memory"
+        free -h
+        echo "Check the python/pip versions"
         python --version
         pip --version
-        echo "Linux kernel version: $(uname -r)"
-        lscpu
 
-    - name: Check the github's hardware system
+    - name: Install the micromamba
       run: |
         echo "##############################################"
-        echo "########## Install the miniconda #############"
+        echo "########## Install the micromamba ############"
         echo "##############################################"
-        mkdir -p ./miniconda3
-        wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O ./miniconda3/miniconda.sh
-        bash ./miniconda3/miniconda.sh -b -u -p ./miniconda3
-        rm -rf ./miniconda3/miniconda.sh
+        bash scripts/install_mamba.sh
+        [ -f ./micromamba/bin/micromamba ] && echo "micromamba is installed" || echo "micromamba is not installed"
 
     - name: Install dependencies
       run: |
         echo "##############################################"
         echo "########## Install dependencies ##############"
         echo "##############################################"
-        # Use the new installed conda for the following installation 
-        export PATH="$PWD/miniconda3/condabin:$PATH" 
-        echo "Check the absolute path of conda: $(which conda)"
+        # Use the new installed conda for the following installation
+        if [ -f ./micromamba/bin/micromamba ]; then 
+          export PATH="$PWD/micromamba/bin:$PATH"
+          export MAMBA_EXE=$PWD/micromamba/bin/micromamba
+          export MAMBA_ROOT_PREFIX=$PWD/micromamba
+          eval "$(micromamba shell hook --shell bash --root-prefix ${MAMBA_ROOT_PREFIX})"
+        else
+          echo "micromamba is not installed"
+          exit 1
+        fi
+        envname="testenv"
+        bash scripts/create_env_mamba.sh $envname
+        micromamba activate $envname
+        echo "Check the mamba activation status"
+        micromamba list
         python -m pip install --upgrade pip
-        python -m pip install flake8 pytest
-        pip install build
-        bash scripts/create_env.sh jax
+        python -m pip install pytest
 
     - name: Build the package
       run: |
         echo "##############################################"
         echo "########## Building the package ##############"
         echo "##############################################"
+        echo "Check if the previous env name is still in the scope: $envname"
+        echo "Check if mamba is still activated and the env is still in the scope"
+        micromamba list
         bash build_dev.sh
 
     - name: Test with pytest
