@@ -79,10 +79,21 @@ jobs:
         echo "##############################################"
         echo "########## Building the package ##############"
         echo "##############################################"
-        echo "Check if the previous env name is still in the scope: $envname"
-        echo "Check if mamba is still activated and the env is still in the scope"
+        # Since environment variables are not passed to the next step, we need to activate the environment again
+        if [ -f ./micromamba/bin/micromamba ]; then 
+          export PATH="$PWD/micromamba/bin:$PATH"
+          export MAMBA_EXE=$PWD/micromamba/bin/micromamba
+          export MAMBA_ROOT_PREFIX=$PWD/micromamba
+          eval "$(micromamba shell hook --shell bash --root-prefix ${MAMBA_ROOT_PREFIX})"
+        else
+          echo "micromamba is not installed"
+          exit 1
+        fi
+        envname="testenv"
+        micromamba activate $envname
+        echo "Check the mamba activation status"
         micromamba list
-        bash build_dev.sh
+        bash build_dev.sh $envname
 
     - name: Test with pytest
       run: |
