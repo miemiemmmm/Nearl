@@ -38,7 +38,7 @@ class Trajectory(pt.Trajectory):
       tmptraj = trajfile
       timeinfo = tmptraj.time
       boxinfo = tmptraj._boxes
-    elif trajfile is None and pdbfile is None:
+    elif (trajfile is None) and (pdbfile is None):
       super().__init__()
       return
 
@@ -55,13 +55,15 @@ class Trajectory(pt.Trajectory):
     self._life_holder = tmptraj._life_holder
     self._frame_holder = tmptraj._frame_holder
 
-    # Personalized attributes to facilitate further trajectory processing;
+    # Non-pytraj attributes to facilitate further trajectory processing;
     self.top_filename = pdbfile
     self.traj_filename = trajfile
     self.mask = mask
 
     self._active_index = 0
     self._active_frame = self[0]
+    self.atoms = np.array([i for i in self.top.atoms])
+    self.residues = np.array([i for i in self.top.residues])
 
     if _verbose:
       printit(f"Module {self.__class__.__name__}: stride: {stride}; frame_indices: {frame_indices}; mask: {mask}")
@@ -96,16 +98,14 @@ class Trajectory(pt.Trajectory):
   def compute_closest_pairs_distance(self, mask, **kwarg):
     if "countermask" in kwarg.keys():
       countermask = kwarg["countermask"]
-      pdist, pdist_info = utils.PairwiseDistance(self, f"{mask}&!@H=", f"{countermask}&!@H=", use_mean=True)
+      pdist, pdist_info = utils.dist_caps(self, f"{mask}&!@H=", f"{countermask}&!@H=", use_mean=True)
     else:
-      pdist, pdist_info = utils.PairwiseDistance(self, f"{mask}&!@H=", f"{mask}<@6&!{mask}&@C,CA,CB,N,O",
+      pdist, pdist_info = utils.dist_caps(self, f"{mask}&!@H=", f"{mask}<@6&!{mask}&@C,CA,CB,N,O",
                                                  use_mean=True)
     self.pdist = pdist
     self.pdist_info = pdist_info
     return pdist, pdist_info
 
-  ############################################
-  ############################################
   ############################################
   ############################################
   def cluster_pairwise(self, cluster_nr=10, **kwarg):

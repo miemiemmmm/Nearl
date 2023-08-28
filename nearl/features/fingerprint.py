@@ -11,7 +11,6 @@ import open3d as o3d
 from rdkit import Chem
 
 from .. import utils
-from ..utils import chem
 from .. import CONFIG, printit, savelog, PACKAGE_DIR
 from .. import _clear, _verbose, _tempfolder
 
@@ -578,7 +577,7 @@ class generator:
     # Order the segments from the most abundant to least ones
     segcounter = 0
     nrsegments = min(len(set(segment)) - 1, self.SEGMENT_LIMIT)
-    ordered_segs = utils.ordersegments(segment)[:nrsegments]
+    ordered_segs = utils.order_segments(segment)[:nrsegments]
     """ ITERATE the at maximum 6 segments """
     for segidx, segi in enumerate(ordered_segs):
       if _verbose:
@@ -595,9 +594,9 @@ class generator:
         printit(f"{self.vectorize.__name__:15s}: Segment {segidx + 1}/{nrsegments}: Total {T_Nr} atoms including {C_Nr} C, {N_Nr} N, {O_Nr} O, {H_Nr} H")
 
       # Generate the rdkit molecule here for Residue-based descriptors
-      self.seg_mask = utils.getresmask(self.traj, utils.getmaskbyidx(self.traj, theidxi))
+      self.seg_mask = utils.get_residue_mask(self.traj, utils.get_mask_by_idx(self.traj, theidxi))
       self.seg_indices = self.traj.top.select(self.seg_mask)
-      self.seg_mol = chem.traj_to_rdkit(self.traj, self.seg_indices, self.frame)
+      self.seg_mol = utils.traj_to_rdkit(self.traj, self.seg_indices, self.frame)
       if (self.seg_mol == None) or (not self.seg_mol):
         framefeature[segcounter - 1, :] = 0
         printit(f"Warning: vectorize: Failed to generate the rdkit molecule for segment {segidx + 1}/{nrsegments} of frame {self.frame} in {self.traj.top_filename}")
@@ -1095,7 +1094,6 @@ def weight(array1):
 ######################################################################
 ########## ChimeraX's function to compute surface from XYZR ##########
 ######################################################################
-from numba import jit
 
 def invert_matrix(tf):
   tf = np.asarray(tf)

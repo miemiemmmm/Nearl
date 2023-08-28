@@ -8,13 +8,7 @@ logit(){
 }
 
 env_name=${1:-"mlenv"};
-mode=${2:-"cpu"}
-
-# possibly need to hook up the micromamba
-#micromamba create -y -n testmamba python=3.9 ambertools=22 -c conda-forge
-#eval "$(micromamba shell hook --shell bash)"
-#[ -f ./micromamba/bin/micromamba ] && export PATH="$(realpath ./micromamba/bin):${PATH}"
-
+mode=${2:-"cpu"};
 
 if [ ${#env_name} -eq 0 ]; then
   logit "Please define a environment name: bash ${0} <environment name>";
@@ -23,7 +17,7 @@ else
   logit "Installing the environment named: ${env_name}";
 fi
 
-# Check if the conda is installed
+# Check the installation of micromamba via environment variable MAMBA_EXE
 if [ ${#MAMBA_EXE} -gt 10 ]; then
   MAMBA_PATH=$(dirname ${MAMBA_EXE})
   export PATH="${MAMBA_PATH}:${PATH}"
@@ -53,7 +47,7 @@ else
   logit "Successfully activated the environment ${CONDA_DEFAULT_ENV}";
   logit "Installing other necessary packages";
 
-  micromamba install -y scipy pandas scikit-learn h5py seaborn matplotlib -c conda-forge
+  micromamba install -c conda-forge scipy pandas scikit-learn h5py seaborn matplotlib -y
   python -m pip install "dask[complete]"
   pip3 install open3d rdkit
 
@@ -69,7 +63,7 @@ else
   fi
 fi
 
-micromamba install -c conda-forge -c anaconda notebook nglview=3.0.3 trimesh -y
-micromamba install -c conda-forge requests biopython -y
+micromamba install -c conda-forge -c anaconda notebook==7.6 ipywidgets==7.6 nglview=3.0.3 -y  # traj visualizer
+micromamba install -c conda-forge requests biopython trimesh -y
 pip3 install line_profiler
 pip3 install pybind11 build cmake

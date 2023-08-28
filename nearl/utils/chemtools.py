@@ -1,7 +1,7 @@
+import os
 import numpy as np
-
 from rdkit import Chem
-from rdkit.Chem import AllChem, rdFMCS, rdMolTransforms;
+from rdkit.Chem import AllChem, rdFMCS, rdMolTransforms
 
 from .. import _verbose, printit, savelog
 
@@ -243,13 +243,12 @@ def combine_molpdb(molfile, pdbfile, outfile=""):
       file1.write(finalstr);
   return finalstr
 
-def CorrectMolBySmiles(refmol2, prob_smiles):
+def correct_mol_by_smiles(refmol2, prob_smiles):
   """
   Correct the reference mol2 structure based on a probe smiles
-  >>> from utils_diverse import modification
   >>> molfile = "/storage006/yzhang/TMP_FOLDERS/w1SbtSzR/tmp_Sampling_target.mol2"
   >>> smi = "CNc1ncnc2c(C)n[nH]c12"
-  >>> retmol = modification.CorrectMolBySmiles(molfile, smi)
+  >>> retmol = utils.correct_mol_by_smiles(molfile, smi)
   >>> modification.writeMOL2s([retmol], "/tmp/test.mol2") # The output mol2 file that you want to put
   """
   mol1 = Chem.MolFromSmiles(prob_smiles);
@@ -388,4 +387,54 @@ def sanitize_bond(mol_raw):
     return new_mol
 
 
+def molfile_to_rdkit(file_path, **kwarg):
+  """
+  NOTE: removeHs and sanitize are set False by default is to maximize the
+  possibility to read molecules
+  """
+  rm_h = kwarg.get("removeHs", False)
+  san = kwarg.get("sanitize", False)
+  file_extension = os.path.splitext(file_path)[1]
+  if file_extension == '.mol2':
+    suppl = Mol2Supplier(file_path, removeHs=rm_h, sanitize=san)
+  elif file_extension == '.sdf':
+    suppl = Chem.SDMolSupplier(file_path, removeHs=rm_h, sanitize=san)
+  elif file_extension == '.pdb':
+    suppl = Chem.MolFromPDBFile(file_path, removeHs=rm_h, sanitize=san)
+    return [suppl]
+  elif file_extension == '.smi' or file_extension == '.smiles':
+    suppl = Chem.SmilesMolSupplier(file_path, titleLine=False, sanitize=True)
+  elif file_extension == '.inchi':
+    with open(file_path, "r") as file1:
+      mols = file1.read().strip("\n").split("\n")
+    suppl = [Chem.MolFromInchi(m, sanitize=True) for m in mols]
+  else:
+    raise ValueError(f'Unsupported file format: {file_extension}')
+  return [mol for mol in suppl]
+
+
+class Mol2Supplier:
+  def __init__(self, file_path, *args, **kwarg):
+    self.file_path = file_path
+    self.molecules = []
+    self._parse_mol2_file(*args, **kwarg)
+
+  def _parse_mol2_file(self, *args, **kwarg):
+    with open(self.file_path, "r") as file:
+      mol_strs = [f"@<TRIPOS>MOLECULE{i}" for i in file.read().split("@<TRIPOS>MOLECULE") if len(i)>0]
+      for mol_str in mol_strs:
+        mol = Chem.MolFromMol2Block(mol_str, *args, **kwarg)
+        if mol != None:
+          self.molecules.append(mol)
+        else:
+          print("Failed to read MOL")
+
+  def __iter__(self):
+    return iter(self.molecules)
+
+  def __len__(self):
+    return len(self.molecules)
+
+  def __getitem__(self, index):
+    return self.molecules[index]
 
