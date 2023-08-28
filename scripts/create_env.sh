@@ -69,7 +69,7 @@ fi
 
 
 # Packages useful for development
-conda install -c conda-forge -c anaconda notebook nglview=3.0.3 trimesh -y
+conda install -c conda-forge -c anaconda notebook==7.6 ipywidgets==7.6 nglview==3.0.3 trimesh -y
 conda install -c conda-forge requests biopython -y
 pip3 install line_profiler
 pip3 install pybind11 build cmake

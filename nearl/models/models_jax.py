@@ -1,10 +1,19 @@
 import jax
 import jax.numpy as jnp
 from flax import linen
-import optax
 
 from jax import random
 from jax.scipy.linalg import cho_solve, cho_factor
+
+
+def bchw_to_bhwc(input_tensor, from_dim=1, to_dim=-1):
+  # Generate the permutation order for the axes.
+  order = list(range(len(input_tensor.shape)))
+  pos = order.index(order[to_dim])
+  order.remove(from_dim)
+  order.insert(pos, from_dim)
+  output_tensor = input_tensor.transpose(order)
+  return output_tensor
 
 class SimpleNetwork_JAX(linen.Module):
   input_dim: int = 36
@@ -84,9 +93,9 @@ class GaussianProcessRegressor(linen.Module):
     K_s = vmap_rbf(train_inputs, test_inputs, self.length_scale, self.variance)
     K_ss = vmap_rbf(test_inputs, test_inputs, self.length_scale, self.variance)
 
-    print(f"shape of the train_inputs: {train_inputs.shape}")
-    print(f"shape of the train_targets: {train_targets.shape}")
-    print(f"shape of the test_inputs: {test_inputs.shape}")
+    print(f"Shape of the train_inputs: {train_inputs.shape}")
+    print(f"Shape of the train_targets: {train_targets.shape}")
+    print(f"Shape of the test_inputs: {test_inputs.shape}")
     print("Shape of K, K_s, K_ss:", K.shape, K_s.shape, K_ss.shape)
 
     print(train_inputs.shape)

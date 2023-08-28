@@ -558,7 +558,7 @@ class PenaltyFeature(Feature):
 
     traj_copy = self.traj.copy_traj()
     traj_copy.top.set_reference(traj_copy[self.ref_frame])
-    self.pdist, self.pdistinfo = utils.PairwiseDistance(traj_copy, atom_select, atom_counterpart,
+    self.pdist, self.pdistinfo = utils.dist_caps(traj_copy, atom_select, atom_counterpart,
                                                         use_mean=self.use_mean, ref_frame=self.ref_frame)
     self.pdist_mean = self.pdist.mean(axis=1)
     if self.pdist.mean() > 8:
@@ -601,7 +601,7 @@ class MSCVFeature(Feature):
       print("Precomputing the pairwise distance between the closest atom pairs")
     self.traj_copy = self.traj.copy()
     self.traj_copy.top.set_reference(self.traj_copy[self.ref_frame])
-    self.pd_arr, self.pd_info = utils.PairwiseDistance(self.traj_copy, self.mask1, self.mask2,
+    self.pd_arr, self.pd_info = utils.dist_caps(self.traj_copy, self.mask1, self.mask2,
                                                        use_mean=self.use_mean, ref_frame=self.ref_frame)
     self.mean_pd = np.mean(self.pd_arr, axis=1)
 
@@ -626,7 +626,7 @@ class MSCVFeature(Feature):
         self.active_frame.xyz[self.pd_info["indices_group1"]] - self.active_frame.xyz[self.pd_info["indices_group2"]],
         axis=1)
       pdists[:, fidx] = dists
-    mscv = utils.MSCV(pdists)
+    mscv = utils.mscv(pdists)
     return mscv
 
 class EntropyResidueID(Feature):

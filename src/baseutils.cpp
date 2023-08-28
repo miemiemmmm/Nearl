@@ -23,10 +23,3 @@ double entropy(const std::vector<int>& x){
 	return _entropy;
 }
 
-#pragma acc routine seq
-double gaussian_gpu(double x, double mu, double sigma) {
-  const double sqrt_2_pi = sqrt(2.0 * M_PI);
-  double a = (x - mu) / sigma;
-  return exp(-0.5 * a * a) / (sigma * sqrt_2_pi);
-}
-

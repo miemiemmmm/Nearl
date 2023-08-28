@@ -6,7 +6,7 @@ from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
 from scipy import stats
 
-from BetaPose import models, printit, data_io, utils
+from nearl import models, printit, data_io, utils
 
 import jax
 import optax
@@ -18,8 +18,6 @@ def pytorch_to_jax(data):
   # The target dimensions are (batch_size, height, width, channels)
   data = jnp.asarray(data)
   return jnp.transpose(data, (0, 2, 3, 1))
-
-
 
 
 training_data = np.random.normal(size=(50000, 3, 32, 32));

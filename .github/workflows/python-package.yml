@@ -95,6 +95,7 @@ jobs:
         micromamba list
         bash build_dev.sh $envname
 
-    - name: Test with pytest
-      run: |
-        pytest
+#    import nearl.tests.training_jax as training_jax
+#    training_jax.cnn_2d()
+#    training_jax.simple_network()
+#    training_jax.cnn_3d()

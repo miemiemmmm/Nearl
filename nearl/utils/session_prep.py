@@ -300,7 +300,6 @@ def RunSimpleEquil(sessid, nrsteps=3000):
     return {}
 
 def EquilToSession(sessid, nrsteps=10000):
-
   equilmol2 = GetEquilMOL2(sessid);
   equilpdb  = GetEquilPDB(sessid); 
   sessionpdb = GetSessionPDB(sessid); 
@@ -311,7 +310,7 @@ def EquilToSession(sessid, nrsteps=10000):
   with tempfile.NamedTemporaryFile(suffix=".pdb") as file1, tempfile.NamedTemporaryFile(suffix=".pdb") as file2: 
     file1.write(bytes(equilpdb, encoding="utf-8")); 
     file2.write(bytes(sessionpdb, encoding="utf-8")); 
-    utils.NormalizePDB(file2.name, file1.name, file1.name); 
+    NormalizePDB(file2.name, file1.name, file1.name);
     with open(file1.name, "r") as normpdb: 
       equilpdb = normpdb.read(); 
       
@@ -454,34 +453,288 @@ def getSeqCoord(filename):
         pass
   return np.array(retxyz), retseq
 
-def CompareStructures_Obs(pdbcode, sessexp=None):
+
+def CompareStructures(tokens, modes, url="http://130.60.168.149/fcgi-bin/ACyang.fcgi"):
   """
     Compare the PDB structure before and after then session preparation
-    Functions: 
+    Functions:
       Extract residue <coordinates> and <sequence> from PDB chain
         Uses the coordinates of the CA atom as the center of the residue
         Skip unknown residues
   """
-  from tmtools import tm_align; 
-  pdbcode = pdbcode.lower(); 
-  with tempfile.NamedTemporaryFile("w", suffix=".pdb") as file1: 
-    file1.write(utils.fetch(pdbcode))
-    coord1, seq1 = getSeqCoord(file1.name); 
-  if sessexp != None:
-    sessioncode = sessexp(pdbcode)
-    print(f"The session ID is : {sessioncode}")
-  else: 
-    sessioncode = f"C400{pdbcode.upper()}"
-  with tempfile.NamedTemporaryFile("w", suffix=".pdb") as file1: 
-    file1.write(RecallSession(sessioncode)["pdbfile"])
-    coord2, seq2 = getSeqCoord(file1.name); 
-  print(f"Coordinate set 1 shaped {coord1.shape} ; Sequence shape {len(seq1)}")
-  print(f"Coordinate set 2 shaped {coord2.shape} ; Sequence shape {len(seq2)}")
-  result = tm_align(coord1, coord2, seq1, seq2)
-  print(f"TM_Score: Chain1 {result.tm_norm_chain1} ; Chain2 {result.tm_norm_chain2}")
-  if max([result.tm_norm_chain1, result.tm_norm_chain2]) > 0.8:
-    print("TM_Score: Good match")
-  else: 
-    print("TM_Score: Bad match")
-  return max([result.tm_norm_chain1, result.tm_norm_chain2]); 
+  from tmtools import tm_align
+  from nearl.test import ACGUIKIT_REQUESTS
+  from . import utils
+  if isinstance(tokens, list) and isinstance(modes, list):
+    results = []
+    for token, mode in zip(tokens, modes):
+      if mode == "traj":
+        acg_kit = ACGUIKIT_REQUESTS(url)
+        acg_kit.recall(token[4:])
+        pdbstr = acg_kit.recallTraj(token)["PDBFile"]
+      elif mode == "str":
+        pdbstr = token
+      elif mode == "fetch":
+        assert len(token) == 4, "PDB with length of 4"
+        pdbstr = utils.fetch(token)
+      elif mode == "file":
+        with open(token, "r") as file1:
+          pdbstr = file1.read()
+      elif mode == "session":
+        acg_kit = ACGUIKIT_REQUESTS(url)
+        pdbstr = acg_kit.recall(token)["pdbfile"]
+      if token == tokens[0]:
+        with tempfile.NamedTemporaryFile("w", suffix=".pdb") as file1:
+          file1.write(pdbstr)
+          coord_ref, seq_ref = getSeqCoord(file1.name)
+        continue
+      else:
+        with tempfile.NamedTemporaryFile("w", suffix=".pdb") as file1:
+          file1.write(pdbstr)
+          coord_i, seq_i = getSeqCoord(file1.name)
 
+        result = tm_align(coord_ref, coord_i, seq_ref, seq_i)
+        results.append(max([result.tm_norm_chain1, result.tm_norm_chain2]))
+        # print(f"CoorSet 1 {coord_ref.shape}:{result.tm_norm_chain1:.3f} ; CoorSet 2 {coord_i.shape}:{result.tm_norm_chain2:.3f}; ")
+  else:
+    print("Please provide a list of PDB structure of interest")
+  return results
+
+def NormalizePDB(refpdb, testpdb, outpdb):
+  """
+  Priority, output all of the protein part and prefereably keep the cofactors in the reference PDB
+  There might be mismatches between the reference and test PDB file
+  """
+  trajref = pt.load(refpdb)
+  trajtest = pt.load(testpdb)
+
+  ref_prot_atoms = trajref.top.select("@CA,C,N,O,:FOR,NME,ACE,NH2")
+  ref_prot_res = np.array([i.resid for i in trajref.top.atoms])[ref_prot_atoms]
+  other_parts = [i.name for i in trajref.top.residues][max(ref_prot_res)+1:]
+  test_other_res = [i for i in trajtest.top.residues][max(ref_prot_res)+1:]
+  other_indexes = []
+  for i in test_other_res:
+    if len(other_parts) > 0 and i.name == other_parts[0]:
+      other_parts.pop(0)
+      other_indexes += [i for i in range(i.first,i.last)]
+    elif len(other_parts) == 0:
+      break
+  other_indexes = [i+1 for i in other_indexes]
+  prot_part_index = [i for i in trajref.top.residues][max(ref_prot_res)].last
+  all_indexes = [i+1 for i in range(prot_part_index)] + other_indexes
+  finalstr = ''
+  with open(testpdb, "r") as file1:
+    raw =[i for i in file1.read().split("\n") if len(i) > 0]
+    for i in raw:
+      if "ATOM" in i or "HETATM" in i:
+        residx = int(i[6:11].strip())
+        if residx in all_indexes:
+          finalstr += i+"\n"
+      else:
+        finalstr += i+"\n"
+  with open(outpdb, 'w') as file1:
+    file1.write(finalstr)
+
+
+class ACGUIKIT_REQUESTS:
+  def __init__(self, url):
+    self.JOBID = "";
+    self.url = url;
+
+  def initiate(self, jobid):
+    assert len(jobid) == 8, "Please provide a valid 8-character session ID ";
+    self.JOBID = jobid
+    emptypdb = "ATOM      1  CH3 LIG A   1      -8.965  24.127  -8.599  1.00  0.00\nEND"
+    self.submitPDB(emptypdb, mode="str");
+
+  def recall(self, jobid):
+    """
+      Primarily to obtain the session ligand and protein structure
+    """
+    assert len(jobid) == 8, "Please provide a valid 8-character session ID ";
+    data = {'cmd': 'recallSession', 'JOBID': jobid};
+    response = requests.post(self.url, data=data);
+    if response.status_code == 200:
+      ret = json.loads(response.text);
+      self.protein = ret["pdbfile"];
+      self.ligand = ret["molfile"];
+      self.JOBID = jobid;
+      return ret
+    else:
+      print("Recall session failed");
+      return;
+
+  def listTraj(self):
+    assert len(self.JOBID) == 8, "Please provide a valid 8-character session ID ";
+    data = {'cmd': 'sendtraj', 'JOBID': self.JOBID, 'querymode': '7'};
+    response = requests.post(self.url, data=data);
+    if response.status_code == 200:
+      ret = json.loads(response.text)
+      for key, val in json.loads(ret["Params"]).items():
+        atomnr = val["atomnr"] or 0;
+        waternr = val["watnr"] or 0;
+        date = val["gendate"];
+        eng = val["prodeng"];
+        interval = val["outinterval"] or 0;
+        nsteps = val["nrsteps"] or 0;
+        ensemble = val["ensemble"];
+        status = val["exitmsg"]
+        print(
+          f"{key}: {ensemble:3s}|{int(atomnr):6d}|{int(waternr):6d}|{int(interval):6d}|{int(nsteps):8d}|{eng:6s}|{date:18s}|{status}")
+      return ret
+    else:
+      print("List trajectory failed");
+      return
+
+  def recallTraj(self, trajid):
+    assert len(self.JOBID) == 8, "Please provide a valid 8-character session ID ";
+    data = {'cmd': 'sendtraj', 'JOBID': self.JOBID, 'querymode': '13', 'traj_id': trajid};
+    response = requests.post(self.url, data=data);
+
+    if response.status_code == 200:
+      ret = json.loads(response.text)
+      # print(ret.keys())
+      return ret
+    else:
+      print("Recall trajectory failed");
+      return
+
+  def submitPDB(self, pdbtoken, pdbcode="USER", water="T3P", mode="file"):
+    assert len(self.JOBID) == 8, "Please provide a valid 8-character session ID ";
+    if mode == "str":
+      pdbstr = pdbtoken;
+    elif os.path.isfile(pdbtoken):
+      with open(pdbtoken, "r") as file1:
+        pdbstr = file1.read();
+    else:
+      print("Please provide a valid pdb file or string");
+      return
+    data = {
+      'cmd': 'deposittarget',
+      'water': water,
+      'hisdef': 'HID',
+      'ligpdb': '',
+      'ligname': '',
+      'target': pdbstr,
+      'targetname': pdbcode,
+      'JOBID': self.JOBID,
+      'unsuppres': '',
+    }
+    response = requests.post(self.url, data=data)
+    if response.status_code == 200:
+      dic = json.loads(response.text)
+      return dic
+    else:
+      print("Submit PDB failed");
+      return
+
+  def submitMOL2(self, mol2token, mode="file"):
+    assert len(self.JOBID) == 8, "Please provide a valid 8-character session ID ";
+    if mode == "str":
+      mol2str = mol2token;
+    elif os.path.isfile(mol2token):
+      with open(mol2token, "r") as file1:
+        mol2str = file1.read();
+    else:
+      print("Please provide a valid mol2 file or string");
+      return
+    data = f'cmd=depositligand&ligandmol2={mol2str}&JOBID={self.JOBID}';
+    response = requests.post(self.url, data=data);
+    if response.status_code == 200:
+      dic = json.loads(response.text)
+      return dic
+    else:
+      print("Submit MOL2 failed");
+      return
+
+  def prepareSession(jobid, parms={}):
+    """
+      After uploading the protein PDB file and ligand MOL2, prepare the session
+    """
+    session_info = self.recall(self.JOBID);
+    if isinstance(session_info, dict):
+      datadict = {'cmd': 'preptarget', 'water': '', 'nwaters': '0', 'fullpdb': self.protein, 'JOBID': self.JOBID,
+                  'waterchoice': 'T3P', 'hischoice': 'HID', 'chainsel': 'none', 'ligand': 'none',
+                  'ligmol2': self.ligand,
+                  'ligsdf': '', 'maxloopl': '0', 'nrsteps': '5000', 'mini_mode': '3', 'mini_grms': '0.01',
+                  'sc_polar': '1.0', 'sc_impsolv': '1.0', 'pdb_tolerance_a': '20.0', 'pdb_tolerance_b': '0.75+1.25',
+                  'appendix': '# comment', 'unsuppres': '', 'OBpH': '7.4', 'OBpercept': '5'
+                  }
+      for i in parms.keys():
+        if i in datadict.keys():
+          datadict[i] = parms[i];
+
+      data = "";
+      for key, val in datadict.items():
+        data += f"{key}={val}&";
+      data = data.strip("&");
+
+      response = requests.post(self.url, data=data);
+      if response.status_code == 200:
+        dic = json.loads(response.text)
+        status = dic["status"];
+        print(f"System preparation exit status is {status}", response.status_code, response.url, );
+        return dic
+      else:
+        return
+    else:
+      print("Fatal: Failed to query the session info");
+      return
+
+  def distLig(self, theid, mode="session", ligname="LIG"):
+    """
+      Calculate the COM distance from protein to ligand
+      Protein uses CA atoms ; Ligand use ALL atoms
+      Have 2 modes: session/file
+    """
+    assert len(self.JOBID) == 8, "Please provide a valid 8-character session ID ";
+    import pytraj as pt
+    if mode == "session":
+      from BetaPose import session_prep
+      from rdkit import Chem
+      from scipy.spatial import distance_matrix
+      import re
+      import numpy as np
+      with tempfile.NamedTemporaryFile("w", suffix=".pdb") as file1, tempfile.NamedTemporaryFile("w",
+                                                                                                 suffix=".mol2") as file2:
+        session = session_prep.RecallSession(theid)
+        file1.write(session["pdbfile"]);
+        protcom = pt.center_of_mass(pt.load(file1.name), "@CA");
+        try:
+          # Mol2 could successfully be parsed in pytraj
+          file2.write(session["molfile"]);
+          traj = pt.load(file2.name)
+          ligcom = pt.center_of_mass(pt.load(file2.name));
+        except Exception as e:
+          # Directly calculate the COM of the ligand
+          # print(f"Error occurred while calculating the Ligand COM: {e}")
+          atoms = session["molfile"].split("@<TRIPOS>ATOM\n")[1].split("@<TRIPOS>")[0];
+          atoms = [i.strip().split() for i in atoms.strip("\n").split("\n")];
+          coord = np.array([i[2:5] for i in atoms]).astype(np.float32);
+          atomtypes = [re.sub(r"[0-9]", "", i[1]) for i in atoms];
+          masses = [];
+          for i in atomtypes:
+            try:
+              m = Chem.Atom(i).GetMass()
+              masses.append(m);
+            except:
+              masses.append(0);
+          com = np.average(coord, axis=0, weights=masses)
+          ligcom = np.array([com])
+        return distance_matrix(ligcom, protcom).item();
+    elif mode == "traj":
+      ret = self.recallTraj(theid);
+      if len(ret["PDBFile"]) > 66:
+        with tempfile.NamedTemporaryFile("w", suffix=".pdb") as file1:
+          file1.write(ret["PDBFile"]);
+          traj = pt.load(file1.name);
+          dist = pt.distance(traj, f"@CA  :{ligname}")
+          return dist.item()
+      else:
+        return None
+    elif mode == "file":
+      traj = pt.load(theid);
+      dist = pt.distance(traj, f"@CA  :{ligname}")
+      return dist.item()
+    else:
+      return None

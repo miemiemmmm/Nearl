@@ -8,7 +8,6 @@ from nearl.features import fingerprint
 
 print("Running vectorize.py")
 
-
 pdb_folder = resources.files("nearl").joinpath("data/small_pdbbind")
 
 all_items = os.listdir(pdb_folder)
@@ -49,10 +48,10 @@ def BENCHMARK(rounds=100):
   repres.frame = 0;
 
   slices, segments = repres.slicebyframe();
-  seg1 = utils.ordersegments(segments)[0]
+  seg1 = utils.order_segments(segments)[0]
   idxs = np.where(segments == seg1)[0];
 
-  repres.resmask = utils.getresmask(repres.traj, utils.getmaskbyidx(repres.traj, idxs));
+  repres.resmask = utils.get_residue_mask(repres.traj, utils.get_mask_by_idx(repres.traj, idxs));
   repres.charges = chem.Chargebytraj(repres.traj, repres.frame, repres.resmask);
 
   tmp_comb = functools.partial(repres.atom_type_count, idxs);
