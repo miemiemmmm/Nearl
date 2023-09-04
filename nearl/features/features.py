@@ -1,14 +1,45 @@
 import subprocess
 import numpy as np
 
-from scipy.spatial import KDTree
 from rdkit import Chem
+from scipy.spatial import KDTree
 from open3d.pipelines.registration import compute_fpfh_feature
 from open3d.geometry import KDTreeSearchParamHybrid
 
-from ..utils import utils
+from nearl import utils
+from nearl.static import interpolate
+
 from .. import CONFIG, printit
 from .. import _usegpu, _verbose
+
+__all__ = [
+  "Feature",
+  "Mass",
+  "PartialCharge",
+  "AM1BCCCharge",
+  "AtomTypeFeature",
+  "HydrophobicityFeature",
+  "Aromaticity",
+  "HeavyAtom",
+  "Ring",
+  "Hybridization",
+  "HydrogenBond",
+  "BoxFeature",
+  "FPFHFeature",
+  "PenaltyFeature",
+  "MSCVFeature",
+  "EntropyResidueID",
+  "EntropyAtomID",
+  "RFFeature1D",
+  "TopologySource",
+  "XYZCoord",
+  "FeaturizationStatus",
+]
+
+
+
+
+
 
 # import time
 # from open3d.io import write_triangle_mesh
@@ -133,7 +164,7 @@ class Feature:
     Returns:
     np.array: A 3D mesh grid of shape (grid_size, grid_size, grid_size) with the interpolated density.
     """
-    from . import interpolate
+    # from nearl.static import interpolate
     weights = np.nan_to_num(weights, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
     atom_coords = points.reshape(-1, 3)
     # Interpolate the density
@@ -661,7 +692,6 @@ class EntropyResidueID(Feature):
     """
     Get the information entropy(Chaoticity in general) of the box
     """
-    from . import interpolate
     entropy_arr = interpolate.grid4entropy(self.points3d, self._COORD, self.RESID_ENSEMBLE,
                                            cutoff=self.ENTROPY_CUTOFF)
     print(f"Check the entropy array: {entropy_arr.shape}")
@@ -703,7 +733,6 @@ class EntropyAtomID(Feature):
     """
     Get the information entropy(Chaoticity in general) of the box
     """
-    from . import interpolate
     entropy_arr = interpolate.grid4entropy(self.points3d, self._COORD, self.INDEX_ENSEMBLE, cutoff=self.ENTROPY_CUTOFF)
     print(f"Check the entropy array: {entropy_arr.shape}")
     entropy_arr = entropy_arr.reshape(self.dims)

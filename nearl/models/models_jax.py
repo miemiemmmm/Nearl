@@ -6,6 +6,14 @@ from jax import random
 from jax.scipy.linalg import cho_solve, cho_factor
 
 
+__all__ = [
+  "bchw_to_bhwc",
+  "SimpleNetwork_JAX",
+  "CNN2D_JAX",
+  "CNN3D_JAX",
+]
+
+
 def bchw_to_bhwc(input_tensor, from_dim=1, to_dim=-1):
   # Generate the permutation order for the axes.
   order = list(range(len(input_tensor.shape)))

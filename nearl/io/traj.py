@@ -6,6 +6,9 @@ import numpy as np
 from nearl import utils
 from nearl import printit, _verbose
 
+__all__ = [
+  "Trajectory",
+]
 
 # Trajectory object
 class Trajectory(pt.Trajectory):

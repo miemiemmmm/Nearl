@@ -22,7 +22,7 @@ def convex_ratio():
   for sname, mesh in shapes.items():
     mesh.compute_vertex_normals();
     mesh.scale(10, center=mesh.get_center())
-    convex = fingerprint.computeconvex(mesh)
+    convex = fingerprint.compute_convex(mesh)
     ratio_c_p = len(convex[1].points)/len(convex[0].points)
     print(f"Ratio(C/S) {sname:15}: {ratio_c_p:6.3f} ({len(convex[1].points):>4d}/{len(convex[0].points):<4d})")
 

@@ -8,7 +8,9 @@ import pandas as pd
 import dask 
 from dask.distributed import Client, performance_report, LocalCluster
 
-from BetaPose import chemtools, trajloader, features, data_io, utils, printit, savelog, _tempfolder
+# from BetaPose import chemtools,
+import nearl
+from nearl import features, utils, printit, savelog, _tempfolder
 
 class FeatureLabel(features.Feature):
   def __init__(self, affinity_file, delimiter=",", header=0):
@@ -51,13 +53,13 @@ def combine_complex(idx, row, ref_filedir):
   if False not in [profile, ligfile]: 
     print(f"Processing Molecule {idx}: {row[0]}")
     try: 
-      complex_str = chemtools.combine_molpdb(ligfile, profile, 
+      complex_str = utils.combine_molpdb(ligfile, profile,
                                            outfile=os.path.join(out_filedir, f"{row[0]}_complex.pdb"))
       return True;
     except: 
       try: 
         ligfile = os.path.join(ref_filedir, f"{row[0]}/{row[0]}_ligand.sdf")
-        complex_str = chemtools.combine_molpdb(ligfile, profile, 
+        complex_str = utils.combine_molpdb(ligfile, profile,
                                              outfile=os.path.join(out_filedir, f"{row[0]}_complex.pdb"))
         return True;
       except: 
@@ -76,7 +78,7 @@ def parallelize_traj(traj_list):
   """
   traj_list = [i for i in traj_list];
   print(traj_list)
-  traj_loader = trajloader.TrajectoryLoader(traj_list, traj_list);
+  traj_loader = nearl.io.TrajectoryLoader(traj_list, traj_list);
   ret_list = [];
   st = time.perf_counter();
 
@@ -97,7 +99,6 @@ def parallelize_traj(traj_list):
     # feat.register_feature(features.RFFeature1D(mask));
     feat.register_feature(FeatureLabel(PDBBind_datafile));
     feat.register_feature(features.TopologySource());
-
 
     mask1 = ":LIG<:10&(!@H=)";
     mask2 = ":LIG&(!@H=)";
@@ -139,15 +140,12 @@ def parallelize_traj(traj_list):
     feat.register_feature(features.Hybridization(mask=mask1));
     feat.register_feature(features.Hybridization(mask=mask2));
 
-
-
     # feat.register_feature(features.MassFeature(mask=":T3P"));
     # feat.register_feature(features.EntropyResidueIDFeature(mask=":T3P"));
     # feat.register_feature(features.EntropyAtomIDFeature(mask=":T3P"));
 
     # feat.register_feature(features.TopFileFeature());
     # feat.register_feature(FeatureLabel(PDBBind_datafile));
-
 
     feat.register_traj(trajectory)
     # Fit the standardizer of the input features
@@ -168,10 +166,10 @@ def parallelize_traj(traj_list):
         # Convert the results to numpy array
         new_data = np.array(ret_list, dtype=object);
         new_data = np.concatenate([prev_data, new_data], axis=0)
-        data_io.temporary_dump(new_data, tempfilename);
+        nearl.io.temporary_dump(new_data, tempfilename);
         ret_list = [];
       else:
-        data_io.temporary_dump(ret_list, tempfilename);
+        nearl.io.temporary_dump(ret_list, tempfilename);
         ret_list = [];
       repr_traji = None;
       features_traji = None;
@@ -255,14 +253,14 @@ if __name__ == '__main__':
     "CUBOID_LENGTH": [24, 24, 24],     # Unit: Angstorm (Need scaling)
   }
 
-  do_test = False;
+  do_test = True;
   if do_test:
     found_PDB = complex_files[:50];
     result1 = parallelize_traj(found_PDB);
     results = [result1];
   else:
     # TODO: Change these settings before running for production
-    worker_num = 3;
+    worker_num = 2;
     thread_per_worker = 1;
     found_PDB = complex_files[:80];
     split_groups = np.array_split(found_PDB, worker_num);
@@ -311,15 +309,15 @@ if __name__ == '__main__':
       datai = np.array(datai, dtype=object);
       # tmpfile = os.path.join(_tempfolder, f"dataset_{key}.npy");
       # np.save(tmpfile, datai);
-      with data_io.hdf_operator(output_hdffile, append=True) as h5file:
+      with nearl.io.hdf_operator(output_hdffile, append=True) as h5file:
         h5file.create_heterogeneous(key, datai)
     else:
       print(f"Shape of datai: {np.array(datai).shape}");
-      with data_io.hdf_operator(output_hdffile, append=True) as h5file:
+      with nearl.io.hdf_operator(output_hdffile, append=True) as h5file:
         h5file.dump_dataset(key, datai);
 
   # Finally show the structure of the output hdf5 file
-  with data_io.hdf_operator(output_hdffile, append=True) as h5file:
+  with nearl.io.hdf_operator(output_hdffile, append=True) as h5file:
     h5file.draw_structure();
 
   printit(f"##################Data are collected {time.perf_counter()-st:.3f} ################")

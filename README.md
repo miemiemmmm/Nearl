@@ -28,10 +28,20 @@ By defaults, it uses [OpenMP](https://www.openmp.org/) when doing feature densit
 key components accelerated by [OpenACC](https://www.openacc.org/). To install the GPU version, [Nvidia HPC SDK](https://developer.nvidia.com/hpc-sdk)
 is required. <br>
 Use the following command to install the GPU version: <br>
-```pip install nearl-gpu``` <br>
+```
+git clone https://github.com/miemiemmmm/NEARL.git
+cd NEARL
+pip install .
+```
+
 
 To test the installation: <br>
-```python -c "import nearl; nearl.test.vectorize(); nearl.test.featurize_pdbbind()"``` <br>
+```
+To test the featurizer: 
+python -c "from nearl import tests; tests.vectorize()"
+To test some simple models:
+python -c "from nearl import tests; tests.jax_2dcnn()"  
+```
 
 
 # Get started
@@ -61,6 +71,9 @@ from nearl import trajloader
 traj_list = [traj1, traj2, traj3, ..., trajn]
 top_list = [top1, top2, top3, ..., topn]
 traj_loader = trajloader.TrajectoryLoader(traj_list, top_list)
+trajloader = TrajectoryLoader(trajs, tops, **kwarg)
+for traj in trajloader:
+  # Do something with traj
 ```
 
 ### Static structures

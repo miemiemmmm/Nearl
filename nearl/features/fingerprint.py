@@ -10,9 +10,16 @@ from scipy.spatial.distance import cdist, pdist, squareform
 import open3d as o3d
 from rdkit import Chem
 
-from .. import utils
+from nearl import utils, io
 from .. import CONFIG, printit, savelog, PACKAGE_DIR
 from .. import _clear, _verbose, _tempfolder
+
+__all__ = [
+  "generator",
+  "PointFeature",
+  "compute_convex",
+
+]
 
 ACCEPTOR_PATTERN = '[!$([#6,F,Cl,Br,I,o,s,nX3,#7v5,#15v5,#16v4,#16v6,*+1,*+2,*+3])]'
 DONOR_PATTERN = "[!H0;#7,#8,#9]"
@@ -25,15 +32,16 @@ EXP_RADII = {1: 1.4, 2: 1.4, 3: 1.4, 4: 1.54, 5: 1.54, 6: 1.54, 7: 1.74, 8: 1.74
 UNITED_RADII = {1: 1.4, 2: 1.6, 3: 1.4, 4: 1.7, 5: 1.8, 6: 2.0, 7: 2.0, 8: 2.0, 9: 2.0, 10: 1.74, 11: 1.86, 12: 1.85, 13: 1.8, 14: 1.54, 15: 1.2, 16: 1.5, 17: 5.0, 18: 1.97, 19: 1.4, 20: 1.4, 21: 1.3, 22: 1.49, 23: 0.01, 24: 0.0, 25: 1.24, 26: 1.6, 27: 1.24, 28: 1.25, 29: 2.15, 30: 3.0, 31: 1.15, 38: 1.8}
 ATOM_NUM = {0: 15, 1: 15, 2: 2, 3: 18, 4: 22, 5: 22, 6: 9, 7: 4, 8: 7, 9: 10, 10: 1, 11: 13, 12: 9, 13: 7, 14: 8, 15: 10, 16: 8, 17: 7, 18: 8, 19: 3, 20: 3, 21: 9, 22: 8, 23: 4, 24: 4, 25: 10, 26: 5, 27: 5, 28: 1, 29: 5, 30: 3, 31: 3, 32: 3, 33: 3, 34: 1, 35: 5, 36: 3, 37: 3, 38: 3, 39: 13, 40: 13, 41: 12, 42: 3, 43: 3, 44: 10, 45: 1, 46: 5, 47: 3, 48: 11, 49: 14, 50: 4, 51: 4, 52: 4, 53: 4, 54: 14, 55: 14, 56: 4, 57: 8, 58: 9, 59: 9, 60: 9, 61: 9, 62: 8, 63: 6, 64: 6, 65: 13, 66: 9, 67: 11, 68: 11, 69: 8, 70: 9, 71: 9, 72: 3, 73: 3, 74: 2, 75: 2, 76: 9, 77: 11, 78: 10, 79: 10, 80: 4, 81: 11, 82: 11, 83: 11, 84: 11, 85: 11, 86: 10, 87: 2, 88: 9, 89: 9, 90: 8, 91: 8, 92: 21, 93: 13, 94: 1, 95: 21, 96: 21, 97: 1, 98: 1, 99: 21, 100: 11, 101: 14, 102: 14, 103: 10, 104: 9, 105: 8, 106: 10, 107: 3, 108: 11, 109: 2, 110: 14, 111: 9, 112: 10, 113: 8, 114: 7, 115: 9, 116: 9, 117: 2, 118: 2, 119: 13, 120: 3, 121: 3, 122: 3, 123: 13, 124: 3, 125: 8, 126: 14, 127: 9, 128: 17, 129: 23, 130: 23, 131: 20, 132: 19, 133: 24, 134: 25, 135: 26, 136: 27, 137: 28, 138: 29, 139: 31, 140: 4, 141: 10, 142: 1, 143: 14, 144: 1, 145: 10, 146: 4, 147: 11, 148: 9, 149: 4, 150: 10, 151: 8, 152: 2, 153: 3, 154: 3, 155: 3, 156: 10, 157: 9, 158: 9, 159: 8, 160: 9, 161: 3, 162: 3, 163: 3, 164: 13, 165: 7, 166: 11, 167: 1, 168: 4, 169: 4, 170: 6, 171: 13, 172: 13, 173: 1, 174: 4, 175: 7, 176: 13, 177: 15}
 
+
 # Color map for the segments of the molecule block
-__color_number = CONFIG.get("SEGMENT_LIMIT", 6)
+_SEGMENT_LIMIT = CONFIG.get("SEGMENT_LIMIT", 6)
 if CONFIG.get("segment_colormap", None):
   from matplotlib.pyplot import get_cmap
   cmap = get_cmap(CONFIG.get("segment_colormap"))
   SEGMENT_CMAPS = [cmap(i)[:3] for i in range(int(0.1 * cmap.N), int(0.9 * cmap.N), int(0.9 * cmap.N) // 10)]
 else:
   # Default color map -> inferno
-  if CONFIG.get("SEGMENT_LIMIT", 6) == 6:
+  if _SEGMENT_LIMIT == 6:
     SEGMENT_CMAPS = [
       [0.087411, 0.044556, 0.224813],
       [0.354032, 0.066925, 0.430906],
@@ -48,9 +56,8 @@ else:
     cmap = get_cmap('inferno')
     SEGMENT_CMAPS = [cmap(i)[:3] for i in range(int(0.1 * cmap.N), int(cmap.N * 0.9), int(cmap.N * 0.9) // 10)]
 
-####################################################################################################
-################################# Generate Open3D readable object ##################################
-####################################################################################################
+
+# Generate Open3D readable object
 def getRadius(atom="", residue="", exp=True):
   """
   Get the radius of an atom based on its atom name and residue name.
@@ -72,6 +79,7 @@ def getRadius(atom="", residue="", exp=True):
     rad = UNITED_RADII[ATOM_NUM[pat]] if exp != True else EXP_RADII[ATOM_NUM[pat]]
   return rad
 
+
 def pdb2xyzr(thepdb, write="", exp=True):
   """
   Convert atoms in a PDB file to xyzr format.
@@ -86,7 +94,7 @@ def pdb2xyzr(thepdb, write="", exp=True):
   elif ("ATOM" in thepdb) or ("HETATM" in thepdb): 
     pdblines = thepdb.strip("\n").split("\n")
   else: 
-    raise Exception(f"{pdb2xyzr.__name__:15s}: Please provide a valid PDB file path or PDB string.")
+    raise Exception(f"{__name__:15s}: Please provide a valid PDB file path or PDB string.")
   finallines = ""
   for line in pdblines:
     line = line.strip()
@@ -118,194 +126,8 @@ def pdb2xyzr(thepdb, write="", exp=True):
   else: 
     return finallines
 
-def runmsms(msms, inputxyzr, outprefix, d = 4, r = 1.2):
-  """
-  Run MSMS to generate the surface of a set of atoms
-  Args:
-    msms (str): path to the MSMS executable
-    inputxyzr (str): path to the input file
-    outprefix (str): path to the output file
-    d (float): density of the surface
-    r (float): probe radius
-  """
-  subprocess.run([msms, "-if", inputxyzr, "-of", outprefix, "-density", str(d), "-probe_radius", str(r), "-all"], stdout=subprocess.DEVNULL);
-  if os.path.isfile(f"{outprefix}.vert") and os.path.isfile(f"{outprefix}.face"):
-    with open(f"{outprefix}.vert", "r") as f:
-      for i in range(10):
-        line = f.readline()
-        if "#" in line:
-          continue
-        else:
-          npoints = int(line.strip("\n").strip().split()[0])
-          break
-    if npoints == 0:
-      print("Problematic files: ", inputxyzr, outprefix)
-      raise Exception(f"{runmsms.__name__:15s}: Debug: No vertices generated.")
 
-    with open(f"{outprefix}.face", "r") as f:
-      for i in range(10):
-        line = f.readline()
-        if "#" in line:
-          continue
-        else:
-          nfaces = int(line.strip("\n").strip().split()[0])
-          break
-    if nfaces == 0:
-      raise Exception(f"{runmsms.__name__:15s}: Debug: No faces generated.")
-
-    return True
-  else:
-    # If default parameters fail, try again with some other probe radius
-    if _verbose:
-      print(f"{runmsms.__name__:15s}: Failed to generate corresponding vertex and triangle file with default setting. "
-            f"Trying other parameters")
-    for r in np.arange(1.0, 2.0, 0.01):
-      subprocess.run([msms, "-if", inputxyzr, "-of", outprefix, "-density", str(d), "-probe_radius", str(r)], stdout=subprocess.DEVNULL)
-      if os.path.isfile(f"{outprefix}.vert") and os.path.isfile(f"{outprefix}.face"):
-        break
-    if os.path.isfile(f"{outprefix}.vert") and os.path.isfile(f"{outprefix}.face"):
-      return True
-    else:
-      print(f"{runmsms.__name__:15s}: Failed to generate corresponding vertex and triangle file")
-      return False
-
-def pdb2msms(msms, pdbfile, outprefix):
-  """
-  Generate the MSMS output for a PDB file
-  Args:
-    msms (str): path to the MSMS executable
-    pdbfile (str): path to the PDB file
-    outprefix (str): prefix of the output file
-  """
-  xyzrfile = pdb2xyzr(pdbfile, write=outprefix)
-  ret = runmsms(msms, xyzrfile, outprefix, d = 4, r = 1.4)
-  if ret and _verbose:
-    print(f"{pdb2msms.__name__:15s}: Successfully generated the MSMS output")
-  elif not ret:
-    print(f"{pdb2msms.__name__:15s}: Failed to generate the MSMS output")
-
-def traj2msms(msms, traj, frame, indice, force=False, d=4, r=1.5):
-  """
-  Generate the MSMS output for a trajectory
-  ???? TODO: Objective ????
-  Args:
-    msms (str): path to the MSMS executable
-    traj (mdtraj.Trajectory): the trajectory object
-    frame (int): the frame number
-    indice (list): the list of atom indices
-    force (bool): whether to overwrite existing files
-    d (float): density of the surface
-    r (float): probe radius
-  """
-  out_prefix = os.path.join(_tempfolder, "msms_")
-  if os.path.isfile(f"{out_prefix}.vert") or os.path.isfile(f"{out_prefix}.face"): 
-    if force != True: 
-      raise Exception(f"{traj2msms.__name__:15s}: {out_prefix}.vert or {out_prefix}.face already exists, please add argument force=True to enable overwriting of existing files.")
-  with tempfile.NamedTemporaryFile(prefix=out_prefix) as file1:
-    atoms = np.array([a for a in traj.top.atoms])
-    resnames = np.array([a.name for a in traj.top.residues])
-    indice = np.array(indice)
-    rads = [getRadius(i,j) for i,j in [(a.name,resnames[a.resid]) for a in atoms[indice]]]
-    xyzrline = ""
-    for (x,y,z),rad in zip(traj.xyz[frame][indice], rads):
-      xyzrline += f"{x:10.3f}{y:10.3f}{z:10.3f}{rad:6.2f}\n"
-    with open(file1.name, "w") as file1:
-      file1.write(xyzrline)
-    ret = runmsms(msms, f"{file1.name}.xyzr", file1.name, d=d, r=r)
-    if not ret:
-      print(f"{traj2msms.__name__:15s}: Failed to generate the MSMS output")
-
-def msms2pcd(vertfile, filename=""):
-  """
-  Convert the MSMS output (vertex file) to a point cloud readable by Open3D
-  Args:
-    vertfile (str): path to the MSMS vertex file
-    filename (str): path to the output file
-  """
-  if not os.path.isfile(vertfile):
-    raise Exception(f"{msms2pcd.__name__:15s}: Cannot find the MSMS output files (.vert)")
-  # Read MSMS vertice file
-  with open(vertfile, "r") as file1:
-    c = 0
-    verticenr = 0
-    xyzs = []
-    normals = []
-    for line in file1:
-      if "#" in line:
-        # Skip comment lines
-        continue
-      elif verticenr > 0 and c <= verticenr:
-        verti = [float(i) for i in line.strip().split()]
-        xyzs.append(verti[:3])
-        normals.append(verti[3:6])
-        c += 1
-      elif c == 0:
-        # Read the title of the vertice file (First line)
-        verticenr = int(line.strip().split()[0])
-  pcd = o3d.geometry.PointCloud()
-  pcd.points  = o3d.utility.Vector3dVector(xyzs)
-  pcd.normals = o3d.utility.Vector3dVector(normals)
-  if len(filename) > 0:
-    write_ply(xyzs, normals=normals, filename=filename)
-  if not pcd.is_empty():
-    return pcd
-  else:
-    print(f"{msms2pcd.__name__:15s}: Failed to convert the MSMS output files to triangle mesh, please check the MSMS output files")
-    return o3d.geometry.TriangleMesh()
-
-def msms2mesh(vertfile, facefile, filename=""):
-  """
-  Convert the MSMS output (vertex and triangle faces) to a triangle mesh readable by Open3D
-  Args:
-    vertfile (str): path to the MSMS vertex file
-    facefile (str): path to the MSMS face file
-    filename (str): path to the output file
-  """
-  if not os.path.isfile(vertfile):
-    raise Exception(f"{msms2mesh.__name__:15s}: Cannot find the MSMS output files (.vert)")
-  elif not os.path.isfile(facefile): 
-    raise Exception(f"{msms2mesh.__name__:15s}: Cannot find the MSMS output files (.face)")
-  ################## Convert the MSMS vertex file to numpy array (xyz and normals) ###################
-  with open(vertfile, "r") as file1:
-    lines = (line.rstrip() for line in file1 if "#" not in line)  # Generator expression to reduce memory
-    verticenr = int(next(lines).split()[0])
-    try:
-      thearray = np.array([float(i) for i in " ".join([_ for _ in lines]).strip().split()]).reshape((verticenr, -1))
-    except ValueError:
-      print(f"debug: Check the Vert file {vertfile}")
-      print(f"debug: Check the Face file {vertfile}")
-      raise Exception("vert fails")
-    xyzs = thearray[:, :3]
-    normals = thearray[:, 3:6]
-  with open(facefile, "r") as file1:
-    lines = (line.rstrip() for line in file1 if "#" not in line)  # Generator expression to reduce memory
-    facenr = int(next(lines).split()[0])
-    try:
-      thearray = np.array([int(i) for i in " ".join([_ for _ in lines]).strip().split()]).reshape((facenr, -1))
-    except ValueError:
-      print(f"debug: Check the Vert file {vertfile}")
-      print(f"debug: Check the Face file {vertfile}")
-      raise Exception("Face fails")
-
-    faces = thearray[:, :3]-1
-  if len(filename)>0: 
-    write_ply(xyzs, normals, faces, filename=filename)
-  mesh = o3d.geometry.TriangleMesh()
-  mesh.vertices = o3d.utility.Vector3dVector(xyzs)
-  mesh.vertex_normals = o3d.utility.Vector3dVector(normals)
-  mesh.triangles = o3d.utility.Vector3iVector(faces)
-  mesh.remove_degenerate_triangles()
-  mesh.compute_vertex_normals()
-  if not mesh.is_empty():
-    return mesh
-  else:
-    print(f"{msms2mesh.__name__:15s}: Failed to convert the MSMS output files to triangle mesh, please check the MSMS output files")
-    return o3d.geometry.TriangleMesh()
-
-####################################################################################################
 ################################# Representation vector generator ##################################
-####################################################################################################
-
 def pseudo_energy(coord, mode, charges=[]):
   # Using the following code for distance calculation, speeds up a bit
   mode = mode.lower()
@@ -333,8 +155,23 @@ def pseudo_energy(coord, mode, charges=[]):
       dist = np.linalg.norm(p1-p2)
       energy_final += pseudo_elec(q1, q2, dist)
   else: 
-    raise Exception(f"{pseudo_energy.__name__:15s}: Only two pseudo-energy evaluation modes are supported: Lenar-jones (lj) and Electrostatic (elec)")
+    raise Exception(f"{__name__:15s}: Only two pseudo-energy evaluation modes are supported: Lenar-jones (lj) and Electrostatic (elec)")
   return energy_final
+
+
+def pseudo_lj(r, epsilon=1, sigma=1):
+  """
+  Calculates the Lennard-Jones potential for a given distance
+  """
+  return 4 * epsilon * ((sigma/r)**12 - (sigma/r)**6)
+
+
+def pseudo_elec(q1, q2, r):
+  """
+  Calculates the Coulombic interaction energy between two atoms
+  """
+  k = 8.98
+  return k*q1*q2/r
 
 def chargedict2array(traj, frame, charges):
   """
@@ -348,6 +185,7 @@ def chargedict2array(traj, frame, charges):
       chargelst[idx] = _charge[coord]
   return chargelst
 
+
 def fpfh_similarity(fp1, fp2): 
   """
   Calculate the FPFH similarity between fpfh features 
@@ -355,6 +193,7 @@ def fpfh_similarity(fp1, fp2):
   dist_matrix = cdist(fp1, fp2, 'euclidean')
   similarity = 1 / (1 + np.mean(dist_matrix))
   return similarity
+
 
 def fpfh_similarity2(fp1, fp2):
   """
@@ -364,7 +203,7 @@ def fpfh_similarity2(fp1, fp2):
   similarity = 1 / (1 + np.abs(np.mean(dist_matrix)))
   return similarity
 
-# @profile
+
 def write_ply(coords, normals=[], triangles=[], filename=""):
   """
   Write the PLY file for further visualization
@@ -409,48 +248,60 @@ def write_ply(coords, normals=[], triangles=[], filename=""):
       file1.write(finalstr)
       return True
 
+
 class generator: 
   """
   NOTE: Test function of the generator
-  >>> traj = pt.load(traj, top=top, mask=":1-151,:LIG", stride=100); 
+  >>> traj = pt.load(traj, top=top, mask=":1-151,:LIG", stride=100)
   >>> repres = repr_generator(traj)
-  >>> repres.center = [30,35,30]
-  >>> repres.length = [8,8,8]
-  >>> repres.frame = 5
-  >>> slices, segments = repres.slicebyframe(); 
-  >>> feature_vector, mesh_obj, fpfh = repres.vectorize(segments); 
+  >>> repres.set_box([30,35,30], [8,8,8])
+  >>> repres.set_frame(5)
+  >>> segments = repres.query_segments()
+  >>> feature_vector, mesh_obj, fpfh = repres.vectorize(segments)
 
   NOTE: voxel_down_sample might be a better solution to keep most feature during down-sampling
-  >>> pcd_new = o3d.geometry.PointCloud( points=o3d.utility.Vector3dVector(finalobj.vertices));
-  >>> pcd_new.normals = o3d.utility.Vector3dVector(mesh.vertex_normals);
-  >>> finalobj_down = pcd_new.voxel_down_sample(0.8); 
-  >>> finalobj_down.estimate_normals(ktree); 
+  >>> pcd_new = o3d.geometry.PointCloud( points=o3d.utility.Vector3dVector(finalobj.vertices))
+  >>> pcd_new.normals = o3d.utility.Vector3dVector(mesh.vertex_normals)
+  >>> finalobj_down = pcd_new.voxel_down_sample(0.8)
+  >>> finalobj_down.estimate_normals(ktree)
   """
   def __init__(self, traj):
     """
     Initialize the molecule block representation generator class
     Register the trajectory and atoms information
     Args:
-      traj: trajectory object
+      traj: nearl.io.trajectory object
     """
     self.traj = traj
-    self.atoms = np.asarray(list(self.traj.top.atoms))
     self._center = np.zeros(3)
     self._length = np.ones(3)
+    self._lower_bound = self.center - self.length / 2
+    self._upper_bound = self.center + self.length / 2
 
     # Load parameters from the configuration file
-    self.SEGMENT_LIMIT = CONFIG.get("SEGMENT_LIMIT", 6)
+    self.SEGMENT_LIMIT = _SEGMENT_LIMIT
     self.FPFH_DOWN_SAMPLES = CONFIG.get("DOWN_SAMPLE_POINTS", 600)
-    self.VIEWPOINTBINS = CONFIG.get("VIEWPOINT_BINS", 8)
+    self.VIEWPOINTBINS = CONFIG.get("VIEWPOINT_BINS", 125)
 
-    # Check the availability of the MSMS executable
-    # self.MSMS_EXE = CONFIG.get("msms", "")
-    # if len(self.MSMS_EXE) == 0:
-    #   self.MSMS_EXE = os.environ.get("MSMS_EXE", "")
-    # if (not self.MSMS_EXE) or (len(self.MSMS_EXE) == 0):
-    #   print(f"Warning: Cannot find the executable for msms program. Use the following ways to find the MSMS executable:\n\"msms\": \"/path/to/MSMS/executable\" in configuration file\nor\nexport MSMS_EXE=/path/to/MSMS/executable", file=sys.stderr)
-    # elif not os.path.isfile(self.MSMS_EXE):
-    #   print(f"Warning: Designated MSMS executable({self.MSMS_EXE}) not found. Please check the following path: {self.MSMS_EXE}", file=sys.stderr)
+    self._SEGMENTS = np.zeros(self.traj.n_atoms)
+    self._SEGMENTS_ORDER = None
+    self._SEGMENTS_NUMBER = 0     # Not include the empty segment
+    self._RDMOLS = []
+    self._COMBINED_MESH = None
+    self._INDICES = None
+    self._INDICES_RES = None
+    self._PDB_STRING = ""
+
+
+    # Runtime-only properties
+    self._SEGMENT = None
+    self._SEGMENT_INDEX = 0
+    self._SEGRES_MOL = None
+    self._SEGRES_INDICES = None
+    self._MESH = None
+    self._VP_HIST = None
+    self._ATOM_COUNT = None
+    self._TEMP_PREFIX = None
 
     if _verbose:
       # Summary the configuration of the identity generator
@@ -459,91 +310,389 @@ class generator:
       print(f"DOWN_SAMPLE_POINTS: {self.FPFH_DOWN_SAMPLES}", end=" | ")
       print(f"VIEWPOINT_BINS: {self.VIEWPOINTBINS}", end=" | ")
 
-    # Create a temporary name for intermediate files
-    if (not _clear):
-      self.set_tempprefix()
-
+  # Writable properties
   @property
   def center(self):
     return self._center
+
   @center.setter
   def center(self, new_center):
+    """
+    Set the center of the box
+    Args:
+      new_center: the new center (a list of number) of the box
+    """
     assert len(new_center) == 3, "Length should be 3"
-    self._center = np.array(new_center)
+    the_new_center = np.array(new_center)
+    self.set_box(the_new_center, self._length)
+
   @property
   def length(self):
     return self._length
+
   @length.setter
   def length(self, new_length):
-    if isinstance(new_length, int) or isinstance(new_length, float): 
-      self._length = np.array([new_length, new_length, new_length])
-    elif isinstance(new_length, list) or isinstance(new_length, np.ndarray): 
+    """
+    Set the length of the box
+    Args:
+      new_length: the new length (A number or a list of number) of the box
+    """
+    if isinstance(new_length, (int, float, np.int8, np.int16, np.int32, np.int64, np.float16, np.float32, np.float64)):
+      the_new_length = np.array([new_length, new_length, new_length])
+      self.set_box(self._center, the_new_length)
+    elif isinstance(new_length, (list, tuple, np.ndarray)):
       assert len(new_length) == 3, "length should be 3"
-      self._length = np.array([i for i in new_length])
+      the_new_length = np.array([i for i in new_length])
+      self.set_box(self._center, the_new_length)
     else: 
-      raise Exception("Unexpected data type")
+      raise Exception("Unexpected data type for length (should be int, float, list, tuple or np.ndarray)")
 
   @property
   def frame(self):
     return self._frame
 
   @frame.setter
-  def frame(self, framei):
+  def frame(self, framei: int):
     assert isinstance(framei, int), "Frame index should be int"
     self._frame = framei
 
-  def set_tempprefix(self, tempprefix=""):
+  @property
+  def segment_index(self):
+    """
+    The atomic index of the segment under vectorization
+    """
+    return self._SEGMENT_INDEX
+
+  @segment_index.setter
+  def segment_index(self, new_index: int):
+    assert isinstance(new_index, int), "Segment index should be int"
+    self._SEGMENT_INDEX = new_index
+
+
+  # READ ONLY PROPERTIES
+  @property
+  def lower_bound(self):
+    return self._lower_bound
+
+  @property
+  def upper_bound(self):
+    return self._upper_bound
+
+  @property
+  def mesh(self):
+    return self._MESH
+
+  @property
+  def mol(self):
+    return self._SEGRES_MOL
+
+  @property
+  def segment_residue(self):
+    """
+    The residue-based atomic index of the segment under vectorization
+    """
+    return self._SEGRES_INDICES
+
+  @property
+  def segment(self):
+    """
+    The atomic index of the segment under vectorization i
+    """
+    return self._SEGMENT
+
+  @property
+  def atom_count(self):
+    """
+    Number of different atoms types in the segment i
+    """
+    return self._ATOM_COUNT
+
+  @property
+  def vpc(self):
+    """
+    Viewpoint component of the segment i
+    """
+    return self._VP_HIST
+
+  @property
+  def temp_prefix(self):
+    if self._TEMP_PREFIX is None:
+      prefix = self.set_tempprefix()
+    else:
+      prefix = self._TEMP_PREFIX
+    return prefix
+
+  def set_frame(self, frameidx):
+    self._frame = frameidx
+
+  def set_box(self, center=None, length=None):
+    """
+    Configure the box information (self._center, self._length, self._lower_bound, self._upper_bound) of the generator
+    Args:
+      center: center of the box
+      length: length of the box
+    """
+    if center is not None:
+      self._center = np.asarray(center)
+    if length is not None:
+      self._length = np.asarray(length)
+    self._lower_bound = self.center - self.length / 2
+    self._upper_bound = self.center + self.length / 2
+    assert len(self.center) == 3, "Length of center vector should be 3"
+    assert len(self.length) == 3, "Length of length vector should be 3"
+    assert len(self.lower_bound) == 3, "Length of lower bound vector should be 3"
+    assert len(self.upper_bound) == 3, "Length of upper bound vector should be 3"
+    assert np.all(self.lower_bound < self.upper_bound), "Lower bound should be smaller than upper bound"
+    if not _clear:
+      # For each update of the box, update the temporary file prefix if not clear temporary files
+      self.set_tempprefix()
+
+  def set_tempprefix(self, tempprefix="", inplace=True):
+    """
+    Get an intermediate file prefix for the generator
+    Args:
+      tempprefix: manually set the prefix of the intermediate files
+      inplace: if True, set the prefix to self._TEMP_PREFIX, otherwise return the prefix
+    Returns:
+      _tempfile_prefix: the prefix of the intermediate files
+    """
     if len(tempprefix) > 0:
-      self.tempprefix = os.path.join(_tempfolder, f"tmp_{tempprefix}_")
+      _tempfile_prefix = os.path.join(_tempfolder, f"tmp_{tempprefix}_")
     else:
       pid = os.getpid()
       temphash = utils.get_hash()[-10:]
       temphash = utils.get_hash(temphash + str(pid))[-10:]
-      self.tempprefix = os.path.join(_tempfolder, f"p{pid}_{temphash}_")
+      _tempfile_prefix = os.path.join(_tempfolder, f"p{pid}_{temphash}_")
+    if inplace:
+      self._TEMP_PREFIX = _tempfile_prefix
+    return _tempfile_prefix
+
+  def close(self):
+    """
+    Remove the reference to the trajectory, mesh and rdkit molecule
+    """
+    del self.traj, self._MESH, self._SEGRES_MOL
 
 
-  def slicebyframe(self, threshold=2): 
+  # Result variables
+  @property
+  def indices(self):
+    """
+    The atomic indices of all segments under vectorization
+    """
+    return np.array(self._INDICES)
+
+  @property
+  def indices_res(self):
+    return np.array(self._INDICES_RES)
+
+  @property
+  def segments(self):
+    """
+    Segment group number series for each atom in the molecular system
+    E.G. [X_i] * N where segment number of atom i (0-N) is X_i, N is the total number of atoms
+    """
+    return np.array(self._SEGMENTS)
+
+  @property
+  def segments_number(self):
+    """
+    Number of unique segment groups number
+    """
+    return int(self._SEGMENTS_NUMBER)
+
+  @property
+  def segments_order(self):
+    """
+    Segment group number from most abundant to least abundant
+    E.G. [5, 1, 8, 2, 4, 9] means the most abundant segment is 5, the second most abundant segment is 1, etc.
+    """
+    return self._SEGMENTS_ORDER
+
+  @property
+  def mols(self):
+    return [Chem.Mol(x) for x in self._RDMOLS]
+
+  @property
+  def meshes(self):
+    """
+    The meshes of all segments under vectorization
+    """
+    return copy.deepcopy(self._COMBINED_MESH)
+
+  @property
+  def vertices(self):
+    return np.array(self._COMBINED_MESH.vertices)
+
+  @property
+  def faces(self):
+    return np.array(self._COMBINED_MESH.triangles)
+
+  @property
+  def norms(self):
+    return np.array(self._COMBINED_MESH.vertex_normals)
+
+  def get_ply_string(self):
+    """
+    Convert the mesh to a ply string
+    """
+    return write_ply(self._COMBINED_MESH.vertices,
+                     normals=self._COMBINED_MESH.vertex_normals,
+                     triangles=self._COMBINED_MESH.triangles)
+
+  def get_pdb_string(self):
+    """
+    Obtain the pdb string the structures of all segments under vectorization
+    """
+    return str(self._PDB_STRING)
+
+  def query_segments(self, threshold=2):
     """
     Generate a slice from all frame of a trajectory (Each frame takes one dimension)
     Returned results are the atomic coordinates and the atomic indices
+    Args:
+      threshold: the threshold of the distance between two segments
+    Returns:
+      xyz: atomic coordinates (N*3) within the bounding box (N atoms are in the bounding box)
+      s_final: segment index (N*1) of each atom: like the following list [1, 1, 1, 1, 1, 2, 2, 2, 3, 3, 3, 3, 3, 4, 4,
+      4, 4, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5]
+    Note:
+      The mask `states` indicates the atoms that are within the bounding box to the total number of atoms in the system
+      Only returns the non-empty segments back to the main function
     """
     xyz = self.traj.xyz[self._frame]
-    idx_arr = []
-    state = utils.filter_points_within_bounding_box(xyz, self._center, self._length, return_state=True)
-    s_final = np.zeros(len(state), dtype=int)
+    states = utils.filter_points_within_bounding_box(xyz, self._center, self._length, return_state=True)
+    s_final = np.zeros(len(states), dtype=int)
     lastres = -999
     seg_counter = 0
-    # for idx, state in zip(range(len(state)), state):
-    for idx, state in enumerate(state):
-      if state:  # atom with idx within the bounding box
-        # Check if the atom is in the same segment
-        if self.atoms[idx].resid - lastres > threshold:
+    for idx, _state in enumerate(states):
+      if _state:
+        # Atom that is within the bounding box, Check if it belongs to the same segment
+        if self.traj.atoms[idx].resid - lastres > threshold:
           seg_counter += 1
         s_final[idx] = seg_counter
-        lastres = self.atoms[idx].resid
-      # else case not needed, s_final[idx] is already 0
-    return xyz[s_final > 0], s_final[s_final > 0]
+        lastres = self.traj.atoms[idx].resid
 
-  def segment2mesh(self, theidxi, d=4, r=1.5):
+    if not _clear:
+      with io.hdf_operator(f"{self.temp_prefix}segments.h5", "w") as hdf:
+        hdf.create_dataset("xyz", data=xyz)
+        hdf.create_dataset("xyz_b", data=xyz[s_final > 0])
+        hdf.create_dataset("segments", data=s_final)
+        hdf.create_dataset("segments_b", data=s_final[s_final > 0])
+        hdf.create_dataset("box", data=np.array([*self._center, *self._length]))
+
+    self._SEGMENTS = s_final
+    # Empty segment with ID 0 not included
+    self._SEGMENTS_NUMBER = min(len([i for i in set(s_final) if i != 0]), self.SEGMENT_LIMIT)
+    # Order the segments from the most abundant to least ones (unique segments, 1 * self._SEGMENTS_NUMBER)
+    self._SEGMENTS_ORDER = order_segments(s_final)[:self._SEGMENTS_NUMBER]
+    return s_final
+
+  def compute_segment_i(self, seg_indices):
+    """
+    Compute the segment information of a given segment
+    Args:
+      seg_indices: the segment indices of the desired segment
+    """
+    # Reset the segment information and embed all computation into the class
+    self._SEGMENT = np.asarray(seg_indices)
+    self._SEGRES_INDICES = np.array([])
+    self._ATOM_COUNT = None
+    self._SEGRES_MOL = None
+    self._MESH = None
+    self._VP_HIST = None
+
+    # Generate the residue-based segment indices
+    seg_res_mask = utils.get_residue_mask(self.traj, utils.get_mask_by_idx(self.traj, seg_indices))
+    self._SEGRES_INDICES = self.traj.top.select(seg_res_mask)
+
+    self._ATOM_COUNT = self.atom_type_count(self._SEGMENT)
+    if len(self._ATOM_COUNT) >= 0:
+      SUCCESS_COUNT = True
+    else:
+      SUCCESS_COUNT = False
+
+    # Segment conversion to rdkit molecule
+    self._SEGRES_MOL = self.segment_to_rdkit()
+    if (self._SEGRES_MOL is None) or (not self._SEGRES_MOL):
+      SUCCESS_MOLE = False
+    else:
+      SUCCESS_MOLE = True
+
+    # Segment conversion to triangle mesh
+    self._MESH = self.segment_to_mesh(seg_indices)
+    if (self._MESH is None) or self._MESH.is_empty():
+      SUCCESS_MESH = False
+    else:
+      SUCCESS_MESH = True
+
+    self._VP_HIST = self.segment_to_vpc()
+    if self._VP_HIST is None:
+      SUCCESS_VP = False
+    else:
+      SUCCESS_VP = True
+
+    return [SUCCESS_COUNT, SUCCESS_MESH, SUCCESS_MOLE, SUCCESS_VP]
+
+  def atom_type_count(self, theidxi=None):
+    """
+    Descriptor 1 and 2:
+    Args:
+      theidxi: the indices of the atoms in the segment
+    Return:
+      Atom counts as a dictionary
+    """
+    ATOM_DICT = {
+      'H': 1, 'C': 6, 'N': 7, 'O': 8,
+      'F': 9, 'P': 15, 'S': 16, 'Cl': 17,
+      'Br': 35, 'I': 53
+    }
+    if theidxi is None:
+      atomic_numbers = np.array([i.atomic_number for i in self.traj.atoms[self._SEGMENT]]).astype(int)
+    else:
+      atomic_numbers = np.array([i.atomic_number for i in self.traj.atoms[np.array(theidxi)]]).astype(int)
+    counts = {}
+    # Iterate through every atom type in the dictionary
+    # Return every type of available atom types for method robustness
+    for atom, atom_num in ATOM_DICT.items():
+      at_count = np.count_nonzero(np.isclose(atomic_numbers, atom_num))
+      counts[atom] = at_count
+    return counts
+
+  def segment_to_rdkit(self, theidxi=None):
+    """
+    Generate a rdkit molecule based on the residue-based segment
+    """
+    if theidxi is None:
+      rdmol = utils.traj_to_rdkit(self.traj, self._SEGRES_INDICES, self.frame)
+    else:
+      rdmol = utils.traj_to_rdkit(self.traj, np.array(theidxi), self.frame)
+    if rdmol is None:
+      return None
+    else:
+      return rdmol
+
+  def segment_to_mesh(self, theidxi=None, d=4, r=1.5):
     """
     Generate a mesh object from a segment of atoms
     Use ChimeraX's method to generate molecular surface
     Avoids the use of MSMS to generate intermediate .xyzr, .vert, .face files
     Args:
-      theidxi: the indices of atoms in the segment
       d: density of the surface
       r: radius of the atoms
     """
-    indice = np.asarray(theidxi)
-    resnames = np.array([a.name for a in self.traj.top.residues])
-    rads = [getRadius(i, j) for i, j in [(a.name, resnames[a.resid]) for a in self.atoms[indice]]]
-    # xyzrline = "";
-    # for (x, y, z), rad in zip(self.traj.xyz[self.frame][indice], rads):
-    #   xyzrline += f"{x:10.3f}{y:10.3f}{z:10.3f}{rad:6.2f}\n"
-    # with open(f"{filename}.xyzr", "w") as file1:
-    #   file1.write(xyzrline)
-    vertices, normals, faces = ses_surface_geometry(self.traj.xyz[self.frame][indice], rads)
+    if theidxi is None:
+      segment_indices = self._SEGMENT
+    else:
+      segment_indices = np.array(theidxi)
 
+    resnames = np.array([a.name for a in self.traj.residues])
+    rads = [getRadius(i, j) for i, j in [(a.name, resnames[a.resid]) for a in self.traj.atoms[segment_indices]]]
+
+    # TODO: integrate the density of points and radius of probe into the surface generation function
+    vertices, normals, faces = ses_surface_geometry(self.traj.xyz[self.frame][segment_indices], rads)
+
+    # Retrieve and post-process the mesh: vertices, normals, faces
     mesh = o3d.geometry.TriangleMesh()
     mesh.vertices = o3d.utility.Vector3dVector(vertices)
     mesh.vertex_normals = o3d.utility.Vector3dVector(normals)
@@ -553,113 +702,106 @@ class generator:
     if not mesh.is_empty():
       return mesh
     else:
-      print(
-        f"{msms2mesh.__name__:15s}: Failed to convert the MSMS output files to triangle mesh, please check the MSMS output files");
-      return o3d.geometry.TriangleMesh();
+      printit(f"{__file__}: Failed to convert the XYZR to triangle mesh.")
+      return o3d.geometry.TriangleMesh()
 
-  # @profile
-  def vectorize(self, segment):
+  def segment_to_vpc(self, viewpoint=None, bins=None):
+    """
+    Compute the viewpoint feature of a segment
+    """
+    pf_gen = PointFeature(self._MESH)
+    if viewpoint is None:
+      if self.segment_index == (self._SEGMENTS_NUMBER - 1):
+        cog_next = self.center
+      else:
+        idx_next = np.where(self._SEGMENTS == self._SEGMENTS_ORDER[self.segment_index + 1])[0]
+        cog_next = self.traj.xyz[self.frame][idx_next].mean(axis=0)
+    else:
+      cog_next = viewpoint
+    if bins is None:
+      bin_nr = self.VIEWPOINTBINS
+    else:
+      bin_nr = bins
+    vpc = pf_gen.compute_vpc(cog_next, bins=bin_nr)
+    if vpc is None or np.sum(vpc) == 0:
+      return None
+    else:
+      return vpc
+
+  def vectorize(self):
     """
     Vectorize the segments (at maximum 6) of a frame
     Two major steps:
       1. Generate the fingerprint for each segment (including PDB generation/Molecular surface generation)
       2. Collect all the results, combine surfaces and return it to the runframe function
-    Args:
-      segment: the segment to be vectorized
     """
     # Initialize the identity feature vector
-    framefeature = np.zeros((self.SEGMENT_LIMIT, 12 + self.VIEWPOINTBINS))
+    frame_feature = np.zeros((self.SEGMENT_LIMIT, 12 + self.VIEWPOINTBINS))
     pdb_final = ""
-    self.__mesh = None     # Load the lastest mesh object to the object
     segment_objects = []   # 3D objects for each segment
     atom_indices = []      # Atom indices for each segment
+    atom_indices_res = []  # Atom indices for each segment (residue-based)
+    segment_rdmols = []  # RDKit molecules for each segment
 
-    # Order the segments from the most abundant to least ones
-    segcounter = 0
-    nrsegments = min(len(set(segment)) - 1, self.SEGMENT_LIMIT)
-    ordered_segs = utils.order_segments(segment)[:nrsegments]
-    """ ITERATE the at maximum 6 segments """
-    for segidx, segi in enumerate(ordered_segs):
+    # ITERATE the segments from the most abundant to least ones
+    for seg_index, segi in enumerate(self.segments_order):
+      # From the segment series to segment indices
+      theidxi = np.where(self.segments == segi)[0]
+      self.segment_index = seg_index
       if _verbose:
-        printit(f"{self.vectorize.__name__:15s}: Processing segment {segidx + 1}/{nrsegments} ...")
+        printit(f"{__name__:15s}: Processing the segment {seg_index + 1}/{self.segments_number} ...")
+        printit(f"{__name__:15s}: Atom number by segment index: {len(theidxi)}; residue-based index: {len(self.segment_residue)}")
+      ret_status = self.compute_segment_i(theidxi)
+      if False in ret_status:
+        printit(f"{__name__:15s}: Failed processing the segment {seg_index + 1}/{self.segments_number} of frame {self.frame} in {self.traj.top_filename}")
+        printit(f"{__name__:15s}: Skip this segment ...")
+        frame_feature[seg_index, :] = 0
+        continue
+
       # ATOM types counts
-      theidxi = np.where(segment == segi)[0]
-      atomdict = self.atom_type_count(theidxi)
-      C_Nr = atomdict.get("C", 0)
-      N_Nr = atomdict.get("N", 0)
-      O_Nr = atomdict.get("O", 0)
-      H_Nr = atomdict.get("H", 0)
-      T_Nr = sum(atomdict.values())
-      if _verbose:
-        printit(f"{self.vectorize.__name__:15s}: Segment {segidx + 1}/{nrsegments}: Total {T_Nr} atoms including {C_Nr} C, {N_Nr} N, {O_Nr} O, {H_Nr} H")
-
-      # Generate the rdkit molecule here for Residue-based descriptors
-      self.seg_mask = utils.get_residue_mask(self.traj, utils.get_mask_by_idx(self.traj, theidxi))
-      self.seg_indices = self.traj.top.select(self.seg_mask)
-      self.seg_mol = utils.traj_to_rdkit(self.traj, self.seg_indices, self.frame)
-      if (self.seg_mol == None) or (not self.seg_mol):
-        framefeature[segcounter - 1, :] = 0
-        printit(f"Warning: vectorize: Failed to generate the rdkit molecule for segment {segidx + 1}/{nrsegments} of frame {self.frame} in {self.traj.top_filename}")
-        printit(f"Warning: vectorize: Found {len(self.seg_indices)} atoms including {C_Nr} C, {N_Nr} N, {O_Nr} O, {H_Nr} H")
-        continue
-
-      if _verbose:
-        printit(f"{self.vectorize.__name__:15s}: Segment {segidx + 1}/{nrsegments}: Residue-based atom number: {len(self.seg_indices)}")
-
+      carbon_number = self.atom_count.get("C", 0)
+      total_number = sum(self.atom_count.values())
       # For each segment, computer the partial charge, hydrogen bond, pseudo energy separately
-      C_p, C_n = self.partial_charge()
-      N_d, N_a = self.hbp_count()
+      positive_charge, negative_charge = self.partial_charge()
+      donor_number, acceptor_number = self.hbp_count()
       PE_lj, PE_el = self.pseudo_energy()
-      if _verbose:
-        printit(f"{self.vectorize.__name__:15s}: Segment {segidx + 1}/{nrsegments}: C_p: {C_p}, C_n: {C_n}, N_d: {N_d}, N_a: {N_a}, PE_lj: {PE_lj}, PE_el: {PE_el}")
-
-      # Segment conversion to triangle mesh
-      self.mesh = self.segment2mesh(theidxi)
-      if self.mesh == False or self.mesh.is_empty():
-        print(f"Failed to generate the surface mesh for segment {segidx + 1}/{nrsegments} of frame {self.frame} in {self.traj.top_filename}")
-        print("Skip this segment ...")
-        framefeature[segcounter - 1, :] = 0
-        continue
-
       # Point cloud-based descriptors
-      SA = self.surface(self.mesh)
-      VOL = self.volume(self.mesh)
-      rad = self.mean_radius(self.mesh)
-      h_ratio = self.convex_hull_ratio(self.mesh);
-      self.mesh.paint_uniform_color(SEGMENT_CMAPS[segcounter]);
+      surface_area = self.surface(self.mesh)
+      enclosed_volume = self.volume(self.mesh)
+      mean_radius = self.mean_radius(self.mesh)
+      hull_ratio = self.convex_hull_ratio(self.mesh)
 
-      framefeature[segcounter, :12] = [
-        T_Nr, C_Nr, N_d, N_a, C_p, C_n, PE_lj, PE_el, SA, VOL, rad, h_ratio
+      frame_feature[seg_index, :12] = [
+        total_number, carbon_number, donor_number, acceptor_number, positive_charge, negative_charge,
+        PE_lj, PE_el, surface_area, enclosed_volume, mean_radius, hull_ratio
       ]
 
-      # PDB string processing
-      atom_indices += self.seg_indices.tolist();
-      pdbstr = chem.write_pdb_block(self.traj, self.seg_indices, frame_index=self.frame);
-      # new_lines = [line for line in pdbstr.strip("\n").split('\n') if ("^END$" not in line and "CONECT" not in line)]
-      new_lines = [line for line in pdbstr.strip("\n").split('\n')];
-      pdb_final += ('\n'.join(new_lines) + "\n");
+      frame_feature[seg_index, -self.VIEWPOINTBINS:] = self.vpc
 
-      # TODO: Try fixed viewpoint
-      pf_gen = PointFeature(self.mesh);
-      if segidx != (nrsegments - 1):
-        # Use the next segment's center as the viewpoint
-        idx_next = np.where(segment == ordered_segs[segidx+1])[0]
-        cog_next = self.traj.xyz[self.frame][idx_next].mean(axis=0)
-      else:
-        # In the last segment, use the center of the box as the viewpoint
-        cog_next = self.center
-      vpc = pf_gen.compute_vpc(cog_next, bins = self.VIEWPOINTBINS)
-      framefeature[segcounter, -self.VIEWPOINTBINS:] = vpc
-      if (_verbose):
-        printit(f"{self.vectorize.__name__:15s}: Segment {segidx + 1}/{nrsegments}: Viewpoint: {cog_next}; Sum of VPC is: {sum(vpc)}; Max of VPC is: {max(vpc)}; Min of VPC is: {min(vpc)}");
-      self.__mesh = copy.deepcopy(self.mesh)
-      segcounter += 1
-      segment_objects.append(self.mesh)
       if _verbose:
-        printit(f"{self.vectorize.__name__:15s}: Segment {segidx + 1}/{nrsegments} processing finished ...")
-    ########################################################
+        printit(f"{__name__:15s}: Segment {seg_index + 1}/{self.segments_number} computation succeeded.")
+        printit(f"{__name__:15s}: Carbon number: {self.atom_count.get('C', 0)}; Total number: {sum(self.atom_count.values())}")
+        printit(f"{__name__:15s}: Partial charge: (Positive: {positive_charge}/Negative: {negative_charge})")
+        printit(f"{__name__:15s}: Hydrogen bond: (Donor: {donor_number}/Acceptor: {acceptor_number})")
+        printit(f"{__name__:15s}: Pseudo energy: (LJ: {PE_lj}, Electrostatic: {PE_el})")
+        printit(f"{__name__:15s}: Surface area: {surface_area}, Enclosed volume: {enclosed_volume}, Mean radius: {mean_radius}, Hull ratio: {hull_ratio}")
+        printit(f"{__name__:15s}: VPC info -> Sum: {self.vpc.sum()}; Max: {self.vpc.max()}; Min: {self.vpc.min()}")
+
+      # Mesh post-processing, pass a deep copy to the segment_objects because Python only passes the reference
+      self.mesh.paint_uniform_color(SEGMENT_CMAPS[seg_index])
+      segment_objects.append(copy.deepcopy(self.mesh))
+
+      # PDB string processing
+      atom_indices += self.segment_residue.tolist()
+      pdbstr = utils.write_pdb_block(self.traj, self.segment_residue, frame_index=self.frame)
+      # new_lines = [line for line in pdbstr.strip("\n").split('\n') if ("^END$" not in line and "CONECT" not in line)]
+      new_lines = [line for line in pdbstr.strip("\n").split("\n")]
+      pdb_final += ('\n'.join(new_lines) + "\n")
+      segment_rdmols.append(self.mol)
+      atom_indices_res += self.segment_residue.tolist()
+
+
     ############ END of the segment iteration ##############
-    ########################################################
     try:
       for idx, mesh in enumerate(segment_objects):
         if idx == 0:
@@ -668,54 +810,31 @@ class generator:
           combined_mesh += mesh
       if _verbose:
         printit("Final 3D object: ", combined_mesh)
+      self._COMBINED_MESH = combined_mesh
     except:
       printit(f"Warning: {self.traj.top_filename} -> Failed to combine the segment meshes for frame {self.frame} in {self.traj.top_filename}")
-      printit(f"Warning: {self.traj.top_filename} -> Non-zero feature number: {np.count_nonzero(framefeature)} ; frame index: {self.frame}; ")
+      printit(f"Warning: {self.traj.top_filename} -> Non-zero feature number: {np.count_nonzero(frame_feature)} ; frame index: {self.frame}; ")
       printit(f"Warning: {self.traj.top_filename} -> PDB_string: {pdb_final} ; Mesh objects: {segment_objects}")
       printit(f"Warning: {self.traj.top_filename} -> Skip this frame ...")
-      self.set_tempprefix()
-      savelog(f"{self.tempprefix}frame{self.frame}.log")
+      with open(f"{self.temp_prefix}frame{self.frame}_FAILED.pdb", "w") as f:
+        f.write(pdb_final)
       return np.zeros((self.SEGMENT_LIMIT, 12 + self.VIEWPOINTBINS)).reshape(-1), []
 
     # Keep the final PDB and PLY files in memory for further use
-    self.active_pdb = pdb_final
-    self.active_indices = atom_indices
-    self.active_ply = write_ply(combined_mesh.vertices, normals=combined_mesh.vertex_normals, triangles=combined_mesh.triangles )
+    self._RDMOLS = segment_rdmols
+    self._PDB_STRING = pdb_final
+    self._INDICES = atom_indices
+    self._INDICES_RES = atom_indices_res
 
     if (not _clear):
       # Write out the final mesh if the intermediate output is required for debugging purpose
       # Reset the file prefix to make the temporary output file organized
-      self.set_tempprefix()
-      with open(f"{self.tempprefix}frame{self.frame}.pdb", "w") as f:
-        f.write(pdb_final)
-      with open(f"{self.tempprefix}frame{self.frame}.ply", "w") as f:
-        f.write(plystring)
+      with open(f"{self.temp_prefix}frame{self.frame}.pdb", "w") as f:
+        f.write(self.get_pdb_string())
+      with open(f"{self.temp_prefix}frame{self.frame}.ply", "w") as f:
+        f.write(self.get_ply_string())
 
-    if _verbose and (len(self.active_pdb) == 0 or len(self.active_ply) == 0):
-      printit(f"DEBUG: Failed to correctly generate the intermediate PDB and PLY files for frame {self.frame}");
-    return framefeature.reshape(-1), segment_objects
-  
-  def atom_type_count(self, theidxi):
-    """
-    Descriptor 1 and 2:
-    Args:
-      theidxi: the indices of the atoms in the segment
-    Return: 
-      Atom counts as a dictionary
-    """
-    ATOM_DICT = {
-      'H': 1, 'C': 6, 'N': 7, 'O': 8,
-      'F': 9, 'P': 15, 'S': 16, 'Cl': 17,
-      'Br': 35, 'I': 53
-    }
-    atomic_numbers = np.array([i.atomic_number for i in self.atoms[theidxi]]).astype(int)
-    counts = {}
-    # Iterate through every atom type in the dictionary
-    # Return every type of available atom types for method robustness
-    for atom, atom_num in ATOM_DICT.items():
-      at_count = np.count_nonzero(np.isclose(atomic_numbers, atom_num))
-      counts[atom] = at_count
-    return counts
+    return frame_feature.reshape(-1)
 
   def hbp_count(self):
     """
@@ -726,22 +845,18 @@ class generator:
       number_d: Number of hydrogen bond donor
       number_a: Number of hydrogen bond acceptor
     """
-    conf = self.seg_mol.GetConformer()
-    d_matches = self.seg_mol.GetSubstructMatches(RD_DONOR_PATTERN)
-    a_matches = self.seg_mol.GetSubstructMatches(RD_ACCEPTOR_PATTERN)
-    d_within = 0
-    a_within = 0
+    conf = self.mol.GetConformer()
+    d_matches = self.mol.GetSubstructMatches(RD_DONOR_PATTERN)
+    a_matches = self.mol.GetSubstructMatches(RD_ACCEPTOR_PATTERN)
 
     # Get all atom positions and store in a numpy array outside the loop
     all_positions = np.array(conf.GetPositions())
 
     # Convert bounds checks to numpy operations
-    lower_bound = self.center - self.length / 2
-    upper_bound = self.center + self.length / 2
     d_coords = all_positions[[d[0] for d in d_matches]]  # Gather all d coordinates at once
     a_coords = all_positions[[a[0] for a in a_matches]]  # Gather all a coordinates at once
-    d_within = np.sum(np.all((d_coords > lower_bound) & (d_coords < upper_bound), axis=1))
-    a_within = np.sum(np.all((a_coords > lower_bound) & (a_coords < upper_bound), axis=1))
+    d_within = np.sum(np.all((d_coords > self.lower_bound) & (d_coords < self.upper_bound), axis=1))
+    a_within = np.sum(np.all((a_coords > self.lower_bound) & (a_coords < self.upper_bound), axis=1))
     return d_within, a_within
 
   def partial_charge(self):
@@ -751,23 +866,15 @@ class generator:
       charge_p: Number of positive partial charge
       charge_n: Number of negative partial charge
     """
-    charge_p = 0
-    charge_n = 0
-    conf = self.seg_mol.GetConformer()
-    lower_bound = self.center - self.length / 2
-    upper_bound = self.center + self.length / 2
+    conf = self.mol.GetConformer()
 
     all_positions = np.array(conf.GetPositions())
-    all_charges = np.array([atom.GetDoubleProp('_GasteigerCharge') for atom in self.seg_mol.GetAtoms()])
-    # if True in np.isnan(all_charges) and _debug: # Check for NaN values
-    #   printit(f"Warning: NaN value found in partial charge for frame {self.frame}")
-    #   raise ValueError("NaN value found in partial charge")
-    # print(all_charges)
+    all_charges = np.array([atom.GetDoubleProp('_GasteigerCharge') for atom in self.mol.GetAtoms()])
 
-    mask = np.all((all_positions > lower_bound) & (all_positions < upper_bound), axis=1)
+    mask = np.all((all_positions > self.lower_bound) & (all_positions < self.upper_bound), axis=1)
+    # NOTE: there might be NaN values in the partial charge returned by RDKit
     charge_p = np.sum(all_charges[mask & (all_charges > 0)])
     charge_n = np.sum(all_charges[mask & (all_charges < 0)])
-
     return charge_p, charge_n
 
   def pseudo_energy(self):
@@ -777,21 +884,19 @@ class generator:
       pp_lj: Pseudo Lenar-Jones potential
       pp_elec: Pseudo Electrostatic potential
     """
-    # Compute the pseudo-lj and pseudo-elec potential
-    pp_elec = 0
-    pp_lj = 0
-    # Constants
+    # Compute the pseudo-lj and pseudo-elec potential constants
     K_ELEC = 8.98
     EPSILON_LJ = 1
     SIGMA_LJ = 1
-    atomnr = self.seg_mol.GetNumAtoms()
-    conf = self.seg_mol.GetConformer()
+    atomnr = self.mol.GetNumAtoms()
+    conf = self.mol.GetConformer()
     positions = conf.GetPositions()
-    charges = np.array([atom.GetDoubleProp('_GasteigerCharge') for atom in self.seg_mol.GetAtoms()])
+    charges = np.array([atom.GetDoubleProp('_GasteigerCharge') for atom in self.mol.GetAtoms()])
 
     if atomnr != len(positions) or atomnr != len(charges):
+      # Returns 0 for both pp_lj and pp_elec if the atom number mismatch
       print(f"DEBUG: Atom number mismatch in pseudo_energy for frame {self.frame}")
-      return 0, 0  # Returns 0 for both pp_lj and pp_elec
+      return 0, 0
 
     # Now use these pair-wise values to calculate pseudo potentials
     distances = pdist(positions)                  # Pair-wise distances
@@ -806,12 +911,13 @@ class generator:
   def volume(self, mesh): 
     """
     Volume computation is not robust enough
+    TODO: Use the C++ code to compute the volume
     """
     try:
-      print("DEBUG here: after the geometrical descriptors calculation", self.mesh, VOL)
-      VOL = mesh.get_volume();
-    except: 
-      VOL  = 1.5 * mesh.get_surface_area();
+      VOL = mesh.get_volume()
+    except:
+      printit(f"Warning: failed to compute the volume for frame {self.frame}")
+      VOL  = 1.5 * mesh.get_surface_area()
     return VOL
     
   def surface(self, mesh):
@@ -820,7 +926,7 @@ class generator:
     Args:
       mesh: open3d.geometry.TriangleMesh
     """
-    return mesh.get_surface_area();
+    return mesh.get_surface_area()
   
   def mean_radius(self, mesh):
     """
@@ -828,7 +934,7 @@ class generator:
     Args:
       mesh: open3d.geometry.TriangleMesh
     """
-    pcd = mesh.sample_points_uniformly(CONFIG.get("DOWN_SAMPLE_POINTS", 600));
+    pcd = mesh.sample_points_uniformly(self.FPFH_DOWN_SAMPLES)
     mean_radius = np.linalg.norm(np.asarray(pcd.points) - pcd.get_center(), axis=1).mean()
     return mean_radius
   
@@ -838,10 +944,9 @@ class generator:
     Args:
       mesh: open3d.geometry.TriangleMesh
     """
-    samples = CONFIG.get("DOWN_SAMPLE_POINTS", 600);
-    pcd = mesh.sample_points_uniformly(samples);
-    hull, _ = pcd.compute_convex_hull();
-    hull_ratio = len(hull.vertices)/samples;
+    pcd = mesh.sample_points_uniformly(self.FPFH_DOWN_SAMPLES)
+    hull, _ = pcd.compute_convex_hull()
+    hull_ratio = len(hull.vertices)/self.FPFH_DOWN_SAMPLES
     return hull_ratio
   
   def fpfh_down(self, mesh, origin=True):
@@ -849,15 +954,15 @@ class generator:
     Down sample the mesh uniformly and compute the fpfh feature
     TODO: add support for the voxel-base down sampling 
     """
-    samples = CONFIG.get("DOWN_SAMPLE_POINTS", 600)
     relative = bool(not origin)
     mesh_copy = copy.deepcopy(mesh)
     mesh_copy.translate([0,0,0], relative=relative)
     ktree = o3d.geometry.KDTreeSearchParamHybrid(radius=1.5, max_nn=20)
-    mesh_down = mesh_copy.sample_points_uniformly(samples)
+    mesh_down = mesh_copy.sample_points_uniformly(self.FPFH_DOWN_SAMPLES)
     mesh_down.estimate_normals(ktree)
     fpfh_down = o3d.pipelines.registration.compute_fpfh_feature(mesh_down, ktree)
     return fpfh_down.data
+
 
 def object_meta(obj):
   points = np.asarray(obj.vertices).round(3)
@@ -868,12 +973,22 @@ def object_meta(obj):
   return points.reshape(-1), normals.reshape(-1), colors.reshape(-1), triangles.reshape(-1)
 
 
+def order_segments(lst):
+  """
+  Process the segments and order them by the number of atoms
+  """
+  from collections import Counter
+  counter = Counter(lst)
+  sorted_elements = sorted(counter, key=lambda x: counter[x], reverse=True)
+  if 0 in sorted_elements:
+    sorted_elements.remove(0)
+  return sorted_elements
+
+
 class PointFeature(object):
+  # TODO: setup the points to down sample
   def __init__(self, obj_3d):
-    # self._neighbors = nneighbors
-    # self._radius = rad
     self._obj = obj_3d
-    # TODO: setup the points to down sample
     if "vertices" in dir(self._obj):
       self._pcd = np.array(self._obj.vertices)
     elif "points" in dir(self._obj):
@@ -881,8 +996,15 @@ class PointFeature(object):
     self._norm = np.array(self._obj.vertex_normals)
     self._kdtree = spatial.KDTree(self._pcd)
 
+  @property
+  def pcd(self):
+    return self._pcd
+  @property
+  def norm(self):
+    return self._norm
+
   def self_vpc(self, bins=128):
-    cos_angles = [np.dot(n, d/np.linalg.norm(d)) for n,d in zip(self._norm, self._pcd-self._pcd.mean(axis=0))]
+    cos_angles = [np.dot(n, d/np.linalg.norm(d)) for n,d in zip(self.norm, self.pcd-self.pcd.mean(axis=0))]
     angles = np.arccos(cos_angles)
     hist, _ = np.histogram(angles, bins=self.VIEWPOINTBINS, range=(0, np.pi))
     hist_normalized = hist / np.sum(hist)
@@ -891,85 +1013,21 @@ class PointFeature(object):
 
   def compute_vpc(self, viewpoint, bins=128):
     # Compute the relative position of the viewpoint to the center of the point cloud
-    rel_vp = np.asarray(viewpoint) - self._pcd.mean(axis=0)
-
-    # Normalize the relative viewpoint vectors
+    rel_vp = np.asarray(viewpoint) - self.pcd.mean(axis=0)
     rel_vp_normalized = rel_vp / np.linalg.norm(rel_vp)
 
     # Calculate the angle between the normals and the relative viewpoint vectors
-    cos_angles = np.dot(self._norm, rel_vp_normalized)
+    cos_angles = np.dot(self.norm, rel_vp_normalized)
     angles = np.arccos(cos_angles)
 
     # Create the viewpoint component histogram
     hist, _ = np.histogram(angles, bins=bins, range=(0, np.pi))
-
-    # Normalize the histogram
     hist_normalized = hist / np.sum(hist)
-
     hist_normalized = np.asarray([i if not np.isnan(i) else 0 for i in hist_normalized])
     return hist_normalized
 
 
-####################################################################################################
-###################################### Open3D object display #######################################
-####################################################################################################
-def displayfiles(plyfiles, add=[]):
-  """
-  Display a list of ply files (trangle mesh) in the same window
-  """
-  objs = []
-  finalobj = None
-  for obji, plyfile in enumerate(plyfiles): 
-    color = SEGMENT_CMAPS[obji]
-    mesh = o3d.io.read_triangle_mesh(plyfile)
-    mesh.compute_vertex_normals()
-    mesh.paint_uniform_color(color)
-    objs.append(mesh)
-    if obji == 0: 
-      finalobj = mesh
-    else: 
-      finalobj += mesh
-  display(objs, add=add)
-  return objs
-
-def display(objects, add=[]):
-  """
-  Display a list of objects in the same window
-  Args:
-    objects: list of open3d.geometry.TriangleMesh
-    add: list of additional objects for accessary
-  """
-  if len(objects) == 0 and len(add)==0:
-    return []
-  else: 
-    objs = copy.deepcopy(objects)
-    for i in range(1, len(objs)):
-      color = SEGMENT_CMAPS[i]
-      objs[i].paint_uniform_color(color)
-      if isinstance(objs[i], o3d.geometry.TriangleMesh): 
-        objs[i].compute_vertex_normals()
-    o3d.visualization.draw_geometries(add+objs, width=1200, height=1000)
-
-def display_registration(source, target, transformation):
-  """
-  Apply the transformation metrix to the source point cloud and display it with the target point cloud
-  Args:
-    source: open3d.geometry.PointCloud
-    target: open3d.geometry.PointCloud
-    transformation: transformation matrix, np.array sized (4,4)
-  """
-  source_temp = copy.deepcopy(source)
-  target_temp = copy.deepcopy(target)
-  source_temp.paint_uniform_color(SEGMENT_CMAPS[1])
-  target_temp.paint_uniform_color(SEGMENT_CMAPS[-1])
-  source_temp.transform(transformation)
-  display([source_temp, target_temp])
-
-def displayconvex(obj, n_points=600):
-  pcd, hulls = computeconvex(obj, n_points=600)
-  display([pcd, hulls])
-  
-def computeconvex(obj, n_points=600):
+def compute_convex(obj, n_points=600):
   if isinstance(obj, o3d.geometry.TriangleMesh):
     pcd = obj.sample_points_uniformly(n_points)
   elif isinstance(obj, o3d.geometry.PointCloud):
@@ -979,63 +1037,6 @@ def computeconvex(obj, n_points=600):
   hull_ls.paint_uniform_color([0.77, 0, 1])
   return (pcd, hull_ls)
 
-def voxelize(obj, show=True):
-  if isinstance(obj, o3d.geometry.TriangleMesh):
-    pcd = obj.sample_points_uniformly(600)
-  elif isinstance(obj, o3d.geometry.PointCloud):
-    pcd = obj.voxel_down_sample(0.01)
-  else: 
-    print(f"Please provide a o3d.geometry.TriangleMesh or o3d.geometry.PointCloud object rather than {type(obj)}")
-    return False
-  pcd.colors = o3d.utility.Vector3dVector(np.random.uniform(0, 1, size=(600, 3)))
-  # fit to unit cube
-  pcd.scale(1 / np.max(pcd.get_max_bound() - pcd.get_min_bound()),
-          center=pcd.get_center())  
-  voxel_grid = o3d.geometry.VoxelGrid.create_from_point_cloud(pcd, voxel_size=0.05)
-  if show: 
-    display([voxel_grid])
-  return voxel_grid 
-
-####################################################################################################
-####################################### Open3D accessory div #######################################
-####################################################################################################
-def NewCuboid(center=[0,0,0], length=6):
-  """
-  Accessory function to create a cuboid formed by 8 points and 12 lines
-  Args:
-    center: center of the cuboid
-    length: length of the cuboid
-  """
-  points = np.array([
-    [0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0],
-    [0, 0, 1], [1, 0, 1], [0, 1, 1], [1, 1, 1],
-  ])
-  points = points * length
-  points = points + np.array(center) - (length/2)
-  lines = np.array([
-    [0, 1], [0, 2], [1, 3], [2, 3],
-    [4, 5], [4, 6], [5, 7], [6, 7],
-    [0, 4], [1, 5], [2, 6], [3, 7],
-  ])
-  colors = [[0, 0, 0] for i in range(len(lines))]
-  line_set = o3d.geometry.LineSet(
-    points = o3d.utility.Vector3dVector(points),
-    lines = o3d.utility.Vector2iVector(lines),
-  )
-  line_set.colors = o3d.utility.Vector3dVector(colors)
-  return line_set
-
-def NewCoordFrame(center=[0,0,0], scale=1):
-  """
-  Accessory function to create a coordinate frame
-  Args:
-    center: center of the coordinate frame
-    scale: scale of the coordinate frame
-  """
-  coord_frame = o3d.geometry.TriangleMesh.create_coordinate_frame()
-  coord_frame.scale(scale=scale, center=center)
-  coord_frame.translate(center, relative=False)
-  return coord_frame
 
 
 def cosine_similarity(a, b):
@@ -1067,12 +1068,9 @@ def compute_similarity(array1, array2, weights=[1, 0.5, 0.15, 0.1, 0.1, 0.05]):
     contrib_chem = np.array([cosine_similarity(array1[i, :12].ravel(), array2[i, :12].ravel()) for i in range(6)])
     contrib_viewpoint = np.array([cosine_similarity(array1[i, 12:].ravel(), array2[i, 12:].ravel()) for i in range(6)])
 
-    # print("TESTHERE");
-    # print(array1.tolist(), array2.tolist())
     # for i in range(6):
     #   _cos = cossim(array1[i, :12].ravel(), array2[i, :12].ravel())
     #   print(f"====> session {i}", _cos, array1[i, :12].ravel(), array2[i, :12].ravel())
-    # print("TESTEND")
 
     similarities = (contrib_chem + contrib_viewpoint) / 2 * weights / sum(weights[np.nonzero(contrib_chem)])
     # print(similarities, contrib_viewpoint.round(2), contrib_chem.round(2))
@@ -1086,9 +1084,6 @@ def compute_similarity(array1, array2, weights=[1, 0.5, 0.15, 0.1, 0.1, 0.05]):
 
 def weight(array1):
   array1 = array1.ravel().reshape(6, -1)
-  # array2 = array2.ravel().reshape(6, -1)
-  # print(array1)
-  # print("reweight", array1[:, 0].ravel())
   return array1[:, 0].ravel()
 
 ######################################################################
@@ -1130,8 +1125,8 @@ def ses_surface_geometry(xyz, radii, probe_radius=1.4, grid_spacing=0.5, sas=Fal
   If sas is true then the solvent accessible surface is returned instead.
   This avoid generating the
   '''
-  sys.path.insert(0, os.path.join(PACKAGE_DIR, "static"));
-  import _geometry, _surface, _map
+  sys.path.insert(0, os.path.join(PACKAGE_DIR, "static"))
+  from nearl.static import _geometry, _surface, _map
 
   radii = np.asarray(radii, np.float32)
   # Compute bounding box for atoms

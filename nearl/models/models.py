@@ -5,6 +5,9 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import train_test_split
 
+__all__ = [
+  "rfscore",
+]
 
 # Create a random forest regressor.
 class rfscore(RandomForestRegressor):

@@ -6,18 +6,26 @@ from rdkit import Chem
 
 from open3d.geometry import TriangleMesh
 
-from .. import utils
-from ..io import hdf5
+from nearl import utils
+from nearl.io import hdf5
 
 from . import fingerprint
 from .. import printit, CONFIG, _verbose, _debug
 
+def initialize_grid(thecenter, thelengths, thedims):
+  thegrid = np.meshgrid(
+    np.linspace(thecenter[0] - thelengths[0] / 2, thecenter[0] + thelengths[0] / 2, thedims[0]),
+    np.linspace(thecenter[1] - thelengths[1] / 2, thecenter[1] + thelengths[1] / 2, thedims[1]),
+    np.linspace(thecenter[2] - thelengths[2] / 2, thecenter[2] + thelengths[2] / 2, thedims[2]),
+    indexing='ij'
+  )
+  thecoord = np.column_stack([thegrid[0].ravel(), thegrid[1].ravel(), thegrid[2].ravel()])
+  return thegrid, thecoord
 
 class Featurizer3D:
   def __init__(self, parms):
     """
     Initialize the featurizer with the given parameters
-    parms: a dictionary of parameters
     """
     # Check the essential parameters for the featurizer
     self.parms = parms
@@ -35,39 +43,34 @@ class Featurizer3D:
     # Box related variables for feature mapping and generation
     self.__distances = np.arange(np.prod(self.__dims)).astype(int)
     self.__boxcenter = np.array([0, 0, 0])
-    # self.__points3d = self.get_points()
-    self.grid = np.meshgrid(
-      np.linspace(self.center[0] - self.lengths[0] / 2, self.center[0] + self.lengths[0] / 2, self.dims[0]),
-      np.linspace(self.center[1] - self.lengths[1] / 2, self.center[1] + self.lengths[1] / 2, self.dims[1]),
-      np.linspace(self.center[2] - self.lengths[2] / 2, self.center[2] + self.lengths[2] / 2, self.dims[2]),
-      indexing='ij'
-    )
-    self.__points3d = np.column_stack([self.grid[0].ravel(), self.grid[1].ravel(), self.grid[2].ravel()])
+    self.grid, self.__points3d = initialize_grid(self.__boxcenter, self.__lengths, self.__dims)
 
     # Identity vector generation related variables
     self.mesh = TriangleMesh()
     self.BOX_MOLS = {}
-    self.active_frame_index = 0
     self.SEGMENTNR = CONFIG.get("SEGMENT_LIMIT", 6)
+    # Hard coded structural features (12)
     self.VPBINS = 12 + CONFIG.get("VIEWPOINT_BINS", 30)
 
     # Initialize the attributes for featurization
-    self.fp_generator = None
+
+    self._fp_generator = None
+    self._traj = None
+    self._top = None
+    self._active_frame_index = 0
+    self._active_frame = None
+    self.__status_flag = []
+
     self.FEATURESPACE = []
     self.FEATURENUMBER = 0
     self.trajloader = None
     self.FRAMES = []
     self.FRAMENUMBER = 0
-    self.traj = None
-    self.top = None
-    self.active_frame_index = 0
-    self.active_frame = None
-    self.__status_flag = []
+
     self.boxed_pdb = ""
     self.boxed_ply = ""
     self.boxed_indices = []
 
-    ##########################################################
     if _verbose:
       printit("Featurizer is initialized successfully")
       print("With Center at: ", self.__boxcenter)
@@ -80,32 +83,37 @@ class Featurizer3D:
       finalstr += f"Feature: {i.__str__()}\n"
     return finalstr
 
+  # Writable attributes
   @property
   def origin(self):
-    return np.array(self.__points3d[0])
+    return self.__points3d - self.__lengths / 2
 
   @origin.setter
   def origin(self, neworigin):
-    diff = np.array(neworigin) - np.array(neworigin)
+    assert len(neworigin) == 3, "The new origin should be a vector of length 3"
+    diff = np.asarray(neworigin) - self.origin
     self.__boxcenter += diff
     self.__points3d += diff
 
   @property
   def center(self):
-    return np.array(self.__boxcenter)
+    return self.__boxcenter
 
   @center.setter
   def center(self, newcenter):
-    diff = np.array(newcenter) - np.mean(self.__points3d, axis=0)
-    self.__boxcenter = np.array(newcenter)
+    assert len(newcenter) == 3, "The new center should be a vector of length 3"
+    diff = np.asarray(newcenter) - self.__boxcenter
+    # self.__boxcenter = np.asarray(newcenter)
+    self.__boxcenter += diff
     self.__points3d += diff
 
   @property
   def lengths(self):
-    return np.array(self.__lengths)
+    return self.__lengths
 
   @lengths.setter
   def lengths(self, new_length):
+    assert len(new_length) == 3, "The new lengths should be a vector of length 3"
     if isinstance(new_length, int) or isinstance(new_length, float):
       self.__lengths = np.array([new_length] * 3)
     elif isinstance(new_length, list) or isinstance(new_length, np.ndarray):
@@ -118,13 +126,51 @@ class Featurizer3D:
   def dims(self):
     return np.array(self.__dims)
 
-  @property
-  def points3d(self):
-    return self.__points3d
+  @dims.setter
+  def dims(self, newdims):
+    assert len(newdims) == 3, "The new dims should be a vector of length 3"
+    if isinstance(newdims, int) or isinstance(newdims, float):
+      self.__dims = np.array([newdims] * 3)
+    elif isinstance(newdims, list) or isinstance(newdims, np.ndarray):
+      assert len(newdims) == 3, "length should be 3"
+      self.__dims = np.array(newdims)
+    else:
+      raise Exception("Unexpected data type")
 
   @property
-  def resolutions(self):
-    return self.__resolutions
+  def traj(self):
+    return self._traj
+
+  @traj.setter
+  def traj(self, the_traj):
+    self._traj = the_traj
+    self._top = self._traj.top.copy()
+
+  @property
+  def active_frame(self):
+    return self._active_frame
+
+  @active_frame.setter
+  def active_frame(self, new_frame):
+    self._active_frame = new_frame
+
+  @property
+  def active_frame_index(self):
+    return self._active_frame_index
+
+  @active_frame_index.setter
+  def active_frame_index(self, new_index):
+    self._active_frame_index = int(new_index)
+    self._active_frame = self._traj[self._active_frame_index]
+    # self._active_frame_index = np.where(np.isclose(self.traj.time - self._active_frame.time, 0))[0][0]
+
+  @property
+  def fp_generator(self):
+    return self._fp_generator
+
+  @fp_generator.setter
+  def fp_generator(self, new_fp_generator):
+    self._fp_generator = new_fp_generator
 
   @property
   def status_flag(self):
@@ -134,37 +180,28 @@ class Featurizer3D:
   def status_flag(self, newstatus):
     self.__status_flag.append(bool(newstatus))
 
+  # Read-only attributes
   @property
-  def fp_generator(self):
-    return self.fp_generator
-
-  @fp_generator.setter
-  def fp_generator(self, new_fp_generator):
-    self.fp_generator = new_fp_generator
+  def points3d(self):
+    return self.__points3d
 
   @property
-  def traj(self):
-    return self.traj
-
-  @traj.setter
-  def traj(self, the_traj):
-    self.traj = the_traj
+  def resolutions(self):
+    return self.__resolutions
 
   @property
-  def active_frame(self):
-    return self.active_frame
-
-  @active_frame.setter
-  def active_frame(self, new_frame):
-    self.active_frame = new_frame
-    self.active_frame_index = np.where(np.isclose(self.traj.time - self.active_frame.time, 0))[0][0]
+  def top(self):
+    return self._top
 
   def reset_status(self):
     self.__status_flag = []
 
   def translate(self, offsets, relative=True):
     """
-    Apply a translational movement to the cell box;
+    Apply a translational movement to the cell box
+    Args:
+      offsets: the offsets to be applied
+      relative: whether the offsets are relative to the current position; if absolute, move the center to the offsets
     """
     if relative:
       self.__boxcenter += offsets
@@ -172,27 +209,26 @@ class Featurizer3D:
       self.__boxcenter = np.array(offsets)
     self.updatebox()
 
-  def updatebox(self):
+  def updatebox(self, center=None, lengths=None, dims=None):
     """
     Avoid frequent use of the updatebox function because it generates new point set
     Only needed when changing the box parameter <CUBOID_DIMENSION> and <CUBOID_LENGTH>
-    Basic variables: self.__lengths, self.__dims
+    Basic variables: self.__boxcenter, self.__lengths, self.__dims
     """
+    if center is not None:
+      assert len(center) == 3, "The new center should be a vector of length 3"
+      self.__boxcenter = np.array(center)
+    if lengths is not None:
+      assert len(lengths) == 3, "The new lengths should be a vector of length 3"
+      self.__lengths = np.array(lengths)
+    if dims is not None:
+      assert len(dims) == 3, "The new dims should be a vector of length 3"
+      self.__dims = np.array(dims)
+
     self.__resolutions = self.__lengths / self.__dims
     self.__distances = np.arange(np.prod(self.__dims)).astype(int)
-    self.__points3d = self.get_points()
-    self.__boxcenter = np.mean(self.__points3d, axis=0)
+    self.grid, self.__points3d = initialize_grid(self.__boxcenter, self.__lengths, self.__dims)
 
-  def get_points(self):
-    # Generate grid points
-    self.grid = np.meshgrid(
-      np.linspace(self.center[0] - self.lengths[0] / 2, self.center[0] + self.lengths[0] / 2, self.dims[0]),
-      np.linspace(self.center[1] - self.lengths[1] / 2, self.center[1] + self.lengths[1] / 2, self.dims[1]),
-      np.linspace(self.center[2] - self.lengths[2] / 2, self.center[2] + self.lengths[2] / 2, self.dims[2]),
-      indexing='ij'
-    )
-    coord3d = np.column_stack([self.grid[0].ravel(), self.grid[1].ravel(), self.grid[2].ravel()])
-    return coord3d
 
   def distance_to_index(self, point):
     """
@@ -258,8 +294,8 @@ class Featurizer3D:
       thetraj: A trajectory object
     """
     # TODO: Make sure the trajectory related parameters are updated when the trajectory is changed
-    self.traj = thetraj
-    self.top = thetraj.top.copy()
+    self._traj = thetraj
+    self._top = thetraj.top.copy()
 
   # DATABASE operation functions
   def connect(self, dataset):
@@ -368,52 +404,52 @@ class Featurizer3D:
       return pdbline
 
   # Primary function to pipeline computation streamline
-  def run_by_atom(self, atoms, fbox_length="same", focus_mode=None):
+  def run_by_atom(self, atoms, focus_mode=None):
     """
     Iteratively compute the features for each selected atoms (atom index) in the trajectory
     Args:
       atoms: list, a list of atom indexes
-      fbox_length: str or list, optional, the length of the 3D grid box. If "same", use the same length as the
-      trajectory. If a list of 3 numbers, use the provided length. Default is "same".
       focus_mode: str, optional, the focus mode. If None, use the default focus mode. Default is None.
     """
-    # Step1: Initialize the MolBlock representation generator(required by the runframe method)
-    self.fp_generator = fingerprint.generator(self.traj)
-    if fbox_length == "same":
-      self.fp_generator.length = [i for i in self.__lengths]
-    elif (not isinstance(fbox_length, str)) and len(fbox_length) == 3:
-      self.fp_generator.length = [i for i in fbox_length]
-
     # Step2: Initialize the feature array
-    repr_processed = np.zeros((self.FRAMENUMBER * len(atoms), self.SEGMENTNR * self.VPBINS))
-    feat_processed = np.zeros((self.FRAMENUMBER * len(atoms), self.FEATURENUMBER)).tolist()
+    if focus_mode == "cog":
+      repr_processed = np.zeros((self.FRAMENUMBER, self.SEGMENTNR * self.VPBINS))
+      feat_processed = np.zeros((self.FRAMENUMBER, self.FEATURENUMBER)).tolist()
+    else:
+      repr_processed = np.zeros((self.FRAMENUMBER * len(atoms), self.SEGMENTNR * self.VPBINS))
+      feat_processed = np.zeros((self.FRAMENUMBER * len(atoms), self.FEATURENUMBER)).tolist()
 
     # Compute the one-time-functions of each feature
     for feature in self.FEATURESPACE:
       feature.before_frame()
 
     # Step3: Iterate registered frames
-    c = 0
-    c_total = 0
+    c_0 = 0       # For each focus, c_0 is the starting indexand c_1 is the ending index of the feature array
+    c_total = 0   # Totally worked vectors from 0 to c_total
+    fp_generator = fingerprint.generator(self.traj)
     for frame in self.FRAMES:
       self.active_frame_index = frame
       self.active_frame = self.traj[frame]
       if focus_mode == "cog":
-        focuses = np.array([self.active_frame.xyz[atoms].mean(axis=0)])
+        # Only focus on the center of geometry of the selected atoms
+        focuses = np.mean(self.active_frame.xyz[atoms], axis=0)
       else:
+        # Focus on each selected atoms
         focuses = self.active_frame.xyz[atoms]
-      self.fp_generator.frame = frame
+
       printit(f"Frame {frame}: Generated {len(focuses)} centers")
       # For each frame, run number of atoms times to compute the features/segmentations
-      repr_vec, feat_vec = self.runframe(focuses)
+      repr_vec, feat_vec = self.runframe(focuses, fp_generator)
 
-      c_1 = c + len(repr_vec)
+      c_1 = c_0 + len(repr_vec)
       c_total += len(repr_vec)
-      repr_processed[c:c_1] = repr_vec
-      feat_processed[c:c_1] = feat_vec
-      c = c_1
+      repr_processed[c_0:c_1] = repr_vec
+      feat_processed[c_0:c_1] = feat_vec
+      c_0 = c_1
+
     for feature in self.FEATURESPACE:
       feature.after_frame()
+
     return repr_processed[:c_total], feat_processed[:c_total]
 
   def run_by_center(self, center):
@@ -435,6 +471,8 @@ class Featurizer3D:
       id_processed = np.zeros((self.FRAMENUMBER * center_number, self.SEGMENTNR * self.VPBINS))
       feat_processed = np.zeros((self.FRAMENUMBER * center_number, self.FEATURENUMBER)).tolist()
 
+      # Some run-time variables
+
       # Step3: Iterate registered frames
       c = 0
       c_total = 0
@@ -451,25 +489,25 @@ class Featurizer3D:
         id_processed[c:c_1] = repr_vec
         feat_processed[c:c_1] = feat_vec
         c = c_1
+
       return id_processed[:c_total], feat_processed[:c_total]
 
-  def runframe(self, centers):
+  def runframe(self, centers, fp_generator):
     """
     Generate the feature vectors for each center in the current frame
-    Trajectory already loaded in self.fp_generator
-
-    Needs to correctly set the self.fp_generator.center and self.fp_generator.lengths
+    Explicitly transfer the generator object to the function
+    Needs to correctly set the box of the fingerprint.generator by desired center and lengths
     Args:
       centers: list, a list of 3D coordinates
+      fp_generator: fingerprint.generator, the generator object
     """
     # Step1: Initialize the identity vector and feature vector
-    # Hard coded structural features (12)
-    fp_num_per_seg = 12 + CONFIG.get("VIEWPOINT_BINS", 30)
     centernr = len(centers)
-    repr_vector = np.zeros((centernr, 6 * fp_num_per_seg))
+    repr_vector = np.zeros((centernr, 6 * self.VPBINS))
     feat_vector = np.zeros((centernr, self.FEATURENUMBER)).tolist()
     mask = np.ones(centernr).astype(bool)  # Mask failed centers for run time rubustness
 
+    fp_generator.frame = self.active_frame_index
     if _verbose:
       printit(f"Expected to generate {centernr} fingerprint anchors")
 
@@ -481,10 +519,9 @@ class Featurizer3D:
     for idx, center in enumerate(centers):
       # Reset the focus of representation generator
       self.center = center
-      self.fp_generator.center = self.center
-      self.fp_generator.length = self.lengths
+      fp_generator.set_box(self.center, self.lengths)
       # Segment the box and generate feature vectors for each segment
-      slices, segments = self.fp_generator.slicebyframe()
+      segments = fp_generator.query_segments()
 
       # DEBUG ONLY
       if _verbose or _debug:
@@ -494,26 +531,17 @@ class Featurizer3D:
       Compute the identity vector for the molecue block
       Identity generation is compulsory because it is the only hint to retrieve the feature block
       """
-      feature_vector, mesh_objs = self.fp_generator.vectorize(segments)
+      feature_vector, mesh_objs = fp_generator.vectorize()
       if np.count_nonzero(feature_vector) == 0 or len(mesh_objs) == 0:
         # Returned feature vector is all-zero, the featurization is most likely failed
         mask[idx] = False
         continue
 
-      final_mesh = None
-      for meshidx, mesh in enumerate(mesh_objs):
-        if meshidx == 0:
-          final_mesh = mesh
-        else:
-          final_mesh = final_mesh + mesh
+      self.mesh = fp_generator.meshes
+      self.boxed_indices = fp_generator.indices
+      self.boxed_pdb = fp_generator.get_pdb_string()
+      self.boxed_ply = fp_generator.get_ply_string()
 
-      # Keep the intermediate information as metainformation if further review/featurization is needed
-      if _verbose:
-        printit("Final mesh generated", final_mesh)
-      self.mesh = copy.deepcopy(final_mesh)
-      self.boxed_pdb = self.fp_generator.active_pdb
-      self.boxed_ply = self.fp_generator.active_ply
-      self.boxed_indices = self.fp_generator.active_indices
       if len(feature_vector) == 0:
         if _verbose:
           printit(f"Center {center} has no feature vector")
@@ -536,9 +564,11 @@ class Featurizer3D:
     """
     ret_repr_vector = repr_vector[mask]
     ret_feat_vector = [item for item, use in zip(feat_vector, mask) if use]
+
     # Compute the one-time-functions of each feature
     for feature in self.FEATURESPACE:
       feature.after_focus()
+
     # DEBUG ONLY: After the iteration, check the shape of the feature vectors
     if _verbose:
       printit(f"Result identity vector: {ret_repr_vector.shape} ; Feature vector: {ret_feat_vector.__len__()} - {ret_feat_vector[0].__len__()}")

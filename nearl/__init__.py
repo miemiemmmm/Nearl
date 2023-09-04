@@ -5,7 +5,7 @@ import importlib.resources as resources
 
 __version__ = "0.0.1"
 _runtimelog = []
-configfile = resources.files("nearl").joinpath("myconfig.json")
+configfile = resources.files("nearl").joinpath("../CONFIG.json")
 print("Check the configfile later: ", configfile)
 
 if os.path.isfile(configfile):
@@ -71,3 +71,6 @@ if _usegpu:
 else:
   msg += "Using CPU only; "
 printit(msg)
+
+from nearl import tests, io, features, models, utils, data
+from nearl import static
