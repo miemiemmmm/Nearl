@@ -12,8 +12,7 @@ UTILS_ACTIONS = [
   "msd",
   "mscv",
   "filter_points_within_bounding_box",
-  "entropy",
-  "order_segments",
+  "_entropy",
   "get_pdb_title",
   "get_pdb_seq",
   "data_from_fbag",
@@ -21,7 +20,6 @@ UTILS_ACTIONS = [
   "data_from_tbagresults",
   "data_from_fbagresults",
   "conflict_factor",
-
 ]
 
 # Only import functions that are pre-defined in the UTILS_ACTIONS (important actions)
@@ -49,6 +47,7 @@ CHEM_ACTIONS = [
   "correct_mol_by_smiles",
   "sanitize_bond",
   "traj_to_rdkit",
+  "write_pdb_block",
 
 ]
 

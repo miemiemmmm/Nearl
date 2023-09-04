@@ -2,7 +2,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-
+__all__ = [
+  'SimpleNetwork',
+  'CNN2D',
+  'CNN3D',
+]
 
 class SimpleNetwork(nn.Module):
   def __init__(self, input_dim=36, output_dim=1):

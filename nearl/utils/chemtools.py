@@ -153,58 +153,60 @@ def Chargebytraj(traj, frameidx, atomidx):
 
 def write_pdb_block(thetraj, idxs, pdbfile="", frame_index=0, marks=[], swap4char=False):
   # Loop over each residue and atom, and write to the PDB file
-  idxs = np.asarray(idxs);
+  idxs = np.asarray(idxs)
   if (len(marks) > 0) and (len(marks) == len(idxs)):
-    marks = marks;
+    marks = marks
   else:
-    marks = ["ATOM"] * len(idxs);
-  xyz_reduce = thetraj.xyz[frame_index].round(3);
-  atom_arr = list(thetraj.top.atoms);
-  res_arr = list(thetraj.top.residues);
-  try:
-    uc = thetraj.unitcells[index];
-    spacegroup = "P 1";
-    finalstr = f"TITLE    Topology Auto Generation : step =  {index}\n";
-    finalstr += f"CRYST1 {uc[0]:8.3f} {uc[1]:8.3f} {uc[2]:8.3f} {uc[3]:6.2f} {uc[4]:6.2f} {uc[5]:6.2f} {spacegroup:<11}\n"
-    finalstr += "MODEL\n";
-  except:
-    finalstr = "MODEL\n";
+    marks = ["ATOM"] * len(idxs)
+  xyz_reduce = thetraj.xyz[frame_index].round(3)
+  atom_arr = list(thetraj.top.atoms)
+  res_arr = list(thetraj.top.residues)
+  # try:
+  #   uc = thetraj.unitcells[idxs[0]]
+  #   spacegroup = "P 1"
+  #   finalstr = f"TITLE    Topology Auto Generation : step =  {idxs[0]}\n"
+  #   finalstr += f"CRYST1 {uc[0]:8.3f} {uc[1]:8.3f} {uc[2]:8.3f} {uc[3]:6.2f} {uc[4]:6.2f} {uc[5]:6.2f} {spacegroup:<11}\n"
+  #   finalstr += f"MODEL    {idxs[0]}\n"
+  # except:
+  #   finalstr = f"MODEL    {idxs[0]}\n"
+  finalstr = ""
 
   # create a dictionary to map old indices to new
   old_to_new_idx = {old: new for new, old in enumerate(idxs)}
 
   for i, idx in enumerate(idxs):
-    coord = xyz_reduce[idx];
-    theatom = atom_arr[idx];
-    res_id = theatom.resid;
-    theres = res_arr[res_id];
-    _res_id = (res_id+1)%10000;
-    atom_name = theatom.name;
+    coord = xyz_reduce[idx]
+    theatom = atom_arr[idx]
+    res_id = theatom.resid
+    theres = res_arr[res_id]
+    _res_id = (res_id+1)%10000
+    atom_name = theatom.name
     if atom_name[0].isnumeric():
       atom_name = f"{atom_name:<4}"
     elif (swap4char and len(atom_name) == 4):
-      atom_name = atom_name[3]+atom_name[:3];
+      atom_name = atom_name[3]+atom_name[:3]
     elif (not atom_name[0].isnumeric() and len(atom_name) == 3):
-      atom_name = f"{atom_name:>4}";
+      atom_name = f"{atom_name:>4}"
     elif (not atom_name[0].isnumeric() and len(atom_name) == 2):
-      atom_name = f" {atom_name} ";
+      atom_name = f" {atom_name} "
     elif (not atom_name[0].isnumeric() and len(atom_name) == 1):
-      atom_name = f" {atom_name}  ";
+      atom_name = f" {atom_name}  "
     else:
       atom_name = f"{atom_name:4}"
     # Write the ATOM record to the PDB file
     finalstr += f"{marks[i]:<6s}{(i%99999)+1:>5} {atom_name:4} {theres.name:>3}  {_res_id:>4}    {coord[0]:8.3f}{coord[1]:8.3f}{coord[2]:8.3f}  1.00  0.00\n";
-  finalstr = atom_name_mapping(finalstr);
-  for bond in thetraj.top.bonds:
-    if (bond.indices[0] in old_to_new_idx) and (bond.indices[1] in old_to_new_idx):
-      finalstr += f"CONECT{old_to_new_idx[bond.indices[0]]+1:>5}{old_to_new_idx[bond.indices[1]]+1:>5}\n";
-  finalstr += "ENDMDL\n"
+  finalstr = atom_name_mapping(finalstr)
+  # for bond in thetraj.top.bonds:
+  #   if (bond.indices[0] in old_to_new_idx) and (bond.indices[1] in old_to_new_idx):
+  #     finalstr += f"CONECT{old_to_new_idx[bond.indices[0]]+1:>5}{old_to_new_idx[bond.indices[1]]+1:>5}\n";
+  # finalstr += "ENDMDL\n"
+  finalstr += "TER\n"
   if len(pdbfile) > 0:
     with open(pdbfile, "w") as file1:
       file1.write(finalstr)
       return None
   else:
-    return finalstr;
+    return finalstr
 
 def atom_name_mapping(pdbstr):
   pdbstr = pdbstr.replace("CL", "Cl").replace("BR", "Br")
@@ -218,29 +220,29 @@ def combine_molpdb(molfile, pdbfile, outfile=""):
   """
   # Read the ligand file
   if isinstance(molfile, Chem.rdchem.Mol):
-    lig = molfile;
+    lig = molfile
   else:
     if "mol2" in molfile:
-      lig = Chem.MolFromMol2File(molfile);
+      lig = Chem.MolFromMol2File(molfile)
     elif "pdb" in molfile:
-      lig = Chem.MolFromPDBFile(molfile);
+      lig = Chem.MolFromPDBFile(molfile)
     elif "sdf" in molfile:
-      suppl = Chem.SDMolSupplier(molfile);
-      lig = suppl[0];
+      suppl = Chem.SDMolSupplier(molfile)
+      lig = suppl[0]
     else:
-      raise ValueError(f"Unrecognized ligand file extension: {molfile.split('.')[-1]}");
+      raise ValueError(f"Unrecognized ligand file extension: {molfile.split('.')[-1]}")
   # Write the ligand to a PDB file and combine the protein PDB file
-  ligpdb = Chem.MolToPDBBlock(lig);
-  atomlines = [i.replace("UNL", "LIG") for i in ligpdb.split("\n") if "HETATM" in i];
+  ligpdb = Chem.MolToPDBBlock(lig)
+  atomlines = [i.replace("UNL", "LIG") for i in ligpdb.split("\n") if "HETATM" in i]
   with open(pdbfile, "r") as file1:
-    pdborig = file1.read();
-  linesorig = [i for i in pdborig.strip("\n").split("\n") if "HETATM" in i or "ATOM" in i];
-  finallines = linesorig + atomlines;
-  finalstr = "\n".join(finallines) + "\nEND\n";
+    pdborig = file1.read()
+  linesorig = [i for i in pdborig.strip("\n").split("\n") if "HETATM" in i or "ATOM" in i]
+  finallines = linesorig + atomlines
+  finalstr = "\n".join(finallines) + "\nEND\n"
   # Check if the output file is specified
   if len(outfile) > 0:
     with open(outfile, "w") as file1:
-      file1.write(finalstr);
+      file1.write(finalstr)
   return finalstr
 
 def correct_mol_by_smiles(refmol2, prob_smiles):
@@ -251,41 +253,41 @@ def correct_mol_by_smiles(refmol2, prob_smiles):
   >>> retmol = utils.correct_mol_by_smiles(molfile, smi)
   >>> modification.writeMOL2s([retmol], "/tmp/test.mol2") # The output mol2 file that you want to put
   """
-  mol1 = Chem.MolFromSmiles(prob_smiles);
+  mol1 = Chem.MolFromSmiles(prob_smiles)
   if "mol2" in refmol2:
-    mol2 = Chem.MolFromMol2File(refmol2);
+    mol2 = Chem.MolFromMol2File(refmol2)
   elif "pdb" in refmol2:
-    mol2 = Chem.MolFromPDBFile(refmol2);
+    mol2 = Chem.MolFromPDBFile(refmol2)
   elif "sdf" in refmol2:
-    suppl = Chem.SDMolSupplier(refmol2);
-    mol2 = suppl[0];
+    suppl = Chem.SDMolSupplier(refmol2)
+    mol2 = suppl[0]
   else:
-    raise ValueError(f"Unrecognized ligand file extension: {molfile.split('.')[-1]}");
+    raise ValueError(f"Unrecognized ligand file extension: {molfile.split('.')[-1]}")
 
   # Check the validity of the given molecules
   # NOTE: Ligand PDB format does not contain bond information; PDB might be the more robust format
   # NOTE: Smiles has to correctly represent the molecule structure
   if mol1 is None:
-    print("Failed to process the smiles. Please check the validity of the smiles");
-    return None;
+    print("Failed to process the smiles. Please check the validity of the smiles")
+    return None
   elif mol2 is None:
-    print("Failed to process the mol2 file. Please check the validity of the mol2 file");
-    return None;
+    print("Failed to process the mol2 file. Please check the validity of the mol2 file")
+    return None
 
-  mol1 = Chem.AddHs(mol1, addCoords=True);
-  AllChem.EmbedMolecule(mol1);
+  mol1 = Chem.AddHs(mol1, addCoords=True)
+  AllChem.EmbedMolecule(mol1)
   # Find the maximum common subgraph (MCS) based on topology
   mcs = rdFMCS.FindMCS([mol1, mol2],
                        atomCompare=rdFMCS.AtomCompare.CompareAnyHeavyAtom,
-                       bondCompare=rdFMCS.BondCompare.CompareAny);
+                       bondCompare=rdFMCS.BondCompare.CompareAny)
   # Get the MCS as an RDKit molecule
-  mcs_mol = Chem.MolFromSmarts(mcs.smartsString);
+  mcs_mol = Chem.MolFromSmarts(mcs.smartsString)
   # Get the atom indices of the MCS in the input molecules
-  match1 = mol1.GetSubstructMatch(mcs_mol);
-  match2 = mol2.GetSubstructMatch(mcs_mol);
-  atom_map = [(i, j) for i, j in zip(match1, match2)];
-  AllChem.AlignMol(mol1, mol2, atomMap=atom_map, maxIters=100);
-  Chem.SanitizeMol(mol1, sanitizeOps=Chem.SANITIZE_ALL);
+  match1 = mol1.GetSubstructMatch(mcs_mol)
+  match2 = mol2.GetSubstructMatch(mcs_mol)
+  atom_map = [(i, j) for i, j in zip(match1, match2)]
+  AllChem.AlignMol(mol1, mol2, atomMap=atom_map, maxIters=100)
+  Chem.SanitizeMol(mol1, sanitizeOps=Chem.SANITIZE_ALL)
   return mol1
 
 # Single Bonds:
@@ -340,14 +342,14 @@ def sanitize_bond(mol_raw):
     begin_atom_idx = bond.GetBeginAtomIdx()
     end_atom_idx = bond.GetEndAtomIdx()
     # Get the bond length for this bond.
-    bond_length = rdMolTransforms.GetBondLength(conf, begin_atom_idx, end_atom_idx);
-    elem1 = mol_raw.GetAtomWithIdx(begin_atom_idx).GetSymbol();
-    elem2 = mol_raw.GetAtomWithIdx(end_atom_idx).GetSymbol();
+    bond_length = rdMolTransforms.GetBondLength(conf, begin_atom_idx, end_atom_idx)
+    elem1 = mol_raw.GetAtomWithIdx(begin_atom_idx).GetSymbol()
+    elem2 = mol_raw.GetAtomWithIdx(end_atom_idx).GetSymbol()
     if (elem1 not in _avail_atom_types) or (elem2 not in _avail_atom_types):
       # Skip if the bond is not between C, N, O, S, H
       continue
 
-    bond_order = bond.GetBondTypeAsDouble();
+    bond_order = bond.GetBondTypeAsDouble()
     if np.isclose(bond_order, 1.0):
       bond_rep = f"{elem1}-{elem2}"
     elif np.isclose(bond_order, 1.5):
@@ -364,7 +366,7 @@ def sanitize_bond(mol_raw):
     if bond_rep not in BOND_LENGTH_MAP:
       bond_rep = "other"
 
-    bond_length_expected = BOND_LENGTH_MAP[bond_rep];
+    bond_length_expected = BOND_LENGTH_MAP[bond_rep]
     if (bond_length > bond_length_expected) and (not np.isclose(bond_length, bond_length_expected, rtol=0.1)):
       print(f"Removing abnormal bond {bond_rep} lengthed {bond_length:.2f}/{bond_length_expected} angstorm, formed by {begin_atom_idx}@{elem1} - {end_atom_idx}@{elem2}")
       bonds_to_remove.append((begin_atom_idx, end_atom_idx))

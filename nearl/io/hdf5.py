@@ -2,45 +2,23 @@ import os
 import h5py as h5 
 import numpy as np 
 
-"""
-#################################
-# Build a database from scratch #
-#################################
-from nearl.io import hdf5
-from nearl.utils import utils; 
-import numpy as np 
-hdf = hdf5.hdf_operator("/tmp/test.h5", new=True)
 
-# Complex 
-datatype1 = [("atom_number", int), ("carbon_number", int), ("donor_number", int), ("acceptor_number", int),
-             ("positive_charge", float), ("negative_charge", float), ("pseudo_lj", float), ("pseudo_elec", float),
-             ("surface_area", float), ("volume", float), ("mean_radius", float), ("convex_ratio", float)]*6
-data1 = np.zeros((1, 73)); 
-data1 = hdf5.array2dataset(data1, [("repr_md5", "S32")] + [(f"repr{(i/7)+1}_{(i%7)+1}", float) for i in range(72)]); 
-hdf.create_dataset("repr_form", data1); 
-# hdf.append_entry("repr_form", np.zeros((16, 72))); 
+__all__ = [
+  "hdf_operator",
+  "temporary_dump",
+  "array2dataset",
+]
 
-
-datatype2 = [("ID",int), ("repr_md5", "S32"), ("fingerprint",float,(33,600))]
-zero_fpfh = np.zeros((1, 33,600))
-data2 = np.array([(0, utils.get_hash(), zero_fpfh)], dtype=object)
-data2 = hdf5.array2dataset(data2, datatype2)
-hdf.create_table("FPFH", data2, dtype=datatype2)
-
-
-datatype3 = [("ID",int), ("repr_md5", "S32"), ("feature_mass",float,(12,12,12))]
-feature_0 = np.zeros((1, 12,12,12))
-data3 = np.array([(0, utils.get_hash(), feature_0)], dtype=object)
-data3 = hdf5.array2dataset(data3, datatype3)
-hdf.create_table("feature_mass", data3)
-
-hdf.draw_structure()
-hdf.close()
-"""
 
 REPR_TYPES = [("atom_number", int), ("carbon_number", int), ("donor_number", int), ("acceptor_number", int),
              ("positive_charge", float), ("negative_charge", float), ("pseudo_lj", float), ("pseudo_elec", float),
              ("surface_area", float), ("volume", float), ("mean_radius", float), ("convex_ratio", float)]
+
+
+def temporary_dump(datalist, filename):
+  dataobj = np.array(datalist, dtype=object);
+  np.save(filename, dataobj)
+
 
 def array2dataset(data, dtypes): 
   """
@@ -53,9 +31,13 @@ def array2dataset(data, dtypes):
     template[i] = tuple(data[i])
   return template
 
+
 class hdf_operator(h5.File):
   def __init__(self, filename, default_flag="r", read_only=False, append=False, new=False, overwrite=False):
-    if read_only:
+    if True not in [read_only, append, new, overwrite]:
+      print("No reading mode specified, default to read-only.")
+      flag = default_flag;
+    elif read_only:
       print("Read-only mode enabled.")
       flag = "r";
     elif append:
@@ -261,6 +243,4 @@ class hdf_operator(h5.File):
       print(f"Index {index} is out of range for dataset '{dataset_name}'.")
 
 
-def temporary_dump(datalist, filename):
-  dataobj = np.array(datalist, dtype=object);
-  np.save(filename, dataobj)
+

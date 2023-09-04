@@ -1,13 +1,11 @@
 from .traj import  Trajectory
 
-# Loader of trajectories for iteration
-# Principle way of using it:
-"""
-Example:
-  >>> trajloader = TrajectoryLoader(trajs, tops, **kwarg)
-  >>> for traj in trajloader:
-  >>>   # Do something with traj
-"""
+
+__all__ = [
+  "TrajectoryLoader",
+]
+
+
 class TrajectoryLoader: 
   def __init__(self, trajs, tops, **kwarg):
     """

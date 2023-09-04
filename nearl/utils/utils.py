@@ -208,7 +208,7 @@ def filter_points_within_bounding_box(thearr, grid_center, grid_length, return_s
     return thearr[state]
 
 
-def entropy(x):
+def _entropy(x):
   """
   Calculate the entropy of a list/array of values
   Args:
@@ -246,15 +246,6 @@ def cosine_similarity(vec1, vec2):
   # just in case both norms are zero.
   similarity = dot_product / (norm_vec1 * norm_vec2 + 1e-9)
   return similarity
-
-
-def order_segments(lst):
-  from collections import Counter
-  counter = Counter(lst)
-  sorted_elements = sorted(counter, key=lambda x: counter[x], reverse=True)
-  if 0 in sorted_elements:
-    sorted_elements.remove(0)
-  return sorted_elements
 
 
 def smarts_supplier(smarts):
