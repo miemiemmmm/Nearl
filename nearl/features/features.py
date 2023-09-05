@@ -13,10 +13,11 @@ from .. import CONFIG, printit
 from .. import _usegpu, _verbose
 
 __all__ = [
+  # Base class
   "Feature",
   "Mass",
   "PartialCharge",
-  "AM1BCCCharge",
+  # "AM1BCCCharge", # Not yet fully developed
   "AtomTypeFeature",
   "HydrophobicityFeature",
   "Aromaticity",
@@ -36,19 +37,6 @@ __all__ = [
   "FeaturizationStatus",
 ]
 
-
-
-
-
-
-# import time
-# from open3d.io import write_triangle_mesh
-# from numba import jit
-# from .. import _clear, _debug
-# import os, copy, datetime
-# import builtins, json, tempfile, functools
-# import pytraj as pt
-
 """
 When writing the customised feature, the following variables are automatically available:
   self.featurizer: The featurizer object
@@ -58,6 +46,7 @@ When writing the customised feature, the following variables are automatically a
   self.center: The center of the box
   self.lengths: The lengths of the box
   self.dims: The dimensions of the box
+  self.contents: The segmented moieties (mainly structural information from the fingerprint generator)
   
 
 When registering the customised feature, the following needs to be defined by the user:
@@ -112,23 +101,23 @@ class Feature:
 
   @property
   def center(self):
-    return np.asarray(self.featurizer.center)
+    return self.featurizer.center
 
   @property
   def lengths(self):
-    return np.asarray(self.featurizer.lengths)
+    return self.featurizer.lengths
 
   @property
   def dims(self):
-    return np.asarray(self.featurizer.dims)
+    return self.featurizer.dims
 
   @property
   def grid(self):
-    return np.array(self.featurizer.grid)
+    return self.featurizer.grid
 
   @property
   def points3d(self):
-    return np.array(self.featurizer.points3d)
+    return self.featurizer.points3d
 
   @property
   def status_flag(self):
@@ -148,10 +137,17 @@ class Feature:
     return mask_inbox
   
   def query_mol(self, selection):
-    retmol = self.featurizer.boxed_to_mol(selection)
+    sel_hash = utils.get_hash(selection)
+    frame_hash = utils.get_hash(self.active_frame.xyz.tobytes())
+    final_hash = sel_hash + frame_hash
+
+    if final_hash in self.featurizer.QUERIED_MOLS:
+      return self.featurizer.QUERIED_MOLS[final_hash]
+    else:
+      retmol = self.featurizer.selection_to_mol(selection)
+      self.QUERIED_MOLS[final_hash] = retmol
     return retmol
 
-  # @profile
   def interpolate(self, points, weights):
     """
     Interpolate density from a set of weighted 3D points to an N x N x N mesh grid.
@@ -541,7 +537,8 @@ class FPFHFeature(Feature):
 
   def featurize(self):
     down_sample_nr = CONFIG.get("DOWN_SAMPLE_POINTS", 600)
-    fpfh = compute_fpfh_feature(self.featurizer.mesh.sample_points_uniformly(down_sample_nr),
+    themesh = self.featurizer.contents["mesh"]
+    fpfh = compute_fpfh_feature(themesh.sample_points_uniformly(down_sample_nr),
                                 KDTreeSearchParamHybrid(radius=1, max_nn=20))
     print("FPFH feature: ", fpfh.data.shape)
     return fpfh.data

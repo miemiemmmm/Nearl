@@ -48,8 +48,7 @@ else
   logit "Installing other necessary packages";
 
   micromamba install -c conda-forge scipy pandas scikit-learn h5py seaborn matplotlib -y
-  python -m pip install "dask[complete]"
-  pip3 install open3d rdkit
+  pip3 install open3d rdkit "dask[complete]"
 
   if [[ ${mode} == "torch" ]]; then
     logit "Installing PyTorch ecosystem";
@@ -63,7 +62,8 @@ else
   fi
 fi
 
-micromamba install -c conda-forge -c anaconda notebook==7.6 ipywidgets==7.6 nglview=3.0.3 -y  # traj visualizer
+micromamba install -c conda-forge -c anaconda notebook=6.4 ipywidgets=7.6 nglview=3.0.3 -y  # traj visualizer
 micromamba install -c conda-forge requests biopython trimesh -y
 pip3 install line_profiler
 pip3 install pybind11 build cmake
+

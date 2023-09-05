@@ -14,3 +14,8 @@ REFINED_SET = pd.read_csv(os.path.join(os.path.dirname(__file__), "PDBBind_refin
 GENERAL_SET = pd.read_csv(os.path.join(os.path.dirname(__file__), "PDBBind_general_v2020.csv"))
 # GENERAL_SET = os.path.join(os.path.dirname(__file__), "PDBBind_general_v2020.csv")
 
+MINI_PARMS = {
+  # POCKET SETTINGS
+  "CUBOID_DIMENSION": [48, 48, 48],  # Unit: 1 (Number of lattice in one dimension)
+  "CUBOID_LENGTH": [24, 24, 24],     # Unit: Angstorm (Need scaling)
+}

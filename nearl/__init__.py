@@ -3,32 +3,6 @@ from sys import stdout, stderr
 from json import load
 import importlib.resources as resources
 
-__version__ = "0.0.1"
-_runtimelog = []
-configfile = resources.files("nearl").joinpath("../CONFIG.json")
-print("Check the configfile later: ", configfile)
-
-if os.path.isfile(configfile):
-  print("Loading configuration file", file=stdout)
-  with open(configfile, "r") as f: 
-    CONFIG = load(f)
-else:
-  print("Warning: Not found the config file", file=stderr)
-
-PACKAGE_DIR = os.path.dirname(os.path.abspath(__file__))
-
-_clear = CONFIG.get("clear", False)
-_verbose = CONFIG.get("verbose", False)
-_tempfolder = CONFIG.get("tempfolder", "/tmp")
-_usegpu = CONFIG.get("usegpu", False)
-_debug = CONFIG.get("debug", False)
-
-if (not os.path.exists(_tempfolder)) or (not os.path.isdir(_tempfolder)):
-  raise OSError("The temporary folder (tempfolder) does not exist")
-elif not os.access(_tempfolder, os.W_OK):
-  raise OSError("The temporary folder (tempfolder) is not writable")
-
-
 ########################################################
 
 def logit(function):
@@ -47,7 +21,7 @@ def printit(*arg, **kwarg):
 
 def savelog(filename="", overwrite=True):
   # Save the log information to logfile
-  if len(filename) == 0: 
+  if len(filename) == 0:
     filename = os.path.join(_tempfolder, "runtime.log")
   if (not os.path.exists(filename)) or (overwrite is True):
     printit(f"Runtime log saved to {filename}")
@@ -56,6 +30,31 @@ def savelog(filename="", overwrite=True):
         file.write(i+"\n")
   else:
     printit(f"File {filename} exists, skip saving log file")
+
+__version__ = "0.0.1"
+_runtimelog = []
+configfile = resources.files("nearl").joinpath("../CONFIG.json")
+
+if os.path.isfile(configfile):
+  configfile = os.path.abspath(configfile)
+  with open(configfile, "r") as f: 
+    CONFIG = load(f)
+else:
+  raise FileNotFoundError(f"NEARL({__file__}): Not found the configuration file")
+
+PACKAGE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+_clear = CONFIG.get("clear", False)
+_verbose = CONFIG.get("verbose", False)
+_tempfolder = CONFIG.get("tempfolder", "/tmp")
+_usegpu = CONFIG.get("usegpu", False)
+_debug = CONFIG.get("debug", False)
+
+if (not os.path.exists(_tempfolder)) or (not os.path.isdir(_tempfolder)):
+  raise OSError("The temporary folder (tempfolder) does not exist; Please check the configuration file")
+elif not os.access(_tempfolder, os.W_OK):
+  raise OSError("The temporary folder (tempfolder) is not writable")
+
 
 msg = "Summary: "
 if _clear:
@@ -70,7 +69,9 @@ if _usegpu:
   msg += "Using GPU acceleration; "
 else:
   msg += "Using CPU only; "
-printit(msg)
+
+if _verbose:
+  printit(msg)
 
 from nearl import tests, io, features, models, utils, data
 from nearl import static
