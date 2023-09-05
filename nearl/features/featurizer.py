@@ -12,6 +12,12 @@ from nearl.io import hdf5
 from . import fingerprint
 from .. import printit, CONFIG, _verbose, _debug
 
+__all__ = [
+  "initialize_grid",
+  "Featurizer3D",
+
+]
+
 def initialize_grid(thecenter, thelengths, thedims):
   thegrid = np.meshgrid(
     np.linspace(thecenter[0] - thelengths[0] / 2, thecenter[0] + thelengths[0] / 2, thedims[0]),
@@ -70,6 +76,7 @@ class Featurizer3D:
     self.boxed_pdb = ""
     self.boxed_ply = ""
     self.boxed_indices = []
+    self.contents = {}
 
     if _verbose:
       printit("Featurizer is initialized successfully")
@@ -207,11 +214,11 @@ class Featurizer3D:
       self.__boxcenter += offsets
     else:
       self.__boxcenter = np.array(offsets)
-    self.updatebox()
+    self.update_box()
 
-  def updatebox(self, center=None, lengths=None, dims=None):
+  def update_box(self, center=None, lengths=None, dims=None):
     """
-    Avoid frequent use of the updatebox function because it generates new point set
+    Avoid frequent use of the update_box function because it generates new point set
     Only needed when changing the box parameter <CUBOID_DIMENSION> and <CUBOID_LENGTH>
     Basic variables: self.__boxcenter, self.__lengths, self.__dims
     """
@@ -246,7 +253,7 @@ class Featurizer3D:
       self.__lengths = float(length)
     else:
       self.__lengths *= scale_factor
-    self.updatebox()
+    self.update_box()
 
   def map_to_grid(self, thearray, dtype=float):
     """
@@ -331,38 +338,28 @@ class Featurizer3D:
       print(f"Error: {e}")
     self.disconnect()
 
-  def boxed_to_mol(self, selection):
+  def selection_to_mol(self, selection):
     if isinstance(selection, str):
       atom_sel = self.traj.top.select(selection)
     elif isinstance(selection, (list, tuple, np.ndarray)):
-      atom_sel = selection
+      atom_sel = np.asarray(selection)
     else:
-      atom_sel = np.arange(self.traj.n_atoms)
+      raise ValueError(f"{__file__}: Unexpected selection type")
 
-    string_prep = f"{self.traj.top_filename}%{len(atom_sel)}%{atom_sel}"
-    string_hash = utils.get_hash(string_prep)
-    if string_hash in self.BOX_MOLS.keys():
-      return self.BOX_MOLS[string_hash]
-
-    # try:
-    if True:
-      print("======>>>> Generating a new boxed molecule <<<<======")
+    try:
       rdmol = utils.traj_to_rdkit(self.traj, atom_sel, self.active_frame_index)
       if rdmol is None:
         with tempfile.NamedTemporaryFile(suffix=".pdb") as temp:
           outmask = "@"+",".join((atom_sel+1).astype(str))
-          print(self.traj[outmask])
           _traj = self.traj[outmask].copy_traj()
-          print(f"======>>>> Generating a new trajectory object: {_traj.n_frames} frames <<<<======")
           pt.write_traj(temp.name, _traj, frame_indices=[self.active_frame_index], overwrite=True)
-
           with open(temp.name, "r") as tmp:
             print(tmp.read())
-
           rdmol = Chem.MolFromMol2File(temp.name, sanitize=False, removeHs=False)
-          print("RdMol ==>> ", rdmol)
-      self.BOX_MOLS[string_hash] = rdmol
       return rdmol
+    except:
+      return None
+
 
   def write_box(self, pdbfile="", elements=None, bfactors=None, write_pdb=False):
     """
@@ -537,10 +534,34 @@ class Featurizer3D:
         mask[idx] = False
         continue
 
-      self.mesh = fp_generator.meshes
-      self.boxed_indices = fp_generator.indices
-      self.boxed_pdb = fp_generator.get_pdb_string()
-      self.boxed_ply = fp_generator.get_ply_string()
+      # Collect the results before processing the features
+      # Use the dictionary as the result container to improve the flexibility (rather than attributes)
+      self.contents = {
+        "mesh": fp_generator.meshes,
+        "vertices": fp_generator.vertices,
+        "faces": fp_generator.faces,
+        "normals": fp_generator.normals,
+
+        "segments": segments,
+        "indices": fp_generator.indices,
+        "indices_res": fp_generator.indices_res,
+        "mols": fp_generator.mols,
+
+        "pdb_result": fp_generator.get_pdb_string(),
+        "ply_result": fp_generator.get_ply_string(),
+
+      }
+      # self.mesh = fp_generator.meshes
+      # self.vertices = fp_generator.vertices
+      # self.faces = fp_generator.faces
+      # self.normals = fp_generator.normals
+      #
+      # self.mols = fp_generator.mols
+      # self.indices = fp_generator.indices
+      # self.indices_res = fp_generator.indices_res
+      # self.pdb_result = fp_generator.get_pdb_string()
+      # self.ply_result = fp_generator.get_ply_string()
+      # self.segments = segments
 
       if len(feature_vector) == 0:
         if _verbose:
@@ -549,15 +570,16 @@ class Featurizer3D:
         continue
       repr_vector[idx] = feature_vector
 
-      """Step2.5: Iterate different features"""
+      # Step2.5: Iterate different features
       for fidx, feature in enumerate(self.FEATURESPACE):
         feat_arr = feature.featurize()
-        if isinstance(feat_arr, np.ndarray):
-          if isinstance(feat_arr.dtype, (int, float, complex, np.float32, np.float64,
-                                         np.int32, np.int64, np.complex64, np.complex128)):
-            feat_arr = np.nan_to_num(feat_arr, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+        if isinstance(feat_arr, np.ndarray) and isinstance(feat_arr.dtype, (int, np.int32, np.int64,
+          float, np.float32, np.float64, complex, np.complex64, np.complex128)):
+          feat_arr = np.nan_to_num(feat_arr, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
         feat_vector[idx][fidx] = feat_arr
 
+      # Clear the result contents
+      self.contents = {}
     """
     Step3: Remove the masked identity vector and feature vector
     Final size of the feature vector: (number of centers, number of features)
@@ -573,3 +595,4 @@ class Featurizer3D:
     if _verbose:
       printit(f"Result identity vector: {ret_repr_vector.shape} ; Feature vector: {ret_feat_vector.__len__()} - {ret_feat_vector[0].__len__()}")
     return ret_repr_vector, ret_feat_vector
+

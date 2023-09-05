@@ -77,18 +77,28 @@ fi
 
 
 # Several steps to initialize and hook the micromamba
-export PATH="$(realpath ${BIN_FOLDER}):${PATH}"
+export PATH="$(realpath ${BIN_FOLDER}):${PATH}";
 export MAMBA_EXE=${BIN_FOLDER}/micromamba;
 export MAMBA_ROOT_PREFIX=${PREFIXLOCATION};
-eval "$(micromamba shell hook --shell bash --root-prefix ${PREFIXLOCATION})"
+eval "$(micromamba shell hook --shell bash --root-prefix ${PREFIXLOCATION})";
 
 
 # Finally check if micromamba is able to create a new environment and activate it
-micromamba create -y -n test_installation python=3.9.17 -c conda-forge
+echo "Installing a test environment"
+micromamba create --name test_installation python=3.9.17 -c conda-forge -q -y
 micromamba activate test_installation
 if micromamba env list | grep test_installation | grep "*" &> /dev/null; then
-  echo "Great! Micromamba installation successful and test environment activated"
+  echo "Great! Micromamba installation successful and test environment activated";
+  echo -e "Y\n" | micromamba env remove --name test_installation -q -y;
 else
-  echo "No!!!! Micromamba cannot activate the test_installation environment"
+  echo "No!!!! Micromamba cannot activate the test_installation environment";
   exit 1
 fi
+
+loadmamba_b64="YmFzZWRpcj0kezE6LVRFTVBMQVRFRElSfQpiYXNlZGlyPSQocmVhbHBhdGggJGJhc2VkaXIpCkJJTl9GT0xERVI9IiR7YmFzZWRpcn0vYmluIgpQUkVGSVhMT0NBVElPTj0iJHtiYXNlZGlyfSIKZXhwb3J0IFBBVEg9IiQocmVhbHBhdGggJHtCSU5fRk9MREVSfSk6JHtQQVRIfSIKZXhwb3J0IE1BTUJBX0VYRT0ke0JJTl9GT0xERVJ9L21pY3JvbWFtYmE7CmV4cG9ydCBNQU1CQV9ST09UX1BSRUZJWD0ke1BSRUZJWExPQ0FUSU9OfTsKZXZhbCAiJChtaWNyb21hbWJhIHNoZWxsIGhvb2sgLS1zaGVsbCBiYXNoIC0tcm9vdC1wcmVmaXggJHtQUkVGSVhMT0NBVElPTn0pIgo="
+python3 -c "import base64; tmp_str=base64.b64decode(\"${loadmamba_b64}\".encode('utf-8')).decode('utf-8'); print(tmp_str)" | sed "s|TEMPLATEDIR|${basedir}|g" > ${basedir}/bin/loadmamba
+chmod +x ${basedir}/bin/loadmamba
+
+echo "If you wish to load micromamba upon opening a new shell, please add the following lines to your ~/.bashrc or ~/.zshrc"
+echo -e '    source '${basedir}'/bin/loadmamba'
+

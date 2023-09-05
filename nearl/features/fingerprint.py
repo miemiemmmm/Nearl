@@ -18,7 +18,7 @@ __all__ = [
   "generator",
   "PointFeature",
   "compute_convex",
-
+  "SEGMENT_CMAPS"
 ]
 
 ACCEPTOR_PATTERN = '[!$([#6,F,Cl,Br,I,o,s,nX3,#7v5,#15v5,#16v4,#16v6,*+1,*+2,*+3])]'
@@ -35,26 +35,29 @@ ATOM_NUM = {0: 15, 1: 15, 2: 2, 3: 18, 4: 22, 5: 22, 6: 9, 7: 4, 8: 7, 9: 10, 10
 
 # Color map for the segments of the molecule block
 _SEGMENT_LIMIT = CONFIG.get("SEGMENT_LIMIT", 6)
-if CONFIG.get("segment_colormap", None):
+_SEGMENT_CMAP = CONFIG.get("SEGMENT_CMAP", None)
+
+if _SEGMENT_CMAP is not None and _SEGMENT_CMAP != "inferno":
+  # Not the default color map;
   from matplotlib.pyplot import get_cmap
-  cmap = get_cmap(CONFIG.get("segment_colormap"))
+  cmap = get_cmap(_SEGMENT_CMAP)
   SEGMENT_CMAPS = [cmap(i)[:3] for i in range(int(0.1 * cmap.N), int(0.9 * cmap.N), int(0.9 * cmap.N) // 10)]
+elif _SEGMENT_CMAP == "inferno" and _SEGMENT_LIMIT == 6:
+  SEGMENT_CMAPS = [
+    [0.087411, 0.044556, 0.224813],
+    [0.354032, 0.066925, 0.430906],
+    [0.60933, 0.159474, 0.393589],
+    [0.841969, 0.292933, 0.248564],
+    [0.974176, 0.53678, 0.048392],
+    [0.964394, 0.843848, 0.273391]
+  ]
+  if _verbose:
+    printit("Using the default color map/gradient")
 else:
   # Default color map -> inferno
-  if _SEGMENT_LIMIT == 6:
-    SEGMENT_CMAPS = [
-      [0.087411, 0.044556, 0.224813],
-      [0.354032, 0.066925, 0.430906],
-      [0.60933,  0.159474, 0.393589],
-      [0.841969, 0.292933, 0.248564],
-      [0.974176, 0.53678,  0.048392],
-      [0.964394, 0.843848, 0.273391]
-    ]
-    printit("Using default color map")
-  else:
-    from matplotlib.pyplot import get_cmap
-    cmap = get_cmap('inferno')
-    SEGMENT_CMAPS = [cmap(i)[:3] for i in range(int(0.1 * cmap.N), int(cmap.N * 0.9), int(cmap.N * 0.9) // 10)]
+  from matplotlib.pyplot import get_cmap
+  cmap = get_cmap('inferno')
+  SEGMENT_CMAPS = [cmap(i)[:3] for i in range(int(0.1 * cmap.N), int(cmap.N * 0.9), int(cmap.N * 0.9) // 10)]
 
 
 # Generate Open3D readable object
@@ -529,7 +532,7 @@ class generator:
     return np.array(self._COMBINED_MESH.triangles)
 
   @property
-  def norms(self):
+  def normals(self):
     return np.array(self._COMBINED_MESH.vertex_normals)
 
   def get_ply_string(self):

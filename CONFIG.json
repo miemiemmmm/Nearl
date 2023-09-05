@@ -10,7 +10,7 @@
   "WINDOW_SIZE" : 10,
   "DOWN_SAMPLE_POINTS" : 600,
   "SEGMENT_LIMIT" : 6,
-  "VIEWPOINT_BINS" : 12,
+  "VIEWPOINT_BINS" : 24,
 
   "####################" : "Database settings",
   "user" : "yang",
@@ -18,8 +18,10 @@
   "host": "localhost",
   "password": "testyang",
 
-  "datadir": "/media/yzhang/MieT5/BetaPose/data",
+  "datadir": "/MieT5/BetaPose/data",
 
   "####################" : "Test settings",
+  "SEGMENT_CMAP" : "inferno",
+
   "test": "test"
 }

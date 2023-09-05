@@ -22,6 +22,38 @@ to make users benefit from the recent development in machine learning algorithms
 # Installation
 
 --------
+
+### Clone the repository
+```
+git clone https://github.com/miemiemmmm/NEARL.git
+cd NEARL
+```
+
+### Manage your python environment
+[Mamba](https://mamba.readthedocs.io/en/latest/) is a Python package manager implemented in C++ and aims to provide all 
+the functionality of [Conda](https://docs.conda.io/en/latest/) but with higher speed. 
+[Micromamba](https://mamba.readthedocs.io/en/latest/user_guide/micromamba.html) is a lighter-weight version of Mamba, 
+aiming to provide a minimal, fast, and standalone executable for environment and package management. They both can be used as a drop-in replacement for Conda and 
+we recommend using micromamba to manage the python environement. <br>
+If there is no micromamba installed on your system, the following script could help you to install micromamba <br>
+```
+# The following command downloads the micromamba to /home/myname/micromamba/bin and generates a loadmamba script
+bash scripts/install_mamba.sh /home/myname/micromamba 
+
+# Use the following command to configure the shell to use micromamba. 
+# To load micromamba upon starting a new shell, add this line to .bashrc or .zshrc
+source /home/myname/micromamba/bin/loadmamba
+```
+
+### Create a test environment  
+Load the mamba environment and create a new environment named NEARL <br>
+```
+bash scripts/create_env_mamba.sh NEARL jax
+micromamba activate NEARL
+```
+
+
+### Install NEARL
 NEARL supports only the Linux platform for the time being. It is recommended to install via PyPI: <br>
 ```pip install nearl``` <br>
 By defaults, it uses [OpenMP](https://www.openmp.org/) when doing feature density interpolation, there are some 
@@ -29,29 +61,29 @@ key components accelerated by [OpenACC](https://www.openacc.org/). To install th
 is required. <br>
 Use the following command to install the GPU version: <br>
 ```
-git clone https://github.com/miemiemmmm/NEARL.git
-cd NEARL
+
 pip install .
 ```
 
-
-To test the installation: <br>
+### Test the installation
+Activate the new NEARL environment and run the following commands to test the installation: <br>
 ```
-To test the featurizer: 
+# To test the featurizer: 
 python -c "from nearl import tests; tests.vectorize()"
-To test some simple models:
+# To test some simple models:
 python -c "from nearl import tests; tests.jax_2dcnn()"  
 ```
-
 
 # Get started
 
 --------
 ```
 import nearl as nl
-loader = nl.trajloader("test.nc", "test.pdb")
-featurizer = nl.featurizer()
-featurizer.register_feature(nl.features.Mass())
+_trajfile, _topfile = nl.data.MINI_TRAJ
+_parms = nl.data.MINI_PARMS
+loader = nl.io.TrajectoryLoader(_trajfile, _topfile)
+feat = nl.features.Featurizer3D(_parms)
+feat.register_feature(nl.features.Mass())
 ......
 ......
 ```
@@ -92,15 +124,16 @@ traj_loader = trajloader.TrajectoryLoader(traj_list, range(len(traj_list)))
 Featurizer is the primary hook between features and trajectories. 
 ### Load trajectories to a container and register to a featurizer
 ```
-featurizer = nl.featurizer()
+featurizer = nl.features.Featurizer3D()
 ......
 ......
 ```
 
 ### Start featurization
 ```
-featurizer = nl.featurizer()
-......
+feat = nl.features.Featurizer3D()
+feat.register_feature(nl.features.Mass())
+feat.register_frame()
 ......
 ```
 
@@ -109,6 +142,11 @@ featurizer = nl.featurizer()
 from nearl.featurizer import Featurizer
 featurizer = Featurizer()
 featurizer.register_feature(YourFeature)
+feat.register_traj(trajectory)
+feat.register_frames(range(100))
+index_selected = trajectory.top.select(":LIG")
+repr_traji, features_traji = feat.run_by_atom(index_selected, focus_mode="cog")
+
 ```
 View the example project featurizing a small subset of the [PDBbind](http://www.pdbbind.org.cn/) dataset
 [in this script](https://github.com/miemiemmmm/BetaPose/blob/master/scripts/prepare_pdbbind.py)
@@ -127,7 +165,7 @@ class YourFeature(Features):
         return feature_vector
 ```
 
-# Feature deposition
+# Feature data deposition
 
 --------
 ### NEARL supports the following features 
@@ -138,7 +176,7 @@ class YourFeature(Features):
 ```
 
 ### Draw the hdf structure
-- TEMPLATE_STRING
+- Since temporal features are 
 ```angular2html
 from nearl import hdf 
 with hdf.hdf_operator(output_hdffile, readonly=True) as h5file:
@@ -164,9 +202,9 @@ or [JAX framework](https://github.com/miemiemmmm/BetaPose/blob/master/scripts/tr
 ```angular2html
 from nearl import utils, io, data
 config = {
-  f":LIG<:10&!:SOL,T3P": "ribbon", 
-  f":LIG<:5&!:SOL,T3P,WAT": "line", 
-  f":LIG": "ball+stick", 
+  ":LIG<:10&!:SOL,T3P": "ribbon", 
+  ":LIG<:5&!:SOL,T3P,WAT": "line", 
+  ":LIG": "ball+stick", 
 }
 
 traj = io.traj.Trajectory(*data.traj_pair_1)

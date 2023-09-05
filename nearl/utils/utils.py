@@ -4,8 +4,12 @@ import numpy as np
 import pytraj as pt
 from scipy.spatial import distance_matrix
 
+from .. import printit
 
-def get_hash(thestr="", mode="md5"):
+def get_hash(theinput="", mode="md5"):
+  """
+  Get the hash value of a string or a list or a numpy array
+  """
   if mode=="md5":
     hash_func = hashlib.md5
   elif mode=="sha1":
@@ -17,12 +21,17 @@ def get_hash(thestr="", mode="md5"):
   else:
     print("Warning: Not found a valid hash function (md5, sha1, sha256, sha512), use md5 by default.")
     hash_func = hashlib.md5
-  if isinstance(thestr, str) and len(thestr)>0:
-    return hash_func(bytes(thestr, "utf-8")).hexdigest()
-  elif (isinstance(thestr, list) or isinstance(thestr, np.ndarray)) and len(thestr)>0:
-    arrstr = ",".join(np.asarray(thestr).astype(str))
+  if isinstance(theinput, str) and len(theinput)>0:
+    return hash_func(bytes(theinput, "utf-8")).hexdigest()
+  elif isinstance(theinput, (list, tuple)) and len(theinput)>0:
+    arrstr = ",".join(np.asarray(theinput).astype(str))
     return hash_func(bytes(arrstr, "utf-8")).hexdigest()
+  elif isinstance(theinput, np.ndarray) and len(theinput)>0:
+    return hash_func(theinput.tobytes()).hexdigest()
+  elif isinstance(theinput, bytes):
+    return hash_func(theinput).hexdigest()
   else:
+    printit("Warning: Not a valid input, should be (string, tuple, list, np.ndarray, bytes). Using time.perf_counter() by default.")
     return hash_func(bytes(time.perf_counter().__str__(), "utf-8")).hexdigest()
 
 
