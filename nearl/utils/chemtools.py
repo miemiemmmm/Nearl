@@ -26,37 +26,37 @@ def traj_to_rdkit(traj, atomidx, frameidx):
   Convert a pytraj trajectory to rdkit mol object
   """
   pdbstr = write_pdb_block(traj, atomidx, frame_index=frameidx)
-  mol = Chem.MolFromPDBBlock(pdbstr, sanitize=False, removeHs=False);
-  mol = sanitize_bond(mol);
+  mol = Chem.MolFromPDBBlock(pdbstr, sanitize=False, removeHs=False)
+  mol = sanitize_bond(mol)
   try:
-    mol = Chem.AddHs(mol, addCoords=True);
+    mol = Chem.AddHs(mol, addCoords=True)
     # AllChem.UFFOptimizeMolecule(mol, maxIters=10)
     # AllChem.MMFFOptimizeMolecule(mol, maxIters=10)
     Chem.SanitizeMol(mol, Chem.SanitizeFlags.SANITIZE_ALL^Chem.SanitizeFlags.SANITIZE_ADJUSTHS)
-    AllChem.ComputeGasteigerCharges(mol);
+    AllChem.ComputeGasteigerCharges(mol)
     # Deal with the NaN in the Gasteiger charges
     for atom in mol.GetAtoms():
       if np.isnan(atom.GetDoubleProp('_GasteigerCharge')):
-        atomsymbol = atom.GetSymbol().upper();
+        atomsymbol = atom.GetSymbol().upper()
         if atomsymbol in DEFAULT_PARTIAL_CHARGE.keys():
-          printit(f"Warning: Found Nan in rdkit molecule; Setting the atom {atomsymbol} to its default partial charge {DEFAULT_PARTIAL_CHARGE[atomsymbol]}");
-          atom.SetDoubleProp('_GasteigerCharge', DEFAULT_PARTIAL_CHARGE[atomsymbol]);
+          printit(f"Warning: Found Nan in rdkit molecule; Setting the atom {atomsymbol} to its default partial charge {DEFAULT_PARTIAL_CHARGE[atomsymbol]}")
+          atom.SetDoubleProp('_GasteigerCharge', DEFAULT_PARTIAL_CHARGE[atomsymbol])
         else:
-          atom.SetDoubleProp('_GasteigerCharge', 0.0);
-          printit(f"Warning: Found NaN in rdkit molecule; Atom {atomsymbol} not found in default preset. _GasteigerCharge set to 0.0");
+          atom.SetDoubleProp('_GasteigerCharge', 0.0)
+          printit(f"Warning: Found NaN in rdkit molecule; Atom {atomsymbol} not found in default preset. _GasteigerCharge set to 0.0")
     if True in np.isnan([atom.GetDoubleProp('_GasteigerCharge') for atom in mol.GetAtoms()]):
       printit("DEBUG Warning: Still found nan in the charge", [atom.GetDoubleProp('_GasteigerCharge') for atom in mol.GetAtoms()])
-    return mol;
+    return mol
   except Exception as e:
     print("#############################################")
     print(f"During processing the original file: {traj.top_filename}; ")
-    print("Failed to read PDB/compute the Gasteiger charges. Caught exception: ");
-    print(e);
+    print("Failed to read PDB/compute the Gasteiger charges. Caught exception: ")
+    print(e)
     print("Please check the following PDB string:")
     print(pdbstr)
     print("#############################################")
-    savelog();
-    return None;
+    savelog()
+    return None
 
 def DACbytraj(traj, frameidx, themask, **kwargs):
   """
@@ -64,33 +64,33 @@ def DACbytraj(traj, frameidx, themask, **kwargs):
   """
   acceptor_pattern = '[!$([#6,F,Cl,Br,I,o,s,nX3,#7v5,#15v5,#16v4,#16v6,*+1,*+2,*+3])]'
   donor_pattern = "[!H0;#7,#8,#9]"
-  selection = traj.top.select(themask);
+  selection = traj.top.select(themask)
   if len(selection) == 0:
-    print(f"{DACbytraj.__name__:15s}: No atom in the selected mask. Skipping it.")
+    printit(f"No atom in the selected mask. Skipping it.")
     return np.array([]), np.array([])
   if (">" in themask) or ("<" in themask):
-    print(f"{DACbytraj.__name__:15s}: Detected distance based mash. Please make sure that the reference is set to the trajectory, otherwise, all of the atoms will be processed");
-  tmp_traj = traj.copy_traj();
+    printit(f"Detected distance based mash. Please make sure that the reference is set to the trajectory, otherwise, all of the atoms will be processed");
+  tmp_traj = traj.copy_traj()
   if traj.top.select(f"!({themask})").__len__() > 0:
-    tmp_traj.strip(f"!({themask})");
+    tmp_traj.strip(f"!({themask})")
   if (tmp_traj.top.n_atoms == traj.top.n_atoms) and _verbose:
-    print(f"{DACbytraj.__name__:15s}: All atoms are kept after applying the mask. Please make sure if this is wanted.")
+    printit(f"All atoms are kept after applying the mask. Please make sure if this is wanted.")
 
   pdbstr = write_pdb_block(traj, selection, frame_index=frameidx)
-  mol = Chem.MolFromPDBBlock(pdbstr, sanitize=False, removeHs=False);
-  mol = sanitize_bond(mol);
+  mol = Chem.MolFromPDBBlock(pdbstr, sanitize=False, removeHs=False)
+  mol = sanitize_bond(mol)
 
   try:
-    d_patt = Chem.MolFromSmarts(donor_pattern);
-    d_hits = mol.GetSubstructMatches(d_patt);
-    a_patt = Chem.MolFromSmarts(acceptor_pattern);
-    a_hits = mol.GetSubstructMatches(a_patt);
+    d_patt = Chem.MolFromSmarts(donor_pattern)
+    d_hits = mol.GetSubstructMatches(d_patt)
+    a_patt = Chem.MolFromSmarts(acceptor_pattern)
+    a_hits = mol.GetSubstructMatches(a_patt)
     conf = mol.GetConformer()
-    donors = np.zeros((len(d_hits),3));
+    donors = np.zeros((len(d_hits),3))
     for idx, hit in enumerate(d_hits):
-      atom = mol.GetAtomWithIdx(hit[0]);
-      donors[idx,:] = np.array(conf.GetAtomPosition(hit[0]));
-    acceptors = np.zeros((len(a_hits),3));
+      atom = mol.GetAtomWithIdx(hit[0])
+      donors[idx,:] = np.array(conf.GetAtomPosition(hit[0]))
+    acceptors = np.zeros((len(a_hits),3))
     for idx,hit in enumerate(a_hits):
       atom = mol.GetAtomWithIdx(hit[0])
       acceptors[idx,:] = np.array(conf.GetAtomPosition(hit[0]))
@@ -107,49 +107,49 @@ def Chargebytraj(traj, frameidx, atomidx):
   if len(atomidx) == 0:
     print(f"{Chargebytraj.__name__:15s}: No atom in the selected mask. Skipping it.")
     return np.array([]), np.array([])
-  atomnr = len(atomidx);
-  coord = np.zeros((atomnr, 3));
-  charges = np.zeros(atomnr);
+  atomnr = len(atomidx)
+  coord = np.zeros((atomnr, 3))
+  charges = np.zeros(atomnr)
   pdbstr = write_pdb_block(traj, atomidx, frame_index=frameidx)
 
   try:
     mol = Chem.MolFromPDBBlock(pdbstr)
-    AllChem.ComputeGasteigerCharges(mol);
+    AllChem.ComputeGasteigerCharges(mol)
   except Exception as e:
     print("#############################################")
     print(f"During processing the original file: {traj.top_filename}; ")
-    print("Failed to read PDB/compute the Gasteiger charges. Caught exception: ");
-    print(e);
+    print("Failed to read PDB/compute the Gasteiger charges. Caught exception: ")
+    print(e)
     print("Please check the following PDB string:")
     print(pdbstr)
     print("#############################################")
-    return charges, coord;
+    return charges, coord
 
   if not np.isclose(atomnr, mol.GetNumAtoms()):
-    atomnr = mol.GetNumAtoms();
-    coord = np.zeros((atomnr, 3));
-    charges = np.zeros(atomnr);
-    print(f"Warning: The atom number of given atom index and PDB does not match. {atomnr} vs {mol.GetNumAtoms()}");
+    atomnr = mol.GetNumAtoms()
+    coord = np.zeros((atomnr, 3))
+    charges = np.zeros(atomnr)
+    print(f"Warning: The atom number of given atom index and PDB does not match. {atomnr} vs {mol.GetNumAtoms()}")
 
   try:
-    conf = mol.GetConformer();
-    positions = conf.GetPositions();
+    conf = mol.GetConformer()
+    positions = conf.GetPositions()
     for idx, atom in enumerate(mol.GetAtoms()):
-      coord[idx,:] = np.asarray(conf.GetAtomPosition(idx));
-      charges[idx] = float(atom.GetDoubleProp('_GasteigerCharge'));
-    return charges, coord;
+      coord[idx,:] = np.asarray(conf.GetAtomPosition(idx))
+      charges[idx] = float(atom.GetDoubleProp('_GasteigerCharge'))
+    return charges, coord
   except Exception as e:
     print("#############################################")
     print(f"During processing the original file: {traj.top_filename}; ")
-    print("Error when assigning charges. Caught exception: ");
-    print(e);
+    print("Error when assigning charges. Caught exception: ")
+    print(e)
     print("Please check the following PDB string:")
     print(pdbstr)
     print("#############################################")
-    atomnr = mol.GetNumAtoms();
-    coord = np.zeros((atomnr, 3));
-    charges = np.zeros(atomnr);
-    return charges, coord;
+    atomnr = mol.GetNumAtoms()
+    coord = np.zeros((atomnr, 3))
+    charges = np.zeros(atomnr)
+    return charges, coord
 
 def write_pdb_block(thetraj, idxs, pdbfile="", frame_index=0, marks=[], swap4char=False):
   # Loop over each residue and atom, and write to the PDB file
@@ -268,10 +268,10 @@ def correct_mol_by_smiles(refmol2, prob_smiles):
   # NOTE: Ligand PDB format does not contain bond information; PDB might be the more robust format
   # NOTE: Smiles has to correctly represent the molecule structure
   if mol1 is None:
-    print("Failed to process the smiles. Please check the validity of the smiles")
+    printit("Failed to process the smiles. Please check the validity of the smiles")
     return None
   elif mol2 is None:
-    print("Failed to process the mol2 file. Please check the validity of the mol2 file")
+    printit("Failed to process the mol2 file. Please check the validity of the mol2 file")
     return None
 
   mol1 = Chem.AddHs(mol1, addCoords=True)
@@ -353,7 +353,7 @@ def sanitize_bond(mol_raw):
     if np.isclose(bond_order, 1.0):
       bond_rep = f"{elem1}-{elem2}"
     elif np.isclose(bond_order, 1.5):
-      print("################ found aromatic bond")
+      printit("################ found aromatic bond")
       bond_rep = f"{elem1}~{elem2}"
     elif np.isclose(bond_order, 2.0):
       bond_rep = f"{elem1}={elem2}"
@@ -368,7 +368,7 @@ def sanitize_bond(mol_raw):
 
     bond_length_expected = BOND_LENGTH_MAP[bond_rep]
     if (bond_length > bond_length_expected) and (not np.isclose(bond_length, bond_length_expected, rtol=0.1)):
-      print(f"Removing abnormal bond {bond_rep} lengthed {bond_length:.2f}/{bond_length_expected} angstorm, formed by {begin_atom_idx}@{elem1} - {end_atom_idx}@{elem2}")
+      printit(f"Removing abnormal bond {bond_rep} lengthed {bond_length:.2f}/{bond_length_expected} angstorm, formed by {begin_atom_idx}@{elem1} - {end_atom_idx}@{elem2}")
       bonds_to_remove.append((begin_atom_idx, end_atom_idx))
   # Remove the bonds outside of the iteration loop
   for bond in bonds_to_remove:
@@ -429,7 +429,7 @@ class Mol2Supplier:
         if mol != None:
           self.molecules.append(mol)
         else:
-          print("Failed to read MOL")
+          printit("Failed to read MOL")
 
   def __iter__(self):
     return iter(self.molecules)

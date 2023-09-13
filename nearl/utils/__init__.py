@@ -20,6 +20,7 @@ UTILS_ACTIONS = [
   "data_from_tbagresults",
   "data_from_fbagresults",
   "conflict_factor",
+  "cosine_similarity",
 ]
 
 # Only import functions that are pre-defined in the UTILS_ACTIONS (important actions)
@@ -77,6 +78,8 @@ VIEW_ACTIONS = [
   "random_color",
   "nglview_mask",
   "TrajectoryViewer",
+  "NewCuboid",
+  "NewCoordFrame",
 ]
 for func_name in VIEW_ACTIONS:
   imported_function = importlib.import_module(f'nearl.utils.view').__dict__.get(func_name)

@@ -1,3 +1,5 @@
+import os
+
 import numpy as np
 import pytraj as pt
 import open3d as o3d
@@ -428,6 +430,25 @@ def molecule_to_o3d(pdb_path):
       geometries.append(create_cylinder(pos_1, pos_2, radius=0.15))
   return geometries
 
+def xyzr_to_o3d(xyzr_path, radius_factor=1.0):
+  # Load PDB structure
+  with open(xyzr_path, "r") as f:
+    lines = f.readlines();
+  coords = [];
+  radii = [];
+  for line in lines:
+    line = line.strip().split();
+    coords.append([float(line[0]), float(line[1]), float(line[2])]);
+    radii.append(float(line[3]));
+  coords = np.array(coords);
+  radii = np.array(radii)*radius_factor;
+  geometries = [];
+  for idx, c in enumerate(coords):
+    color = [0.5,0.5,0.5];
+    geometries.append(create_sphere(c, radius=radii[idx], color=color));
+  return geometries
+
+
 ####################################################################################################
 ################################# Generate Open3D readable object ##################################
 ####################################################################################################
@@ -443,12 +464,37 @@ if __name__ == "__main__":
     elif ".ply" in file:
       mesh = o3d.io.read_triangle_mesh(file)
       mesh.paint_uniform_color([0.5,0.1,0.1])
-      lineset = o3d.geometry.LineSet.create_from_triangle_mesh(mesh)
-      final_geometries += [lineset]
+      if os.environ.get("LINE", None):
+        lineset = o3d.geometry.LineSet.create_from_triangle_mesh(mesh)
+        final_geometries += [lineset]
+      else:
+        mesh.compute_vertex_normals()
+        final_geometries += [mesh]
+    elif ".obj" in file:
+      mesh = o3d.io.read_triangle_mesh(file)
+      mesh.paint_uniform_color([0.5, 0.1, 0.1])
+      mesh.compute_vertex_normals()
+      final_geometries += [mesh]
+    elif ".xyzr" in file:
+      xyzr_geoms = xyzr_to_o3d(file, radius_factor=1)
+      final_geometries += xyzr_geoms;
+    else:
+      print(f"Warning: {file} is not a supported file type. Skipping...")
+
+  if os.environ.get("CUBE", None):
+    from nearl.utils.view import NewCuboid
+    c_length = float(os.environ.get("CUBE"))
+    cuboid = NewCuboid(length=c_length)
+    final_geometries += [cuboid]
+  if os.environ.get("SPHERE", None):
+    mesh = o3d.geometry.TriangleMesh.create_sphere(radius=float(os.environ.get("SPHERE")))
+    mesh.paint_uniform_color([0.5, 0.1, 0.9])
+    mesh.compute_vertex_normals()
+    final_geometries += [mesh]
 
   # Visualize the wireframe representation
   o3d.visualization.draw_geometries(final_geometries)
   timestamp = datetime.now().strftime('%Y%m%d_%H%M')
-  o3d.io.write_triangle_mesh(f"/tmp/OBJSET_mesh_{timestamp}.ply", functools.reduce(lambda a, b: a + b, geometries), write_ascii=True)
-  o3d.io.write_triangle_mesh(f"/tmp/OBJSET_surface_{timestamp}.ply", mesh, write_ascii=True)
+  # o3d.io.write_triangle_mesh(f"/tmp/OBJSET_mesh_{timestamp}.ply", functools.reduce(lambda a, b: a + b, geometries), write_ascii=True)
+  # o3d.io.write_triangle_mesh(f"/tmp/OBJSET_surface_{timestamp}.ply", mesh, write_ascii=True)
 

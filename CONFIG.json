@@ -1,16 +1,18 @@
 {
   "####################" : "System settings",
   "tempfolder" : "/home/yzhang/Documents/tests/tempfolder_mlproj/",
-  "clear" : false,
+  "clear" : true,
   "verbose" : false,
   "usegpu": true,
   "debug" : true,
 
   "####################" : "Featurizer settings",
   "WINDOW_SIZE" : 10,
-  "DOWN_SAMPLE_POINTS" : 600,
+  "DOWN_SAMPLE_POINTS" : 1000,
   "SEGMENT_LIMIT" : 6,
+  "VIEWPOINT_STANDPOINT": "self",
   "VIEWPOINT_BINS" : 24,
+
 
   "####################" : "Database settings",
   "user" : "yang",
