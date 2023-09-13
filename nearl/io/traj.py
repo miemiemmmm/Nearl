@@ -3,6 +3,7 @@ import time
 import pytraj as pt
 import numpy as np
 
+import nearl.io
 from nearl import utils
 from nearl import printit, _verbose
 
@@ -36,7 +37,7 @@ class Trajectory(pt.Trajectory):
       tmptraj = pt.load(trajfile, pdbfile, stride=stride, frame_indices=frame_indices)
       timeinfo = tmptraj.time
       boxinfo = tmptraj._boxes
-    elif isinstance(trajfile, pt.Trajectory):
+    elif isinstance(trajfile, (pt.Trajectory, nearl.io.Trajectory)):
       # Initialize the trajectory object
       tmptraj = trajfile
       timeinfo = tmptraj.time
@@ -44,6 +45,13 @@ class Trajectory(pt.Trajectory):
     elif (trajfile is None) and (pdbfile is None):
       super().__init__()
       return
+    elif isinstance(trajfile, str) and (pdbfile is None):
+      tmptraj = pt.load(trajfile)
+      timeinfo = tmptraj.time
+      boxinfo = tmptraj._boxes
+    else:
+      printit(type(trajfile), type(pdbfile))
+      raise ValueError("Invalid input for trajfile and pdbfile")
 
     # NOTE: Adding mask in the first pt.load function causes lose of time information
     if mask is not None:
@@ -65,12 +73,25 @@ class Trajectory(pt.Trajectory):
 
     self._active_index = 0
     self._active_frame = self[0]
-    self.atoms = np.array([i for i in self.top.atoms])
-    self.residues = np.array([i for i in self.top.residues])
+    self.make_index()
 
     if _verbose:
       printit(f"Module {self.__class__.__name__}: stride: {stride}; frame_indices: {frame_indices}; mask: {mask}")
       printit(f"Module {self.__class__.__name__}: Trajectory loaded in {time.perf_counter() - st:.2f} seconds")
+
+  def __getitem__(self, index):
+    # Get the return from its parent pt.Trajectory;
+    self._life_holder = super().__getitem__(index)
+    if isinstance(self._life_holder, pt.Frame):
+      pass
+    else:
+      self._life_holder.top_filename = self.top_filename
+      self._life_holder.traj_filename = self.traj_filename
+      self._life_holder.mask = self.mask
+      self._life_holder._active_index = self._active_index
+      self._life_holder._active_frame = self._active_frame
+      self._life_holder.make_index()
+    return self._life_holder
 
   @property
   def active_frame(self):
@@ -97,6 +118,11 @@ class Trajectory(pt.Trajectory):
     thecopy._life_holder = self._life_holder
     thecopy._frame_holder = self._frame_holder
     return thecopy
+
+  def make_index(self):
+    # Non-pytraj attributes to facilitate further trajectory processing;
+    self.atoms = np.array([i for i in self.top.atoms])
+    self.residues = np.array([i for i in self.top.residues])
 
   def compute_closest_pairs_distance(self, mask, **kwarg):
     if "countermask" in kwarg.keys():

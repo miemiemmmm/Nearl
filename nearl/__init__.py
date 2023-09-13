@@ -1,17 +1,37 @@
-import datetime, builtins, os
-from sys import stdout, stderr
+import datetime, builtins, os, inspect
 from json import load
 import importlib.resources as resources
 
 ########################################################
 
+__version__ = "0.0.1"
+_runtimelog = []
+configfile = resources.files("nearl").joinpath("../CONFIG.json")
+if os.path.isfile(configfile):
+  configfile = os.path.abspath(configfile)
+  with open(configfile, "r") as f:
+    CONFIG = load(f)
+  _clear = CONFIG.get("clear", False)
+  _verbose = CONFIG.get("verbose", False)
+  _tempfolder = CONFIG.get("tempfolder", "/tmp")
+  _usegpu = CONFIG.get("usegpu", False)
+  _debug = CONFIG.get("debug", False)
+else:
+  raise FileNotFoundError(f"NEARL({__file__}): Not found the configuration file")
+
+
 def logit(function):
-  def adddate(*arg, **kwarg):
+  def add_log_info(*arg, **kwarg):
     timestamp = datetime.datetime.now().strftime('%y-%m-%dT%H:%M:%S')
-    log_message = f"{timestamp:20s}: " + " ".join(map(str, arg))  # create log message with timestamp
-    _runtimelog.append(log_message)  # append message to _runtimelog
+    function_stack = [i.function for i in inspect.stack()[1:-1]]
+    # create log message with timestamp and function call stack for debugging purpose
+    if _debug:
+      log_message = f"{timestamp:15s}: {'->'.join(function_stack)} said: " + " ".join(map(str, arg))
+    else:
+      log_message = f"{timestamp:15s}: {'->'.join(function_stack[:2])} said: " + " ".join(map(str, arg))
+    # _runtimelog.append(log_message)  # append message to _runtimelog
     function(log_message, **kwarg)   # execute the decorated function
-  return adddate
+  return add_log_info
 
 
 @logit
@@ -31,24 +51,21 @@ def savelog(filename="", overwrite=True):
   else:
     printit(f"File {filename} exists, skip saving log file")
 
-__version__ = "0.0.1"
-_runtimelog = []
-configfile = resources.files("nearl").joinpath("../CONFIG.json")
 
-if os.path.isfile(configfile):
-  configfile = os.path.abspath(configfile)
-  with open(configfile, "r") as f: 
-    CONFIG = load(f)
-else:
-  raise FileNotFoundError(f"NEARL({__file__}): Not found the configuration file")
+def draw_call_stack():
+  """
+  Draw the calling stack of a function for debugging purpose
+  """
+  printit(f"{'Drawing Calling Stack':=^100s}")
+  for frame_info in inspect.stack():
+    printit(f"Function: {frame_info.function:<20s} | Line: {frame_info.lineno:<5d} from File: {frame_info.filename:40}")
+  printit(f"{'End Drawing Calling Stack':=^100s}")
+
+
 
 PACKAGE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-_clear = CONFIG.get("clear", False)
-_verbose = CONFIG.get("verbose", False)
-_tempfolder = CONFIG.get("tempfolder", "/tmp")
-_usegpu = CONFIG.get("usegpu", False)
-_debug = CONFIG.get("debug", False)
+
 
 if (not os.path.exists(_tempfolder)) or (not os.path.isdir(_tempfolder)):
   raise OSError("The temporary folder (tempfolder) does not exist; Please check the configuration file")

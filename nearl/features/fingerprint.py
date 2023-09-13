@@ -11,8 +11,8 @@ import open3d as o3d
 from rdkit import Chem
 
 from nearl import utils, io
-from .. import CONFIG, printit, savelog, PACKAGE_DIR
-from .. import _clear, _verbose, _tempfolder
+from .. import CONFIG, printit, savelog, PACKAGE_DIR, draw_call_stack
+from .. import _clear, _verbose, _tempfolder, _debug
 
 __all__ = [
   "generator",
@@ -305,6 +305,8 @@ class generator:
     self._VP_HIST = None
     self._ATOM_COUNT = None
     self._TEMP_PREFIX = None
+    self._STANDPOINT = CONFIG.get("VIEWPOINT_STANDPOINT", "next").lower()
+    self._STANDPOINT_COORD = None
 
     if _verbose:
       # Summary the configuration of the identity generator
@@ -425,6 +427,39 @@ class generator:
       prefix = self._TEMP_PREFIX
     return prefix
 
+  @property
+  def standpoint(self):
+    return self._STANDPOINT
+
+  @standpoint.setter
+  def standpoint(self, new_standpoint):
+    """
+    Set the standpoint mode of the viewpoint
+    Args:
+      new_standpoint: the new standpoint mode str(self, next, first, end, previous) or an absolute coordinate (tuple, list or np.ndarray)
+    """
+    if isinstance(new_standpoint, str):
+      if new_standpoint.lower() not in ["self", "next", "previous", "first", "end"]:
+        raise Exception("Unexpected standpoint (should be self, next, first, end or previous)")
+      self._STANDPOINT = new_standpoint.lower()
+      self._STANDPOINT_COORD = None
+    elif isinstance(new_standpoint, (tuple, list, np.ndarray)):
+      self._STANDPOINT = "absolute"
+      self._STANDPOINT_COORD = np.array(new_standpoint)
+    else:
+      raise Exception("Unexpected data type for standpoint (should be str(self, next, first, end, previous), or an absolute coordinate (tuple, list or np.ndarray))")
+
+  @property
+  def standpoint_coord(self):
+    return self._STANDPOINT_COORD
+
+  @standpoint_coord.setter
+  def standpoint_coord(self, new_coord):
+    if isinstance(new_coord, (tuple, list, np.ndarray)):
+      self._STANDPOINT_COORD = np.array(new_coord)
+    else:
+      raise Exception("Unexpected data type for standpoint (should be str(self, next, first, end, previous), or an absolute coordinate (tuple, list or np.ndarray))")
+
   def set_frame(self, frameidx):
     self._frame = frameidx
 
@@ -518,6 +553,13 @@ class generator:
 
   @property
   def meshes(self):
+    """
+    The meshes of all segments under vectorization
+    """
+    return [copy.deepcopy(i) for i in self._MESHES]
+
+  @property
+  def final_mesh(self):
     """
     The meshes of all segments under vectorization
     """
@@ -629,7 +671,7 @@ class generator:
     else:
       SUCCESS_MESH = True
 
-    self._VP_HIST = self.segment_to_vpc()
+    self._VP_HIST = self.segment_to_vpc([1000,1000,1000])
     if self._VP_HIST is None:
       SUCCESS_VP = False
     else:
@@ -694,6 +736,15 @@ class generator:
 
     # TODO: integrate the density of points and radius of probe into the surface generation function
     vertices, normals, faces = ses_surface_geometry(self.traj.xyz[self.frame][segment_indices], rads)
+    if _debug:
+      printit(f"From {len(rads)} atoms, returned vertices/normals/triangles: ", vertices.shape, normals.shape, faces.shape)
+
+    if len(vertices) == 0:
+      tmphash = utils.get_hash()[0:10];
+      with open(_tempfolder + f"/{tmphash}.xyzr", "w") as f:
+        for (xyz, r) in zip(self.traj.xyz[self.frame][segment_indices], rads):
+          f.write(f"{xyz[0]:.3f} {xyz[1]:.3f} {xyz[2]:.3f} {r:.3f}\n")
+
 
     # Retrieve and post-process the mesh: vertices, normals, faces
     mesh = o3d.geometry.TriangleMesh()
@@ -701,11 +752,30 @@ class generator:
     mesh.vertex_normals = o3d.utility.Vector3dVector(normals)
     mesh.triangles = o3d.utility.Vector3iVector(faces)
     mesh.remove_degenerate_triangles()
+
+    ### TODO: Remove the following code after debugging
+    # print(f"Initial mesh: {mesh}")
+    # o3d.io.write_triangle_mesh(f"/tmp/mesh_test.ply", mesh)
+
+
+    ########################
+    pcd = mesh.sample_points_uniformly(number_of_points=self.FPFH_DOWN_SAMPLES)
+    pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=1, max_nn=30))
+    mesh, densities = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(pcd, depth=8)
+    ########################
+
+    ### TODO: Remove the following code after debugging
+    # print(f"After Sampling: {mesh}")
+    # o3d.io.write_triangle_mesh(f"/tmp/mesh_test2.ply", mesh)
+    # exit(0)
+
+    # mesh.remove_degenerate_triangles()
     mesh.compute_vertex_normals()
+
     if not mesh.is_empty():
       return mesh
     else:
-      printit(f"{__file__}: Failed to convert the XYZR to triangle mesh.")
+      printit(f"Failed to convert the XYZR to triangle mesh.")
       return o3d.geometry.TriangleMesh()
 
   def segment_to_vpc(self, viewpoint=None, bins=None):
@@ -713,19 +783,48 @@ class generator:
     Compute the viewpoint feature of a segment
     """
     pf_gen = PointFeature(self._MESH)
-    if viewpoint is None:
+
+    if self.standpoint == "next":
       if self.segment_index == (self._SEGMENTS_NUMBER - 1):
-        cog_next = self.center
+        standpoint_coord = self.center
       else:
-        idx_next = np.where(self._SEGMENTS == self._SEGMENTS_ORDER[self.segment_index + 1])[0]
-        cog_next = self.traj.xyz[self.frame][idx_next].mean(axis=0)
-    else:
-      cog_next = viewpoint
+        theidx = np.where(self._SEGMENTS == self._SEGMENTS_ORDER[self.segment_index + 1])[0]
+        standpoint_coord = self.traj.xyz[self.frame][theidx].mean(axis=0)
+
+    elif self.standpoint == "previous":
+      if self.segment_index == (self._SEGMENTS_NUMBER - 1):
+        standpoint_coord = self.center
+      else:
+        theidx = np.where(self._SEGMENTS == self._SEGMENTS_ORDER[self.segment_index - 1])[0]
+        standpoint_coord = self.traj.xyz[self.frame][theidx].mean(axis=0)
+
+    elif self.standpoint == "first":
+      theidx = np.where(self._SEGMENTS == self._SEGMENTS_ORDER[1])[0]
+      standpoint_coord = self.traj.xyz[self.frame][theidx].mean(axis=0)
+
+    elif self.standpoint == "end":
+      theidx = np.where(self._SEGMENTS == self._SEGMENTS_ORDER[-1])[0]
+      standpoint_coord = self.traj.xyz[self.frame][theidx].mean(axis=0)
+
+    elif self.standpoint == "self":
+      theidx = np.where(self._SEGMENTS == self._SEGMENTS_ORDER[self.segment_index - 1])[0]
+      standpoint_coord = self.traj.xyz[self.frame][theidx].mean(axis=0)
+
+    elif self.standpoint == "absolute":
+      standpoint_coord = self.standpoint_coord
+
+    elif viewpoint is not None:
+      standpoint_coord = np.array(viewpoint)
+    self.standpoint_coord = standpoint_coord
+
     if bins is None:
       bin_nr = self.VIEWPOINTBINS
     else:
       bin_nr = bins
-    vpc = pf_gen.compute_vpc(cog_next, bins=bin_nr)
+
+    printit(f"Center mode: {self.standpoint}; Center coord: {standpoint_coord}; Bin number: {bin_nr}")
+
+    vpc = pf_gen.compute_vpc(self.standpoint_coord, bins=bin_nr)
     if vpc is None or np.sum(vpc) == 0:
       return None
     else:
@@ -736,7 +835,7 @@ class generator:
     Vectorize the segments (at maximum 6) of a frame
     Two major steps:
       1. Generate the fingerprint for each segment (including PDB generation/Molecular surface generation)
-      2. Collect all the results, combine surfaces and return it to the runframe function
+      2. Collect all the results, combine surfaces and return it to the run_frame function
     """
     # Initialize the identity feature vector
     frame_feature = np.zeros((self.SEGMENT_LIMIT, 12 + self.VIEWPOINTBINS))
@@ -803,8 +902,7 @@ class generator:
       segment_rdmols.append(self.mol)
       atom_indices_res += self.segment_residue.tolist()
 
-
-    ############ END of the segment iteration ##############
+    # END of the segment iteration
     try:
       for idx, mesh in enumerate(segment_objects):
         if idx == 0:
@@ -821,13 +919,14 @@ class generator:
       printit(f"Warning: {self.traj.top_filename} -> Skip this frame ...")
       with open(f"{self.temp_prefix}frame{self.frame}_FAILED.pdb", "w") as f:
         f.write(pdb_final)
-      return np.zeros((self.SEGMENT_LIMIT, 12 + self.VIEWPOINTBINS)).reshape(-1), []
+      return np.zeros((self.SEGMENT_LIMIT, 12 + self.VIEWPOINTBINS)).reshape(-1)
 
     # Keep the final PDB and PLY files in memory for further use
     self._RDMOLS = segment_rdmols
     self._PDB_STRING = pdb_final
     self._INDICES = atom_indices
     self._INDICES_RES = atom_indices_res
+    self._MESHES = segment_objects
 
     if (not _clear):
       # Write out the final mesh if the intermediate output is required for debugging purpose
@@ -914,13 +1013,37 @@ class generator:
   def volume(self, mesh): 
     """
     Volume computation is not robust enough
-    TODO: Use the C++ code to compute the volume
     """
     try:
       VOL = mesh.get_volume()
     except:
-      printit(f"Warning: failed to compute the volume for frame {self.frame}")
-      VOL  = 1.5 * mesh.get_surface_area()
+      import  nearl.static.interpolate_c as interpolate_cpu
+      vertices = np.asarray(mesh.vertices)
+      bound = np.max(vertices, axis=0) - np.min(vertices, axis=0)
+      voxel_size = np.max(bound) / 36
+      for i in range(10):
+        volume_info = interpolate_cpu.compute_volume(vertices, voxel_size=voxel_size)
+        VOL_estimate = volume_info[0] + (0.5*volume_info[1])
+        if volume_info[3] > 0 and volume_info[3] > volume_info[4]:
+          printit(f"Computation success")
+          break
+        elif volume_info[7] > 72:
+          printit("Grid too dense")
+          voxel_size = voxel_size * 1.5
+        elif volume_info[7] < 12:
+          printit("Grid too sparse")
+          voxel_size = voxel_size * 0.5
+        elif volume_info[3] == 0:
+          printit("No voxel is inside the mesh (usually voxel size too small or mesh resolution too low)")
+          voxel_size = voxel_size * 1.1 + 0.1
+        elif volume_info[3] > 0 and volume_info[3] < volume_info[4]:
+          printit("Majority of voxels are surface voxels (usually voxel size is too large)")
+          voxel_size = voxel_size * 0.9 - 0.1
+        else:
+          voxel_size *= 1.1
+      if volume_info[0] == 0:
+        VOL_estimate = 4 * np.pi * self.mean_radius(mesh) ** 3 / 3
+      VOL = VOL_estimate
     return VOL
     
   def surface(self, mesh):
@@ -1121,15 +1244,15 @@ def reduce_geometry(va, na, ta, vi, ti):
   rta = vmap.take(rta.ravel()).reshape((len(ti), 3))
   return rva, rna, rta
 
-def ses_surface_geometry(xyz, radii, probe_radius=1.4, grid_spacing=0.5, sas=False):
+def ses_surface_geometry(xyz, radii, probe_radius=1.4, grid_spacing=0.5):
   '''
   Calculate a solvent excluded molecular surface using a distance grid
   contouring method.  Vertex, normal and triangle arrays are returned.
   If sas is true then the solvent accessible surface is returned instead.
   This avoid generating the
   '''
-  sys.path.insert(0, os.path.join(PACKAGE_DIR, "static"))
   from nearl.static import _geometry, _surface, _map
+  from nearl.static import test_surf
 
   radii = np.asarray(radii, np.float32)
   # Compute bounding box for atoms
@@ -1138,54 +1261,48 @@ def ses_surface_geometry(xyz, radii, probe_radius=1.4, grid_spacing=0.5, sas=Fal
   origin = [x - pad for x in xyz_min]
 
   # Create 3d grid for computing distance map
-  s = grid_spacing
-  shape = [int(np.ceil((xyz_max[a] - xyz_min[a] + 2 * pad) / s))
+  shape = [int(np.ceil((xyz_max[a] - xyz_min[a] + 2 * pad) / grid_spacing))
            for a in (2, 1, 0)]
-
-  try:
-    matrix = np.empty(shape, np.float32)
-  except (MemoryError, ValueError):
-    raise MemoryError('Surface calculation out of memory trying to allocate a grid %d x %d x %d '
-                      % (shape[2], shape[1], shape[0]) +
-                      'to cover xyz bounds %.3g,%.3g,%.3g ' % tuple(xyz_min) +
-                      'to %.3g,%.3g,%.3g ' % tuple(xyz_max) +
-                      'with grid size %.3g' % grid_spacing)
+  matrix = np.empty(shape, np.float32)
 
   max_index_range = 2
   matrix[:, :, :] = max_index_range
 
   # Transform centers and radii to grid index coordinates
-  tf_matrix34 = np.array(((1.0 / s, 0, 0, -origin[0] / s),
-                          (0, 1.0 / s, 0, -origin[1] / s),
-                          (0, 0, 1.0 / s, -origin[2] / s)))
+  tf_matrix34 = np.array(((1.0 / grid_spacing, 0, 0, -origin[0] / grid_spacing),
+                          (0, 1.0 / grid_spacing, 0, -origin[1] / grid_spacing),
+                          (0, 0, 1.0 / grid_spacing, -origin[2] / grid_spacing)))
 
-  """transforms the atomic coordinates to grid index coordinates"""
+  # transforms the atomic coordinates to grid index coordinates
   ijk = affine_transform_vertices(xyz, tf_matrix34)
+  # print("Original vertices: ", xyz.shape)
+  # print("Transformed vertices: ", ijk.shape) # Scale up the coordinate for 1/spacing times.
 
   ri = radii.astype(np.float32)
   ri += probe_radius
-  ri /= s
+  ri /= grid_spacing
 
   # Compute distance map from surface of spheres, positive outside.
   _map.sphere_surface_distance(ijk, ri, max_index_range, matrix)
+  # Returned matrix is in np.float32 type
+  # matrix = test_surf.sphere_surface_distance(ijk, ri, np.float32(max_index_range), np.float32(shape))
 
   # Get the SAS surface as a contour surface of the distance map
+  # print("Matrix shape: ", matrix.shape)
   level = 0
-  sas_va, sas_ta, sas_na = _map.contour_surface(matrix, level, cap_faces=False,
-                                                calculate_normals=True)
-  if sas:
-    invert_m34 = invert_matrix(tf_matrix34)
-    ses_va = affine_transform_vertices(ses_va, invert_m34)
-    return sas_va, sas_na, sas_ta
+  sas_va, sas_ta, sas_na = _map.contour_surface(matrix, level, cap_faces=False, calculate_normals=True)
+  # write_ply(sas_va, normals=(sas_na*-1), triangles=sas_ta, filename="/tmp/sas.ply")
+
+  # a = test_surf.contour_surface(matrix, level, cap_faces=False, calcu   late_normals=True)
 
   # Compute SES surface distance map using SAS surface vertex
   # points as probe sphere centers.
   matrix[:, :, :] = max_index_range
   rp = np.empty((len(sas_va),), np.float32)
-  rp[:] = float(probe_radius) / s
+  rp[:] = float(probe_radius) / grid_spacing
   _map.sphere_surface_distance(sas_va, rp, max_index_range, matrix)
-  ses_va, ses_ta, ses_na = _map.contour_surface(matrix, level, cap_faces=False,
-                                                calculate_normals=True)
+  ses_va, ses_ta, ses_na = _map.contour_surface(matrix, level, cap_faces=False, calculate_normals=True)
+  # write_ply(ses_va, normals=ses_na, triangles=ses_ta, filename="/tmp/ses.ply")
 
   # Transform surface from grid index coordinates to atom coordinates
   invert_m34 = invert_matrix(tf_matrix34)
@@ -1207,6 +1324,9 @@ def ses_surface_geometry(xyz, radii, probe_radius=1.4, grid_spacing=0.5, sas=Fal
   keepv = np.concatenate(kvi) if kvi else []
   keept = np.concatenate(kti) if kti else []
   va, na, ta = reduce_geometry(ses_va, ses_na, ses_ta, keepv, keept)
+
+  # print("Before reduction: ", ses_va.shape, ses_na.shape, ses_ta.shape)
+  # print("After reduction: ", va.shape, na.shape, ta.shape)
   return va, na, ta
 
 

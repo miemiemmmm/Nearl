@@ -181,10 +181,10 @@ if __name__ == '__main__':
   #################################################################################
   ########### Part1: Combine protein-ligand to complex PDB file ###################
   #################################################################################
-  ref_filedir1 = "/media/yzhang/MieT5/PDBbind_v2020_refined/";
-  ref_filedir2 = "/media/yzhang/MieT5/PDBbind_v2020_other_PL/";
-  out_filedir = "/media/yzhang/MieT5/BetaPose/data/complexes/";           # Output directory for the combined complex PDB file
-  PDBBind_datafile = "/media/yzhang/MieT5/BetaPose/data/PDBBind_general_v2020.csv";   # PDBBind V2020
+  ref_filedir1 = "/MieT5/PDBbind_v2020_refined/";
+  ref_filedir2 = "/MieT5/PDBbind_v2020_other_PL/";
+  out_filedir = "/MieT5/BetaPose/data/complexes/";           # Output directory for the combined complex PDB file
+  PDBBind_datafile = "/MieT5/BetaPose/data/PDBBind_general_v2020.csv";   # PDBBind V2020
   SKIP_COMBINE = True
 
   # Read the PDBBind dataset
@@ -217,9 +217,9 @@ if __name__ == '__main__':
   #################################################################################
   ########### Part2: Check the existence of required PDB complexes ################
   #################################################################################
-  pdb_listfile = "/media/yzhang/MieT5/BetaPose/data/misato_original_index/train_MD.txt"
-  output_hdffile = "/media/yzhang/MieT5/BetaPose/data/trainingdata/test_3d_data.h5";
-  complex_dir = "/media/yzhang/MieT5/BetaPose/data/complexes/";
+  pdb_listfile = "/MieT5/BetaPose/data/misato_original_index/train_MD.txt"
+  output_hdffile = "/MieT5/BetaPose/data/trainingdata/test_3d_data.h5";
+  complex_dir = "/MieT5/BetaPose/data/complexes/";
 
   SUPERSEDES = {
     "4dgo": "6qs5", "4otw": "6op9", "4v1c": "6iso",
@@ -249,7 +249,7 @@ if __name__ == '__main__':
   st_compute = time.perf_counter();
   FEATURIZER_PARMS = {
     # POCKET SETTINGS
-    "CUBOID_DIMENSION": [48, 48, 48],  # Unit: 1 (Number of lattice in one dimension)
+    "CUBOID_DIMENSION": [45, 45, 45],  # Unit: 1 (Number of lattice in one dimension)
     "CUBOID_LENGTH": [24, 24, 24],     # Unit: Angstorm (Need scaling)
   }
 

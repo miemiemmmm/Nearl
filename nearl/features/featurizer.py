@@ -10,7 +10,7 @@ from nearl import utils
 from nearl.io import hdf5
 
 from . import fingerprint
-from .. import printit, CONFIG, _verbose, _debug
+from .. import printit, CONFIG, _verbose, _debug, draw_call_stack
 
 __all__ = [
   "initialize_grid",
@@ -48,7 +48,7 @@ class Featurizer3D:
 
     # Box related variables for feature mapping and generation
     self.__distances = np.arange(np.prod(self.__dims)).astype(int)
-    self.__boxcenter = np.array([0, 0, 0])
+    self.__boxcenter = np.array([0, 0, 0]).astype(float)
     self.grid, self.__points3d = initialize_grid(self.__boxcenter, self.__lengths, self.__dims)
 
     # Identity vector generation related variables
@@ -132,6 +132,10 @@ class Featurizer3D:
   @property
   def dims(self):
     return np.array(self.__dims)
+
+  @property
+  def distances(self):
+    return self.__distances
 
   @dims.setter
   def dims(self, newdims):
@@ -293,6 +297,9 @@ class Featurizer3D:
     """
     self.FRAMES = theframes
     self.FRAMENUMBER = len(self.FRAMES)
+    if self.traj is not None:
+      self.active_frame_index = self.FRAMES[0]
+      self.active_frame = self.traj[self.active_frame_index]
 
   def register_traj(self, thetraj):
     """
@@ -303,6 +310,9 @@ class Featurizer3D:
     # TODO: Make sure the trajectory related parameters are updated when the trajectory is changed
     self._traj = thetraj
     self._top = thetraj.top.copy()
+    if self.FRAMENUMBER > 0:
+      self.active_frame_index = self.FRAMES[0]
+      self.active_frame = self.traj[self.active_frame_index]
 
   # DATABASE operation functions
   def connect(self, dataset):
@@ -429,14 +439,14 @@ class Featurizer3D:
       self.active_frame = self.traj[frame]
       if focus_mode == "cog":
         # Only focus on the center of geometry of the selected atoms
-        focuses = np.mean(self.active_frame.xyz[atoms], axis=0)
+        focuses = np.mean(self.active_frame.xyz[atoms], axis=0).reshape((-1,3))
       else:
         # Focus on each selected atoms
-        focuses = self.active_frame.xyz[atoms]
+        focuses = self.active_frame.xyz[atoms].reshape((-1,3))
 
       printit(f"Frame {frame}: Generated {len(focuses)} centers")
       # For each frame, run number of atoms times to compute the features/segmentations
-      repr_vec, feat_vec = self.runframe(focuses, fp_generator)
+      repr_vec, feat_vec = self.run_frame(focuses, fp_generator)
 
       c_1 = c_0 + len(repr_vec)
       c_total += len(repr_vec)
@@ -461,7 +471,7 @@ class Featurizer3D:
     else:
       _centers = center[:3, :]
       center_number = len(_centers)
-      # Step1: Initialize the MolBlock representation generator(required by the runframe method)
+      # Step1: Initialize the MolBlock representation generator(required by the run_frame method)
       self.fp_generator = fingerprint.generator(self.traj)
 
       # Step2: Initialize the feature array
@@ -479,7 +489,7 @@ class Featurizer3D:
         self.fp_generator.frame = frame
         printit(f"Frame {frame}: Generated {center_number} centers")
         # For each frame, run number of centers times to compute the features/segmentations
-        repr_vec, feat_vec = self.runframe(_centers)
+        repr_vec, feat_vec = self.run_frame(_centers)
 
         c_1 = c + len(repr_vec)
         c_total += len(repr_vec)
@@ -489,7 +499,7 @@ class Featurizer3D:
 
       return id_processed[:c_total], feat_processed[:c_total]
 
-  def runframe(self, centers, fp_generator):
+  def run_frame(self, centers, fp_generator):
     """
     Generate the feature vectors for each center in the current frame
     Explicitly transfer the generator object to the function
@@ -522,14 +532,24 @@ class Featurizer3D:
 
       # DEBUG ONLY
       if _verbose or _debug:
-        printit(f"Found {len(set(segments))-1} non-empty segments", {i: j for i, j in zip(*np.unique(segments, return_counts=True)) if i != 0})
+        seg_set = set(segments)
+        seg_set.discard(0)
+        printit(f"Found {len(seg_set)} non-empty segments", {i: j for i, j in zip(*np.unique(segments, return_counts=True)) if i != 0})
 
       """
       Compute the identity vector for the molecue block
       Identity generation is compulsory because it is the only hint to retrieve the feature block
       """
-      feature_vector, mesh_objs = fp_generator.vectorize()
-      if np.count_nonzero(feature_vector) == 0 or len(mesh_objs) == 0:
+      feature_vector = fp_generator.vectorize()
+
+      try:
+        feature_vector.sum()
+      except:
+        print("Error: Feature vector is not generated correctly")
+        print(feature_vector)
+        print(feature_vector[0].shape)
+
+      if np.count_nonzero(feature_vector) == 0 or None in fp_generator.mols:
         # Returned feature vector is all-zero, the featurization is most likely failed
         mask[idx] = False
         continue
@@ -537,7 +557,8 @@ class Featurizer3D:
       # Collect the results before processing the features
       # Use the dictionary as the result container to improve the flexibility (rather than attributes)
       self.contents = {
-        "mesh": fp_generator.meshes,
+        "meshes": fp_generator.meshes,
+        "final_mesh": fp_generator.final_mesh,
         "vertices": fp_generator.vertices,
         "faces": fp_generator.faces,
         "normals": fp_generator.normals,
@@ -551,17 +572,6 @@ class Featurizer3D:
         "ply_result": fp_generator.get_ply_string(),
 
       }
-      # self.mesh = fp_generator.meshes
-      # self.vertices = fp_generator.vertices
-      # self.faces = fp_generator.faces
-      # self.normals = fp_generator.normals
-      #
-      # self.mols = fp_generator.mols
-      # self.indices = fp_generator.indices
-      # self.indices_res = fp_generator.indices_res
-      # self.pdb_result = fp_generator.get_pdb_string()
-      # self.ply_result = fp_generator.get_ply_string()
-      # self.segments = segments
 
       if len(feature_vector) == 0:
         if _verbose:

@@ -332,9 +332,8 @@ element_color_map = {
 }
 
 
-# Generate Open3D readable object ##################################
-
-def getAtomNum(atom="", residue=""):
+# Generate Open3D readable object
+def get_atom_num(atom="", residue=""):
   """
   Get the atomic number of an atom based on its atom name and residue name.
   Args:
@@ -436,7 +435,7 @@ def molecule_to_o3d(pdb_path):
   for idx, c in enumerate(coords):
     theatom = atoms[idx]
     resname = residues[theatom.resid].name
-    atomtype = getAtomNum(theatom.name, resname)
+    atomtype = get_atom_num(theatom.name, resname)
     print(f"Atom Name: {theatom.name:8s} | Res Name: {resname:8s} | ---> {atomtype} |")
     color = element_color_map.get(atomtype, [0.5, 0.5, 0.5])
     geometries.append(create_sphere(c, radius=0.5, color=color))

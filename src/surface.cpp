@@ -76,6 +76,7 @@ private:
         afsize = (anxt - 1) * block_size;
     }
 };
+
 class Grid_Cell{
 public:
   int k0, k1;  // Cell position in xy plane.

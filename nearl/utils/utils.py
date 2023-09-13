@@ -1,10 +1,10 @@
-import os, time, re, hashlib
+import os, time, re, hashlib, inspect
 
 import numpy as np 
 import pytraj as pt
 from scipy.spatial import distance_matrix
 
-from .. import printit
+from .. import printit, draw_call_stack
 
 def get_hash(theinput="", mode="md5"):
   """
@@ -28,8 +28,10 @@ def get_hash(theinput="", mode="md5"):
     return hash_func(bytes(arrstr, "utf-8")).hexdigest()
   elif isinstance(theinput, np.ndarray) and len(theinput)>0:
     return hash_func(theinput.tobytes()).hexdigest()
-  elif isinstance(theinput, bytes):
+  elif isinstance(theinput, bytes) and len(theinput)>0:
     return hash_func(theinput).hexdigest()
+  elif len(theinput) == 0:
+    return hash_func(bytes(time.perf_counter().__str__(), "utf-8")).hexdigest()
   else:
     printit("Warning: Not a valid input, should be (string, tuple, list, np.ndarray, bytes). Using time.perf_counter() by default.")
     return hash_func(bytes(time.perf_counter().__str__(), "utf-8")).hexdigest()

@@ -9,7 +9,7 @@ from open3d.geometry import KDTreeSearchParamHybrid
 from nearl import utils
 from nearl.static import interpolate
 
-from .. import CONFIG, printit
+from .. import CONFIG, printit, draw_call_stack
 from .. import _usegpu, _verbose
 
 __all__ = [
@@ -67,8 +67,8 @@ class Feature:
   The base class for all features
   """
   def __init__(self):
-    print(f"Initializing the feature base class {self.__class__.__name__}")
     self.featurizer = None
+    self.QUERIED_MOLS = {}
 
   def __str__(self):
     return self.__class__.__name__
@@ -141,8 +141,8 @@ class Feature:
     frame_hash = utils.get_hash(self.active_frame.xyz.tobytes())
     final_hash = sel_hash + frame_hash
 
-    if final_hash in self.featurizer.QUERIED_MOLS:
-      return self.featurizer.QUERIED_MOLS[final_hash]
+    if final_hash in self.QUERIED_MOLS:
+      return self.QUERIED_MOLS[final_hash]
     else:
       retmol = self.featurizer.selection_to_mol(selection)
       self.QUERIED_MOLS[final_hash] = retmol
@@ -161,13 +161,18 @@ class Feature:
     np.array: A 3D mesh grid of shape (grid_size, grid_size, grid_size) with the interpolated density.
     """
     # from nearl.static import interpolate
-    weights = np.nan_to_num(weights, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
-    atom_coords = points.reshape(-1, 3)
+    print(self)
+    weights = np.nan_to_num(weights, copy=True, nan=0.0, posinf=0.0, neginf=0.0)
+
+    grid_coords = np.array(self.points3d.astype(np.float64), dtype=np.float64)
+    atom_coords = np.array(points.reshape(-1, 3), dtype=np.float64)
+    weights = np.array(weights.reshape(-1), dtype=np.float64)
+
     # Interpolate the density
-    if _usegpu:
-      grid_density = interpolate.interpolate_gpu(self.points3d, atom_coords, weights)
-    else:
-      grid_density = interpolate.interpolate(self.points3d, atom_coords, weights)
+    print(f"Shape of grid_coords: {grid_coords.shape}")
+    print(f"Shape of atom_coords: {atom_coords.shape}")
+    print(f"Shape of weights: {weights.shape}")
+    grid_density = interpolate.interpolate(grid_coords, atom_coords, weights)
     grid_density = grid_density.reshape(self.dims)
     return grid_density
 
@@ -537,7 +542,7 @@ class FPFHFeature(Feature):
 
   def featurize(self):
     down_sample_nr = CONFIG.get("DOWN_SAMPLE_POINTS", 600)
-    themesh = self.featurizer.contents["mesh"]
+    themesh = self.featurizer.contents["final_mesh"]
     fpfh = compute_fpfh_feature(themesh.sample_points_uniformly(down_sample_nr),
                                 KDTreeSearchParamHybrid(radius=1, max_nn=20))
     print("FPFH feature: ", fpfh.data.shape)
@@ -689,9 +694,16 @@ class EntropyResidueID(Feature):
     """
     Get the information entropy(Chaoticity in general) of the box
     """
-    entropy_arr = interpolate.grid4entropy(self.points3d, self._COORD, self.RESID_ENSEMBLE,
-                                           cutoff=self.ENTROPY_CUTOFF)
-    print(f"Check the entropy array: {entropy_arr.shape}")
+    grid_coord = np.array(self.points3d, dtype=np.float64)
+    atom_coord = np.array(self._COORD, dtype=np.float64)
+    atom_info = np.array(self.RESID_ENSEMBLE, dtype=int)
+    entropy_arr = interpolate.query_grid_entropy(grid_coord, atom_coord, atom_info,
+                                                 cutoff=self.ENTROPY_CUTOFF)
+    if len(entropy_arr) != len(self.featurizer.distances):
+      draw_call_stack()
+      raise Exception("Warning: The entropy array does not match the number of grid points")
+    elif len(entropy_arr) == 0:
+      raise Exception("Warning: The entropy array is empty")
     entropy_arr = entropy_arr.reshape(self.dims)
     return entropy_arr
 
@@ -730,8 +742,10 @@ class EntropyAtomID(Feature):
     """
     Get the information entropy(Chaoticity in general) of the box
     """
-    entropy_arr = interpolate.grid4entropy(self.points3d, self._COORD, self.INDEX_ENSEMBLE, cutoff=self.ENTROPY_CUTOFF)
-    print(f"Check the entropy array: {entropy_arr.shape}")
+    entropy_arr = interpolate.query_grid_entropy(self.points3d, self._COORD, self.INDEX_ENSEMBLE, cutoff=self.ENTROPY_CUTOFF)
+    if len(entropy_arr) != len(self.featurizer.distances):
+      draw_call_stack()
+      raise Exception("Warning: returned entropy array does not match the grid size")
     entropy_arr = entropy_arr.reshape(self.dims)
     return entropy_arr
 
