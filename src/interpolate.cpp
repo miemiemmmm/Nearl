@@ -40,7 +40,7 @@ py::array_t<double> arr_weights, const double cutoff = 4, const double sigma = 1
 	double increment, dist_sq, dist;
   bool skip;
   vector<double> interpolated(n2, 0.0);
-  #pragma omp parallel for simd private(skip, dist_sq, dist, increment)
+  #pragma omp parallel for private(skip, dist_sq, dist, increment)
   for (int i = 0; i < n1; i++) {
     // Iterate over all target points
     for (int j = 0; j < n2; j++) {

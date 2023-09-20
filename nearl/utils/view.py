@@ -449,6 +449,54 @@ def molecule_to_o3d(pdb_path):
       geometries.append(create_cylinder(pos_1, pos_2, radius=0.15))
   return geometries
 
+def display_icp(static_objs, dynamic_objs, outfile="", resetbb1=True, resetbb2=False):
+    """
+    Dynamics object are processed via their deep copies
+    """
+    import subprocess, tempfile, os
+
+    getobj = lambda p: o3d.io.read_triangle_mesh(p) if o3d.io.read_triangle_mesh(p).triangles.__len__() > 0 else o3d.io.read_point_cloud(p)
+    vis = o3d.visualization.Visualizer()
+    vis.create_window(visible=True)
+    
+    for sobj in static_objs:
+        if isinstance(sobj, str) and obj.endswith('.ply'):
+            sobj = getobj(sobj)
+        elif isinstance(sobj, (o3d.geometry.TriangleMesh, o3d.geometry.PointCloud)):
+            sobj = copy.deepcopy(sobj)
+        else:
+            raise ValueError("Expecting an object file or an open3d object")
+        vis.add_geometry(sobj, reset_bounding_box=bool(resetbb1))
+        vis.update_geometry(sobj)
+        vis.poll_events()
+        vis.update_renderer()
+    
+    # For each object in the dynamic_objs, Added, render and then remove it. 
+    with tempfile.TemporaryDirectory() as temp_dir:
+        print(f"Working on tempfolder {temp_dir}")
+        for i, obj in enumerate(dynamic_objs):
+            if isinstance(obj, str) and obj.endswith('.ply'):
+                geom = getobj(obj)
+            elif isinstance(obj, (o3d.geometry.TriangleMesh, o3d.geometry.PointCloud)):
+                geom = copy.deepcopy(obj)
+            else:
+                raise ValueError("Expecting an object file or an open3d object")
+            # Add point cloud to the visualizer
+            vis.add_geometry(geom, reset_bounding_box=bool(resetbb2))
+            vis.update_geometry(geom)
+            vis.poll_events()
+            vis.update_renderer()
+            vis.capture_screen_image(os.path.join(temp_dir, f"frame_{i:04d}.png"))
+            # Remove point cloud from the visualizer for the next iteration
+            vis.remove_geometry(geom, reset_bounding_box=bool(resetbb2))
+        # Destroy the visualizer
+        vis.destroy_window()
+
+        if len(outfile) > 0: 
+            # Compile frames into a movie using FFmpeg
+            ffmpeg_command = f"ffmpeg -r 24 -i {temp_dir}/frame_%04d.png -vcodec libx264 -pix_fmt yuv422p -y {outfile}"
+            subprocess.run(ffmpeg_command, shell=True)
+
 
 if __name__ == "__main__":
   # Example usage of the TrajectoryViewer class

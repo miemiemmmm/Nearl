@@ -274,6 +274,10 @@ def smarts_supplier(smarts):
     mols.append(mol)
   return mols
 
+def color_scale(point_nr, cmap="inferno"):
+  from matplotlib.pyplot import get_cmap
+  color_map = get_cmap(cmap)
+  return [color_map(i)[:3] for i in np.linspace(int(0.1 * color_map.N), int(0.9 * color_map.N), point_nr).astype(int)] 
 
 def get_pdb_title(pdbcode):
   pdb = pdbcode.lower().strip().replace(" ", "")

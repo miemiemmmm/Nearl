@@ -2,6 +2,10 @@
 # Install the micromamba to be able to fast deploy the python environment
 # The default base directory is the current working directory
 # Usage: bash install_mamba.sh <base directory>
+if [ ${#1} -eq 0 ]; then
+  echo "Usage: bash install_mamba.sh <base directory>" 1>&2
+  exit 0
+fi
 set -eu
 
 
