@@ -77,5 +77,3 @@ if __name__ == "__main__":
   print("Finished, Total time elapsed: ", time.perf_counter() - st_write);
 
 
-
-

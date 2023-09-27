@@ -1,4 +1,5 @@
 import os, sys, re, subprocess, tempfile, copy
+import time
 from itertools import combinations
 
 import pytraj as pt
@@ -736,15 +737,15 @@ class generator:
 
     # TODO: integrate the density of points and radius of probe into the surface generation function
     vertices, normals, faces = ses_surface_geometry(self.traj.xyz[self.frame][segment_indices], rads)
+
     if _debug:
       printit(f"From {len(rads)} atoms, returned vertices/normals/triangles: ", vertices.shape, normals.shape, faces.shape)
 
     if len(vertices) == 0:
-      tmphash = utils.get_hash()[0:10];
+      tmphash = utils.get_hash()[0:10]
       with open(_tempfolder + f"/{tmphash}.xyzr", "w") as f:
         for (xyz, r) in zip(self.traj.xyz[self.frame][segment_indices], rads):
           f.write(f"{xyz[0]:.3f} {xyz[1]:.3f} {xyz[2]:.3f} {r:.3f}\n")
-
 
     # Retrieve and post-process the mesh: vertices, normals, faces
     mesh = o3d.geometry.TriangleMesh()
@@ -753,23 +754,19 @@ class generator:
     mesh.triangles = o3d.utility.Vector3iVector(faces)
     mesh.remove_degenerate_triangles()
 
+
     ### TODO: Remove the following code after debugging
     # print(f"Initial mesh: {mesh}")
     # o3d.io.write_triangle_mesh(f"/tmp/mesh_test.ply", mesh)
 
 
     ########################
-    pcd = mesh.sample_points_uniformly(number_of_points=self.FPFH_DOWN_SAMPLES)
-    pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=1, max_nn=30))
-    mesh, densities = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(pcd, depth=8)
+    # pcd = mesh.sample_points_uniformly(number_of_points=self.FPFH_DOWN_SAMPLES)
+    # pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=1, max_nn=30))
+    # mesh, densities = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(pcd, depth=8)   ## Continues using full resource causing resource racing.
     ########################
 
-    ### TODO: Remove the following code after debugging
-    # print(f"After Sampling: {mesh}")
-    # o3d.io.write_triangle_mesh(f"/tmp/mesh_test2.ply", mesh)
-    # exit(0)
 
-    # mesh.remove_degenerate_triangles()
     mesh.compute_vertex_normals()
 
     if not mesh.is_empty():
@@ -822,7 +819,8 @@ class generator:
     else:
       bin_nr = bins
 
-    printit(f"Center mode: {self.standpoint}; Center coord: {standpoint_coord}; Bin number: {bin_nr}")
+    if _verbose:
+      printit(f"Center mode: {self.standpoint}; Center coord: {standpoint_coord}; Bin number: {bin_nr}")
 
     vpc = pf_gen.compute_vpc(self.standpoint_coord, bins=bin_nr)
     if vpc is None or np.sum(vpc) == 0:
@@ -854,6 +852,7 @@ class generator:
         printit(f"{__name__:15s}: Processing the segment {seg_index + 1}/{self.segments_number} ...")
         printit(f"{__name__:15s}: Atom number by segment index: {len(theidxi)}; residue-based index: {len(self.segment_residue)}")
       ret_status = self.compute_segment_i(theidxi)
+
       if False in ret_status:
         printit(f"{__name__:15s}: Failed processing the segment {seg_index + 1}/{self.segments_number} of frame {self.frame} in {self.traj.top_filename}")
         printit(f"{__name__:15s}: Skip this segment ...")
@@ -1025,19 +1024,24 @@ class generator:
         volume_info = interpolate_cpu.compute_volume(vertices, voxel_size=voxel_size)
         VOL_estimate = volume_info[0] + (0.5*volume_info[1])
         if volume_info[3] > 0 and volume_info[3] > volume_info[4]:
-          printit(f"Computation success")
+          if _verbose or _debug:
+            printit(f"Computation success")
           break
         elif volume_info[7] > 72:
-          printit("Grid too dense")
+          if _verbose or _debug:
+            printit("Grid too dense")
           voxel_size = voxel_size * 1.5
         elif volume_info[7] < 12:
-          printit("Grid too sparse")
+          if _verbose or _debug:
+            printit("Grid too sparse")
           voxel_size = voxel_size * 0.5
         elif volume_info[3] == 0:
-          printit("No voxel is inside the mesh (usually voxel size too small or mesh resolution too low)")
+          if _verbose or _debug:
+            printit("No voxel is inside the mesh (usually voxel size too small or mesh resolution too low)")
           voxel_size = voxel_size * 1.1 + 0.1
         elif volume_info[3] > 0 and volume_info[3] < volume_info[4]:
-          printit("Majority of voxels are surface voxels (usually voxel size is too large)")
+          if _verbose or _debug:
+            printit("Majority of voxels are surface voxels (usually voxel size is too large)")
           voxel_size = voxel_size * 0.9 - 0.1
         else:
           voxel_size *= 1.1

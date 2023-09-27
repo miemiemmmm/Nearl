@@ -373,6 +373,19 @@ def rotation_matrix_from_vectors(vec1, vec2):
   return rotation_matrix
 
 
+def transform_coord(coord, matrix):
+  """
+  Directly transform the <N,3> coordinate with the given transformation matrix
+  TODO: Support more modes other than just 4*4 transformation matrix
+  """
+  if matrix.shape != (4, 4):
+    raise ValueError("Expecting a 4x4 transformation matrix")
+  coord_4 = np.ones((len(coord), 4))
+  coord_4[:, :3] = coord
+  newcoord = matrix @ coord_4.T
+  newcoord = newcoord.T[:, :3]
+  return newcoord
+
 def create_sphere(center, radius=0.5, color=[0, 0, 1]):
   """
   Create a sphere with the given center and radius
@@ -460,9 +473,9 @@ def display_icp(static_objs, dynamic_objs, outfile="", resetbb1=True, resetbb2=F
     vis.create_window(visible=True)
     
     for sobj in static_objs:
-        if isinstance(sobj, str) and obj.endswith('.ply'):
+        if isinstance(sobj, str) and sobj.endswith('.ply'):
             sobj = getobj(sobj)
-        elif isinstance(sobj, (o3d.geometry.TriangleMesh, o3d.geometry.PointCloud)):
+        elif isinstance(sobj, (o3d.geometry.TriangleMesh, o3d.geometry.PointCloud, o3d.geometry.LineSet)):
             sobj = copy.deepcopy(sobj)
         else:
             raise ValueError("Expecting an object file or an open3d object")
@@ -497,6 +510,62 @@ def display_icp(static_objs, dynamic_objs, outfile="", resetbb1=True, resetbb2=F
             ffmpeg_command = f"ffmpeg -r 24 -i {temp_dir}/frame_%04d.png -vcodec libx264 -pix_fmt yuv422p -y {outfile}"
             subprocess.run(ffmpeg_command, shell=True)
 
+def xyzr_to_o3d(xyzr_path, radius_factor=1.0):
+  # Load PDB structure
+  with open(xyzr_path, "r") as f:
+    lines = f.readlines()
+  coords = []
+  radii = []
+  for line in lines:
+    line = line.strip().split()
+    coords.append([float(line[0]), float(line[1]), float(line[2])])
+    radii.append(float(line[3]))
+  coords = np.array(coords)
+  radii = np.array(radii) * radius_factor
+  geometries = []
+  for idx, c in enumerate(coords):
+    color = [0.5,0.5,0.5]
+    geometries.append(create_sphere(c, radius=radii[idx], color=color))
+  return geometries
+
+def get_objs(objfiles, show_wire=1):
+  final_geometries = []
+  for file in objfiles:
+    if ".pdb" in file or ".mol2" in file:
+      geometries = molecule_to_o3d(file)
+      final_geometries += geometries
+    elif ".ply" in file:
+      mesh = o3d.io.read_triangle_mesh(file)
+      mesh.paint_uniform_color([0.5, 0.1, 0.1])
+      if bool(show_wire):
+        lineset = o3d.geometry.LineSet.create_from_triangle_mesh(mesh)
+        final_geometries += [lineset]
+      else:
+        mesh.compute_vertex_normals()
+        final_geometries += [mesh]
+    elif ".obj" in file:
+      mesh = o3d.io.read_triangle_mesh(file)
+      mesh.paint_uniform_color([0.5, 0.1, 0.1])
+      mesh.compute_vertex_normals()
+      final_geometries += [mesh]
+    elif ".xyzr" in file:
+      xyzr_geoms = xyzr_to_o3d(file, radius_factor=1)
+      final_geometries += xyzr_geoms
+    else:
+      print(f"Warning: {file} is not a supported file type. Skipping...")
+  return final_geometries
+
+def get_coord(source_file):
+  """
+  Get the coordinates of atoms from a molecule or XYZR file
+  """
+  if ".pdb" in source_file or ".mol2" in source_file:
+    coord = np.asarray(pt.load(source_file).xyz[0], dtype=np.float64)
+  elif ".xyzr" in source_file:
+    with open(source_file, "r") as f1:
+      coord = [i.split()[:3] for i in f1.read().strip("\n").split("\n")]
+      coord = np.asarray(coord, dtype=np.float64)
+  return coord
 
 if __name__ == "__main__":
   # Example usage of the TrajectoryViewer class
