@@ -249,6 +249,7 @@ def cosine_similarity(vec1, vec2):
   """
   # Compute the dot product of vec1 and vec2
   dot_product = np.dot(vec1, vec2)
+
   # Compute the L2 norms (a.k.a. Euclidean norms) of vec1 and vec2
   norm_vec1 = np.linalg.norm(vec1)
   norm_vec2 = np.linalg.norm(vec2)

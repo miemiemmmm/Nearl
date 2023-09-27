@@ -2,17 +2,20 @@
 #ifndef BASE_FUNCTIONS_INCLUDED
 #define BASE_FUNCTIONS_INCLUDED
 
-#include <iostream>
-#include <cmath>
-#include <vector>
-#include <unordered_map>
+// Get the gaussian probability of x given mu and sigma
+double Gaussian(double x, double mu = 0.0, double sigma = 1.0);
+
+// Get the entropy of a vector of integers (int !!!!)
+double Entropy(const std::vector<int>& x);
 
 
-double gaussian(double x, double mu = 0.0, double sigma = 1.0);
-double entropy(const std::vector<int>& x);
+template <typename T>
+double CosineSimilarity(const std::vector<T>& vec1, const std::vector<T>& vec2);
 
-#pragma acc routine seq
-double gaussian_gpu(double x, double mu, double sigma);
+template <typename T>
+std::vector<std::vector<double>> CosineSimilarityBatch(const std::vector<std::vector<T>>& vecs1, const std::vector<std::vector<T>>& vecs2);
+
+std::vector<int> SamplePoints(int N, int A, int B, bool sort_values = true);
 
 #endif
 

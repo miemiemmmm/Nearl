@@ -1,5 +1,6 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/numpy.h>
+#include <pybind11/stl.h>
 #include <omp.h>
 #include <stack>
 
@@ -55,7 +56,7 @@ py::array_t<double> arr_weights, const double cutoff = 4, const double sigma = 1
       }
       if (! skip){
         dist = sqrt(dist_sq);
-        increment = gaussian(dist, 0.0, sigma)*_weights[i];
+        increment = Gaussian(dist, 0.0, sigma)*_weights[i];
         #pragma omp atomic
 				interpolated[j] += increment;
       }

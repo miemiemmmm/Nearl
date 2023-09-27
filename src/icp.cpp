@@ -1,5 +1,8 @@
 #include <iostream>
 #include <numeric>
+#include <random>
+
+#include "baseutils.h"
 #include "icp.h"
 #include "Eigen/Eigen"
 
@@ -7,11 +10,11 @@ using namespace std;
 using namespace Eigen;
 
 Eigen::Matrix4d best_fit_transform(const Eigen::MatrixXd &A, const Eigen::MatrixXd &B){
-    /*
-    Notice:
-    1/ JacobiSVD return U,S,V, S as a vector, "use U*S*Vt" to get original Matrix;
-    2/ matrix type 'MatrixXd' or 'MatrixXf' matters.
-    */
+	/*
+	Notice:
+	1/ JacobiSVD return U,S,V, S as a vector, "use U*S*Vt" to get original Matrix;
+	2/ matrix type 'MatrixXd' or 'MatrixXf' matters.
+	*/
   Eigen::Matrix4d T = Eigen::MatrixXd::Identity(4,4);
   Eigen::Vector3d centroid_A(0,0,0);
   Eigen::Vector3d centroid_B(0,0,0);
@@ -108,6 +111,119 @@ Eigen::Matrix4d _best_fit_transform(const Eigen::MatrixXd &A, const Eigen::Matri
 
 }
 
+Eigen::MatrixXd Matrix4FromCoord(const Eigen::MatrixXd &coord){
+	int row = coord.rows();
+	Eigen::MatrixXd mat = Eigen::MatrixXd::Ones(4, row);
+	for (int i=0; i<row; ++i){
+		mat.block<3,1>(0,i) = coord.block<1,3>(i,0).transpose();
+	}
+	return mat;
+}
+
+Eigen::MatrixXd Coord3FromMatrix(const Eigen::MatrixXd &mat){
+	int row = mat.rows();
+	Eigen::MatrixXd coord = Eigen::MatrixXd::Ones(row,3);
+	for(int i=0; i<row; ++i){
+		coord.block<1,3>(i,0) = mat.block<1,3>(i,0).transpose();
+	}
+	return coord;
+}
+
+//Eigen::MatrixXd MaskByRows(const Eigen::MatrixXd &mat, const std::vector<int> &mask){
+//	int row = mask.size();
+//	Eigen::MatrixXd mat_masked = Eigen::MatrixXd::Ones(row,3);
+//	for(int i=0; i<row; ++i){
+//		mat_masked.block<1,3>(i,0) = mat.block<1,3>(mask[i],0).transpose();
+//	}
+//	return mat_masked;
+//}
+//
+//Eigen::MatrixXd MaskByCols(const Eigen::MatrixXd &mat, const std::vector<int> &mask){
+//	int col = mask.size();
+//	Eigen::MatrixXd mat_masked = Eigen::MatrixXd::Ones(3,col);
+//	for(int i=0; i<col; ++i){
+//		mat_masked.block<3,1>(0,i) = mat.block<3,1>(0,mask[i]);
+//	}
+//	return mat_masked;
+//}
+
+ICP_OUT coarse_to_fine(const Eigen::MatrixXd &A, const Eigen::MatrixXd &B, const int refinement_rounds){
+	// Perform a coarse-to-fine approach to guess the initial transformation
+	const int pointnr = std::min(A.rows(), B.rows()), pointnr_A = A.rows(), pointnr_B = B.rows();
+	Eigen::MatrixXd A_4d = Matrix4FromCoord(A);
+	cout << "A_4d: " << A_4d.rows() << " " << A_4d.cols() << endl;
+	Eigen::MatrixXd B_points = Matrix4FromCoord(B);
+	Eigen::Matrix4d T = Eigen::MatrixXd::Identity(4,4);
+	Eigen::Matrix4d T_final = Eigen::MatrixXd::Identity(4,4);
+
+
+	vector<int> samples_B = SamplePoints(pointnr_B>>2, 0, pointnr_B-1, true);
+	Eigen::MatrixXd B_sample = Eigen::MatrixXd::Ones(pointnr_B>>2, 3);
+	for (int idx = 0; idx < (pointnr_B>>2); ++idx){
+		B_sample.block<1,3>(idx, 0) = B.block<1,3>(samples_B[idx], 0);
+	}
+
+	ICP_OUT result;
+	double mean_error = 999, swap_error = 999, max_error_95;
+
+	for (int i = 0; i < refinement_rounds; ++i){
+		Eigen::Matrix4d T_tmp = Eigen::MatrixXd::Identity(4,4);
+		int num_samples = 500 * (i+1);
+		if (num_samples > (pointnr>>1)) num_samples = pointnr >> 1;  // There are not so much points, sample half of them
+
+		// Randomly sample 2 set of non-intersecting points (num_samples) from A for coarse-fine ICP
+		vector<int> samples_A = SamplePoints(num_samples, 0, pointnr_A-1, true);
+		Eigen::MatrixXd A_sample = Eigen::MatrixXd::Ones(num_samples, 3);
+		Eigen::MatrixXd A2_sample = Eigen::MatrixXd::Ones(num_samples, 3);
+		cout << "Refinement round " << i+1 << "; Sampled points: " << num_samples << "; Point Number: " << pointnr << "\n";
+		// Round 1 ICP
+		for (int idx = 0; idx < num_samples; ++idx){
+			A_sample.block<1,3>(idx, 0) = A_4d.block<3,1>(0, samples_A[idx]).transpose();
+		}
+		result = _icp(A_sample, B, 10, 0.000001);
+//		A_4d = result.trans * A_4d;
+		T_tmp = result.trans * T_tmp;
+//		Eigen::Vector3d tmp_trans(10.0, 15.0, 32.0);
+//		result.trans.block<3,1>(0,3) = tmp_trans;
+		A_4d = result.trans * A_4d;
+
+		// Transform the points and play the round 2 ICP
+		for (int idx = 0; idx < num_samples; ++idx){
+			A2_sample.block<1,3>(idx, 0) = A_4d.block<3,1>(0, pointnr_A-samples_A[idx]-1).transpose();
+		}
+		result = _icp(A2_sample, B, 10, 0.000001);
+		A_4d = result.trans * A_4d;
+		T_tmp = result.trans * T_tmp;
+
+		vector<float> dists = result.distances;
+		int index = static_cast<int>(0.5 * dists.size());
+		std::nth_element(dists.begin(), dists.begin() + index, dists.end());
+		mean_error = std::accumulate(dists.begin(),dists.end(),0.0)/dists.size();
+		max_error_95 = dists[index]; // The 95% largest error
+
+		T_final = T_tmp * T_final;
+		swap_error = max_error_95;
+
+		if (max_error_95 < swap_error){
+			// After this round, the error is smaller than before, so we update the final transformation
+			printf("Accepting this round: %d;Mean_error: %f, Swap_error: %f, Max error: %.3f\n", i, mean_error, swap_error, max_error_95);
+
+		} else {
+			// This ICP alignment makes the error larger, reject this round's transformation
+			printf("Round %d: Error is larger than before, reject this round's transformation\n", i);
+			printf("Mean_error: %f, Swap_error: %f, Max error: %.3f \n", mean_error, swap_error, max_error_95);
+//			int therand = SamplePoints(1, 0, 6, true)[0];
+//			if (therand <= 2 and i != refinement_rounds-1){
+//				cout << "Randomize the axis " << therand << endl;
+//				T(therand,therand) = -1.0;
+//				T_final = T * T_final;
+//			}
+		}
+	}
+	result.trans = T_final;
+	return result;
+}
+
 /*
 typedef struct{
     Eigen::Matrix4d trans;
@@ -186,6 +302,7 @@ ICP_OUT _icp(const Eigen::MatrixXd &A, const Eigen::MatrixXd &B, int max_iterati
     dst.block<3,1>(0,i) = B.block<1,3>(i,0).transpose();
   }
 
+
   double prev_error = 0;
   double mean_error = 0;
   for (int i=0; i<max_iterations; ++i){
@@ -217,6 +334,7 @@ ICP_OUT _icp(const Eigen::MatrixXd &A, const Eigen::MatrixXd &B, int max_iterati
 
   return result;
 }
+
 
 
 
@@ -256,7 +374,6 @@ NEIGHBOR nearest_neighbot(const Eigen::MatrixXd &src, const Eigen::MatrixXd &dst
         neigh.distances.push_back(min);
         neigh.indices.push_back(index);
     }
-
     return neigh;
 }
 

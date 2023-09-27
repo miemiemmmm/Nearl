@@ -1,4 +1,4 @@
-import datetime, builtins, os, inspect
+import datetime, builtins, os, inspect, time
 from json import load
 import importlib.resources as resources
 
@@ -6,12 +6,13 @@ import importlib.resources as resources
 
 __version__ = "0.0.1"
 _runtimelog = []
+_start_time = time.perf_counter()
 configfile = resources.files("nearl").joinpath("../CONFIG.json")
 if os.path.isfile(configfile):
   configfile = os.path.abspath(configfile)
   with open(configfile, "r") as f:
     CONFIG = load(f)
-  _clear = CONFIG.get("clear", False)
+  _clear = CONFIG.get("clear", True)
   _verbose = CONFIG.get("verbose", False)
   _tempfolder = CONFIG.get("tempfolder", "/tmp")
   _usegpu = CONFIG.get("usegpu", False)
@@ -22,14 +23,15 @@ else:
 
 def logit(function):
   def add_log_info(*arg, **kwarg):
-    timestamp = datetime.datetime.now().strftime('%y-%m-%dT%H:%M:%S')
-    function_stack = [i.function for i in inspect.stack()[1:-1]]
-    # create log message with timestamp and function call stack for debugging purpose
-    if _debug:
-      log_message = f"{timestamp:15s}: {'->'.join(function_stack)} said: " + " ".join(map(str, arg))
+    info_message = " ".join((str(i) for i in arg))
+    if _debug or _verbose:
+      # create log message with timestamp and function call stack for debugging purpose
+      timestamp = datetime.datetime.now().strftime('%y-%m-%dT%H:%M:%S')
+      function_stack = [i.function for i in inspect.stack()[1:-1]]
+      log_message = f"{timestamp:15s}: {'->'.join(function_stack)} said: " + info_message
     else:
-      log_message = f"{timestamp:15s}: {'->'.join(function_stack[:2])} said: " + " ".join(map(str, arg))
-    # _runtimelog.append(log_message)  # append message to _runtimelog
+      timestamp = time.perf_counter() - _start_time
+      log_message = f"Running {timestamp:8.2f}: " + info_message
     function(log_message, **kwarg)   # execute the decorated function
   return add_log_info
 
