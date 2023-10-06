@@ -1,3 +1,4 @@
+#include <iostream>
 #include <pybind11/pybind11.h>
 #include <pybind11/numpy.h>
 #include <pybind11/stl.h>
@@ -108,7 +109,7 @@ py::array_t<double> arr_atominfo, const double cutoff = 8){
 			}
 		}
 		if (temp_atominfo.size() == 0){ _gridpoints[i] = 0;
-		} else { _gridpoints[i] = entropy(temp_atominfo);
+		} else { _gridpoints[i] = Entropy(temp_atominfo);
 		}
 	}
 	py::array_t<double> result({gridpoint_nr}, _gridpoints.data());
@@ -122,7 +123,7 @@ double calc_entropy(py::array_t<double> arr_grid){
 	for (int i = 0; i < data.shape[0]; i++){
 		vec_data[i] = data1[i];
 	}
-	double result = entropy(vec_data);
+	double result = Entropy(vec_data);
 	return result;
 }
 int get_index(int coord[3], int dims[3]) {
