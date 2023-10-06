@@ -444,7 +444,8 @@ class Featurizer3D:
         # Focus on each selected atoms
         focuses = self.active_frame.xyz[atoms].reshape((-1,3))
 
-      printit(f"Frame {frame}: Generated {len(focuses)} centers")
+      if _verbose or _debug:
+        printit(f"Frame {frame}: Generated {len(focuses)} centers")
       # For each frame, run number of atoms times to compute the features/segmentations
       repr_vec, feat_vec = self.run_frame(focuses, fp_generator)
 

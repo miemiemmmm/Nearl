@@ -876,6 +876,9 @@ class generator:
         total_number, carbon_number, donor_number, acceptor_number, positive_charge, negative_charge,
         PE_lj, PE_el, surface_area, enclosed_volume, mean_radius, hull_ratio
       ]
+      # TODO:
+      # Candidates for the structural descriptors:
+      # 1. Longest path of the segment from one atom to another atom
 
       frame_feature[seg_index, -self.VIEWPOINTBINS:] = self.vpc
 
