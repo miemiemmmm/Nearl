@@ -14,16 +14,13 @@ import dask.array as da
 # Define the chunks size according to your memory limit
 
 
-
-
-
 BATCH_SIZE = 32
 EPOCHS = 10
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-print("The device is: ", DEVICE);
+print("The device is: ", DEVICE)
 
 # rf_training_data = np.random.normal(size=(20000, 3, 32, 32, 32));
-st = time.perf_counter();
+st = time.perf_counter()
 chunks = (1000, 3, 32, 32, 32)  # Adjust this to a suitable size according to your memory capacity
 rf_training_data = da.random.normal(size=(12000, 3, 32, 32, 32), chunks=chunks)
 rf_training_data.compute()
@@ -36,9 +33,9 @@ label_training_data = np.random.normal(size=(12000, 1));
 dataset = TensorDataset(torch.from_numpy(rf_training_data).to(dtype=torch.float32), torch.from_numpy(label_training_data).to(dtype=torch.float32))
 dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True)
 
-model = models.CNN3D().to(DEVICE);
-loss_fn = nn.MSELoss();
-optimizer = optim.Adam(model.parameters(), lr=0.001);
+model = models.CNN3D().to(DEVICE)
+loss_fn = nn.MSELoss()
+optimizer = optim.Adam(model.parameters(), lr=0.001)
 
 st = time.perf_counter();
 for epoch in range(EPOCHS):
