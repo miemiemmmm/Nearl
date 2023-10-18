@@ -6,7 +6,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 
-from BetaPose import models, printit, data_io, utils
+from nearl import models, printit, utils
 
 import dask.array as da
 
@@ -24,11 +24,11 @@ st = time.perf_counter()
 chunks = (1000, 3, 32, 32, 32)  # Adjust this to a suitable size according to your memory capacity
 rf_training_data = da.random.normal(size=(12000, 3, 32, 32, 32), chunks=chunks)
 rf_training_data.compute()
-rf_training_data = np.asarray(rf_training_data, dtype=np.float32);
+rf_training_data = np.asarray(rf_training_data, dtype=np.float32)
 print("Input data preared: ", rf_training_data.shape, f"Time elapsed: {time.perf_counter()-st:.3f} s")
 # rng = np.random.default_rng()
 # rf_training_data = rng.normal(size=(20000, 3, 32, 32, 32), dtype='float32')
-label_training_data = np.random.normal(size=(12000, 1));
+label_training_data = np.random.normal(size=(12000, 1))
 
 dataset = TensorDataset(torch.from_numpy(rf_training_data).to(dtype=torch.float32), torch.from_numpy(label_training_data).to(dtype=torch.float32))
 dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True)
@@ -37,7 +37,7 @@ model = models.CNN3D().to(DEVICE)
 loss_fn = nn.MSELoss()
 optimizer = optim.Adam(model.parameters(), lr=0.001)
 
-st = time.perf_counter();
+st = time.perf_counter()
 for epoch in range(EPOCHS):
   print(f"Epoch {epoch+1}\n------------------------------------------------")
   running_loss = 0.0
