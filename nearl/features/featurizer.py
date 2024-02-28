@@ -321,7 +321,7 @@ class Featurizer3D:
     Args:
       dataset: File path of the HDF file;
     """
-    self.dataset = hdf5.hdf_operator(dataset)
+    self.dataset = hdf5.hdf_operator(dataset, "a")
 
   def disconnect(self):
     """

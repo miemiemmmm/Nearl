@@ -11,9 +11,9 @@ from scipy.spatial.distance import cdist, pdist, squareform
 import open3d as o3d
 from rdkit import Chem
 
+import nearl
 from nearl import utils, io
-from .. import CONFIG, printit, savelog, PACKAGE_DIR, draw_call_stack
-from .. import _clear, _verbose, _tempfolder, _debug
+from .. import printit
 
 __all__ = [
   "generator",
@@ -35,8 +35,8 @@ ATOM_NUM = {0: 15, 1: 15, 2: 2, 3: 18, 4: 22, 5: 22, 6: 9, 7: 4, 8: 7, 9: 10, 10
 
 
 # Color map for the segments of the molecule block
-_SEGMENT_LIMIT = CONFIG.get("SEGMENT_LIMIT", 6)
-_SEGMENT_CMAP = CONFIG.get("SEGMENT_CMAP", None)
+_SEGMENT_LIMIT = nearl.CONFIG.get("SEGMENT_LIMIT", 6)
+_SEGMENT_CMAP = nearl.CONFIG.get("SEGMENT_CMAP", None)
 
 if _SEGMENT_CMAP is not None and _SEGMENT_CMAP != "inferno":
   # Not the default color map;
@@ -52,7 +52,7 @@ elif _SEGMENT_CMAP == "inferno" and _SEGMENT_LIMIT == 6:
     [0.974176, 0.53678, 0.048392],
     [0.964394, 0.843848, 0.273391]
   ]
-  if _verbose:
+  if nearl._verbose:
     printit("Using the default color map/gradient")
 else:
   # Default color map -> inferno
@@ -284,8 +284,8 @@ class generator:
 
     # Load parameters from the configuration file
     self.SEGMENT_LIMIT = _SEGMENT_LIMIT
-    self.FPFH_DOWN_SAMPLES = CONFIG.get("DOWN_SAMPLE_POINTS", 600)
-    self.VIEWPOINTBINS = CONFIG.get("VIEWPOINT_BINS", 125)
+    self.FPFH_DOWN_SAMPLES = nearl.CONFIG.get("DOWN_SAMPLE_POINTS", 600)
+    self.VIEWPOINTBINS = nearl.CONFIG.get("VIEWPOINT_BINS", 125)
 
     self._SEGMENTS = np.zeros(self.traj.n_atoms)
     self._SEGMENTS_ORDER = None
@@ -306,10 +306,10 @@ class generator:
     self._VP_HIST = None
     self._ATOM_COUNT = None
     self._TEMP_PREFIX = None
-    self._STANDPOINT = CONFIG.get("VIEWPOINT_STANDPOINT", "next").lower()
+    self._STANDPOINT = nearl.CONFIG.get("VIEWPOINT_STANDPOINT", "next").lower()
     self._STANDPOINT_COORD = None
 
-    if _verbose:
+    if nearl._verbose:
       # Summary the configuration of the identity generator
       printit("Parameters are loaded")
       printit(f"SEGMENT_LIMIT: {self.SEGMENT_LIMIT}", end=" | ")
@@ -482,7 +482,7 @@ class generator:
     assert len(self.lower_bound) == 3, "Length of lower bound vector should be 3"
     assert len(self.upper_bound) == 3, "Length of upper bound vector should be 3"
     assert np.all(self.lower_bound < self.upper_bound), "Lower bound should be smaller than upper bound"
-    if not _clear:
+    if not nearl._clear:
       # For each update of the box, update the temporary file prefix if not clear temporary files
       self.set_tempprefix()
 
@@ -496,12 +496,12 @@ class generator:
       _tempfile_prefix: the prefix of the intermediate files
     """
     if len(tempprefix) > 0:
-      _tempfile_prefix = os.path.join(_tempfolder, f"tmp_{tempprefix}_")
+      _tempfile_prefix = os.path.join(nearl._tempfolder, f"tmp_{tempprefix}_")
     else:
       pid = os.getpid()
       temphash = utils.get_hash()[-10:]
       temphash = utils.get_hash(temphash + str(pid))[-10:]
-      _tempfile_prefix = os.path.join(_tempfolder, f"p{pid}_{temphash}_")
+      _tempfile_prefix = os.path.join(nearl._tempfolder, f"p{pid}_{temphash}_")
     if inplace:
       self._TEMP_PREFIX = _tempfile_prefix
     return _tempfile_prefix
@@ -619,7 +619,7 @@ class generator:
         s_final[idx] = seg_counter
         lastres = self.traj.atoms[idx].resid
 
-    if not _clear:
+    if not nearl._clear:
       with io.hdf_operator(f"{self.temp_prefix}segments.h5", "w") as hdf:
         hdf.create_dataset("xyz", data=xyz)
         hdf.create_dataset("xyz_b", data=xyz[s_final > 0])
@@ -735,39 +735,26 @@ class generator:
     resnames = np.array([a.name for a in self.traj.residues])
     rads = [getRadius(i, j) for i, j in [(a.name, resnames[a.resid]) for a in self.traj.atoms[segment_indices]]]
 
-    # TODO: integrate the density of points and radius of probe into the surface generation function
-    vertices, normals, faces = ses_surface_geometry(self.traj.xyz[self.frame][segment_indices], rads)
+    # # TODO: integrate the density of points and radius of probe into the surface generation function
+    # vertices, normals, faces = ses_surface_geometry(self.traj.xyz[self.frame][segment_indices], rads)
+    # if nearl._debug:
+    #   printit(f"From {len(rads)} atoms, returned vertices/normals/triangles: ", vertices.shape, normals.shape, faces.shape)
+    #
+    # if len(vertices) == 0:
+    #   tmphash = utils.get_hash()[0:10]
+    #   with open(nearl._tempfolder + f"/{tmphash}.xyzr", "w") as f:
+    #     for (xyz, r) in zip(self.traj.xyz[self.frame][segment_indices], rads):
+    #       f.write(f"{xyz[0]:.3f} {xyz[1]:.3f} {xyz[2]:.3f} {r:.3f}\n")
+    #
+    # # Retrieve and post-process the mesh: vertices, normals, faces
+    # mesh = o3d.geometry.TriangleMesh()
+    # mesh.vertices = o3d.utility.Vector3dVector(vertices)
+    # mesh.vertex_normals = o3d.utility.Vector3dVector(normals)
+    # mesh.triangles = o3d.utility.Vector3iVector(faces)
+    # mesh.remove_degenerate_triangles()
+    # mesh.compute_vertex_normals()
 
-    if _debug:
-      printit(f"From {len(rads)} atoms, returned vertices/normals/triangles: ", vertices.shape, normals.shape, faces.shape)
-
-    if len(vertices) == 0:
-      tmphash = utils.get_hash()[0:10]
-      with open(_tempfolder + f"/{tmphash}.xyzr", "w") as f:
-        for (xyz, r) in zip(self.traj.xyz[self.frame][segment_indices], rads):
-          f.write(f"{xyz[0]:.3f} {xyz[1]:.3f} {xyz[2]:.3f} {r:.3f}\n")
-
-    # Retrieve and post-process the mesh: vertices, normals, faces
-    mesh = o3d.geometry.TriangleMesh()
-    mesh.vertices = o3d.utility.Vector3dVector(vertices)
-    mesh.vertex_normals = o3d.utility.Vector3dVector(normals)
-    mesh.triangles = o3d.utility.Vector3iVector(faces)
-    mesh.remove_degenerate_triangles()
-
-
-    ### TODO: Remove the following code after debugging
-    # print(f"Initial mesh: {mesh}")
-    # o3d.io.write_triangle_mesh(f"/tmp/mesh_test.ply", mesh)
-
-
-    ########################
-    # pcd = mesh.sample_points_uniformly(number_of_points=self.FPFH_DOWN_SAMPLES)
-    # pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=1, max_nn=30))
-    # mesh, densities = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(pcd, depth=8)   ## Continues using full resource causing resource racing.
-    ########################
-
-
-    mesh.compute_vertex_normals()
+    mesh = ses_surface_geometry(self.traj.xyz[self.frame][segment_indices], rads)
 
     if not mesh.is_empty():
       return mesh
@@ -819,7 +806,7 @@ class generator:
     else:
       bin_nr = bins
 
-    if _verbose:
+    if nearl._verbose:
       printit(f"Center mode: {self.standpoint}; Center coord: {standpoint_coord}; Bin number: {bin_nr}")
 
     vpc = pf_gen.compute_vpc(self.standpoint_coord, bins=bin_nr)
@@ -848,7 +835,7 @@ class generator:
       # From the segment series to segment indices
       theidxi = np.where(self.segments == segi)[0]
       self.segment_index = seg_index
-      if _verbose:
+      if nearl._verbose:
         printit(f"{__name__:15s}: Processing the segment {seg_index + 1}/{self.segments_number} ...")
         printit(f"{__name__:15s}: Atom number by segment index: {len(theidxi)}; residue-based index: {len(self.segment_residue)}")
       ret_status = self.compute_segment_i(theidxi)
@@ -882,7 +869,7 @@ class generator:
 
       frame_feature[seg_index, -self.VIEWPOINTBINS:] = self.vpc
 
-      if _verbose:
+      if nearl._verbose:
         printit(f"{__name__:15s}: Segment {seg_index + 1}/{self.segments_number} computation succeeded.")
         printit(f"{__name__:15s}: Carbon number: {self.atom_count.get('C', 0)}; Total number: {sum(self.atom_count.values())}")
         printit(f"{__name__:15s}: Partial charge: (Positive: {positive_charge}/Negative: {negative_charge})")
@@ -911,7 +898,7 @@ class generator:
           combined_mesh = mesh
         else:
           combined_mesh += mesh
-      if _verbose:
+      if nearl._verbose:
         printit("Final 3D object: ", combined_mesh)
       self._COMBINED_MESH = combined_mesh
     except:
@@ -930,7 +917,7 @@ class generator:
     self._INDICES_RES = atom_indices_res
     self._MESHES = segment_objects
 
-    if (not _clear):
+    if not nearl._clear:
       # Write out the final mesh if the intermediate output is required for debugging purpose
       # Reset the file prefix to make the temporary output file organized
       with open(f"{self.temp_prefix}frame{self.frame}.pdb", "w") as f:
@@ -1027,23 +1014,23 @@ class generator:
         volume_info = interpolate_cpu.compute_volume(vertices, voxel_size=voxel_size)
         VOL_estimate = volume_info[0] + (0.5*volume_info[1])
         if volume_info[3] > 0 and volume_info[3] > volume_info[4]:
-          if _verbose or _debug:
+          if nearl._verbose or nearl._debug:
             printit(f"Computation success")
           break
         elif volume_info[7] > 72:
-          if _verbose or _debug:
+          if nearl._verbose or nearl._debug:
             printit("Grid too dense")
           voxel_size = voxel_size * 1.5
         elif volume_info[7] < 12:
-          if _verbose or _debug:
+          if nearl._verbose or nearl._debug:
             printit("Grid too sparse")
           voxel_size = voxel_size * 0.5
         elif volume_info[3] == 0:
-          if _verbose or _debug:
+          if nearl._verbose or nearl._debug:
             printit("No voxel is inside the mesh (usually voxel size too small or mesh resolution too low)")
           voxel_size = voxel_size * 1.1 + 0.1
         elif volume_info[3] > 0 and volume_info[3] < volume_info[4]:
-          if _verbose or _debug:
+          if nearl._verbose or nearl._debug:
             printit("Majority of voxels are surface voxels (usually voxel size is too large)")
           voxel_size = voxel_size * 0.9 - 0.1
         else:
@@ -1251,7 +1238,25 @@ def reduce_geometry(va, na, ta, vi, ti):
   rta = vmap.take(rta.ravel()).reshape((len(ti), 3))
   return rva, rna, rta
 
-def ses_surface_geometry(xyz, radii, probe_radius=1.4, grid_spacing=0.5):
+def ses_surface_geometry(xyz, radii, grid_spacing=0.3):
+  from nearl.static import surface
+  xyzr_array = np.zeros((len(xyz), 4), np.float32)
+  xyzr_array[:, :3] = xyz
+  xyzr_array[:, 3] = radii
+  result_tuple = surface.get_surf(xyzr_array, grid_size=grid_spacing, smooth_step = 3, slice_number = 400)
+
+  if len(result_tuple) != 2:
+    print("Error: surface.get_surf() returned unexpected number of values")
+    return o3d.geometry.TriangleMesh()
+  newmesh = o3d.geometry.TriangleMesh()
+  newmesh.vertices = o3d.utility.Vector3dVector(result_tuple[0])
+  newmesh.triangles = o3d.utility.Vector3iVector(result_tuple[1])
+  newmesh.remove_degenerate_triangles()
+  newmesh.compute_vertex_normals()
+  return newmesh
+
+
+def _ses_surface_geometry(xyz, radii, probe_radius=1.4, grid_spacing=0.5):
   '''
   Calculate a solvent excluded molecular surface using a distance grid
   contouring method.  Vertex, normal and triangle arrays are returned.
@@ -1334,7 +1339,13 @@ def ses_surface_geometry(xyz, radii, probe_radius=1.4, grid_spacing=0.5):
 
   # print("Before reduction: ", ses_va.shape, ses_na.shape, ses_ta.shape)
   # print("After reduction: ", va.shape, na.shape, ta.shape)
-  return va, na, ta
+  newgeom = o3d.geometry.TriangleMesh()
+  newgeom.vertices = o3d.utility.Vector3dVector(va)
+  newgeom.triangles = o3d.utility.Vector3iVector(ta)
+  newgeom.remove_degenerate_triangles()
+  newgeom.compute_vertex_normals()
+
+  return newgeom
 
 
 

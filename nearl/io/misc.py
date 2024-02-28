@@ -1,10 +1,10 @@
 import os
 import numpy as np
 import pytraj as pt
-
+from nearl.io import hdf5
 
 def misato_traj(thepdb, mdfile, parmdir, *args, **kwargs):
-  from nearl.io import hdf5
+
   # Needs dbfile and parm_folder;
   topfile = f"{parmdir}/{thepdb.lower()}/production.top.gz"
   if not os.path.exists(topfile):
@@ -20,7 +20,7 @@ def misato_traj(thepdb, mdfile, parmdir, *args, **kwargs):
   if "Na+" in res:
     top.strip(":Na+")
 
-  with hdf5.hdf_operator(mdfile, read_only=True) as f1:
+  with hdf5.hdf_operator(mdfile, "r") as f1:
     keys = f1.hdffile.keys()
     if thepdb.upper() in keys:
       coord = f1.data(f"/{thepdb.upper()}/trajectory_coordinates")

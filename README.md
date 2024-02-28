@@ -179,7 +179,7 @@ class YourFeature(Features):
 - Since temporal features are 
 ```angular2html
 from nearl import hdf 
-with hdf.hdf_operator(output_hdffile, readonly=True) as h5file:
+with hdf.hdf_operator(output_hdffile, "r") as h5file:
     h5file.draw_structure();
 ```
 

@@ -363,9 +363,9 @@ def getAtomNum(atom="", residue=""):
       break
   if pat == len(ATOM_NUM):
     print(f"Warning: Atom {atom} in {residue} not found in the available patterns. Using default radius of 0.01")
-    return "U";
+    return "U"
   else:
-    return ELEMENT_NAME.get(ATOM_NUM[pat], "U");
+    return ELEMENT_NAME.get(ATOM_NUM[pat], "U")
 
 def rotation_matrix_from_vectors(vec1, vec2):
   """ Find the rotation matrix that aligns vec1 to vec2
@@ -388,6 +388,12 @@ def create_sphere(center, radius=0.5, color=[0, 0, 1]):
   sphere.compute_vertex_normals()
   return sphere
 
+def create_box(center, size=0.5, color=[0, 0, 1]):
+  box = o3d.geometry.TriangleMesh.create_box(size, size, size)
+  box.paint_uniform_color(color)
+  box.translate(center)
+  box.compute_vertex_normals()
+  return box
   
 def create_cylinder(start, end, radius=0.2, color=[0.4275, 0.2941, 0.0745]):
   vec = end - start
@@ -406,26 +412,26 @@ def create_cylinder(start, end, radius=0.2, color=[0.4275, 0.2941, 0.0745]):
 
 def molecule_to_o3d(pdb_path):
   # Load PDB structure
-  structure = pt.load(pdb_path);
-  atoms = list(structure.top.atoms);
-  residues = list(structure.top.residues);
+  structure = pt.load(pdb_path)
+  atoms = list(structure.top.atoms)
+  residues = list(structure.top.residues)
   coords = list(structure.xyz[0])
 
   # Add spheres as each atom
-  geometries = [];
-  for idx, c in enumerate(coords): 
-    theatom = atoms[idx];
-    resname = residues[theatom.resid].name;
-    atomtype = getAtomNum(theatom.name, resname);
+  geometries = []
+  for idx, c in enumerate(coords):
+    theatom = atoms[idx]
+    resname = residues[theatom.resid].name
+    atomtype = getAtomNum(theatom.name, resname)
     print(f"Atom Name: {theatom.name:8s} | Res Name: {resname:8s} | ---> {atomtype} |")
-    color = element_color_map.get(atomtype, [0.5,0.5,0.5]);
-    geometries.append(create_sphere(c, radius=0.5, color=color));
+    color = element_color_map.get(atomtype, [0.5,0.5,0.5])
+    geometries.append(create_sphere(c, radius=0.5, color=color))
 
   # Add cylinders as bonds
   for bond in list(structure.top.bonds): 
-    n_i, n_j = bond.indices;
-    pos_1 = coords[n_i];
-    pos_2 = coords[n_j];
+    n_i, n_j = bond.indices
+    pos_1 = coords[n_i]
+    pos_2 = coords[n_j]
     if np.linalg.norm(pos_1 - pos_2) < 3:  # Simple condition to check if there is a bond
       geometries.append(create_cylinder(pos_1, pos_2, radius=0.15))
   return geometries
@@ -433,53 +439,69 @@ def molecule_to_o3d(pdb_path):
 def xyzr_to_o3d(xyzr_path, radius_factor=1.0):
   # Load PDB structure
   with open(xyzr_path, "r") as f:
-    lines = f.readlines();
-  coords = [];
-  radii = [];
+    lines = f.readlines()
+  coords = []
+  radii = []
   for line in lines:
-    line = line.strip().split();
-    coords.append([float(line[0]), float(line[1]), float(line[2])]);
-    radii.append(float(line[3]));
-  coords = np.array(coords);
-  radii = np.array(radii)*radius_factor;
-  geometries = [];
+    line = line.strip().split()
+    coords.append([float(line[0]), float(line[1]), float(line[2])])
+    radii.append(float(line[3]))
+  coords = np.array(coords)
+  radii = np.array(radii)*radius_factor
+  geometries = []
   for idx, c in enumerate(coords):
-    color = [0.5,0.5,0.5];
-    geometries.append(create_sphere(c, radius=radii[idx], color=color));
+    color = [0.5,0.5,0.5]
+    geometries.append(create_sphere(c, radius=radii[idx], color=color))
+    # geometries.append(create_box(c, size=radii[idx], color=color))
   return geometries
+
+def return_geom(obj):
+  if isinstance(obj, (o3d.geometry.TriangleMesh)):
+    retobj = obj
+    if os.environ.get("LINE", None):
+      retobj = o3d.geometry.LineSet.create_from_triangle_mesh(obj)
+
+    if os.environ.get("AUTONORMAL", None) and isinstance(retobj, (o3d.geometry.TriangleMesh)):
+      """Whether or not to use the normals from the mesh file."""
+      ret_obj = retobj.compute_vertex_normals()
+
+    if isinstance(retobj, (o3d.geometry.TriangleMesh)):
+      retobj.paint_uniform_color([0.5,0.5,0.5]);
+
+    return retobj
+  else:
+    return obj
 
 
 ####################################################################################################
 ################################# Generate Open3D readable object ##################################
 ####################################################################################################
 if __name__ == "__main__":
-  final_geometries = [];
+  final_geometries = []
   if len(sys.argv) < 2:
     print("Usage: python3 view_obj.py [file1] [file2] ... [fileN]")
     sys.exit(0)
   for file in sys.argv[1:]:
     if ".pdb" in file or ".mol2" in file:
       geometries = molecule_to_o3d(file)
-      final_geometries += geometries;
-    elif ".ply" in file:
-      mesh = o3d.io.read_triangle_mesh(file)
-      mesh.paint_uniform_color([0.5,0.1,0.1])
-      if os.environ.get("LINE", None):
-        lineset = o3d.geometry.LineSet.create_from_triangle_mesh(mesh)
-        final_geometries += [lineset]
-      else:
-        mesh.compute_vertex_normals()
-        final_geometries += [mesh]
-    elif ".obj" in file:
-      mesh = o3d.io.read_triangle_mesh(file)
-      mesh.paint_uniform_color([0.5, 0.1, 0.1])
-      mesh.compute_vertex_normals()
-      final_geometries += [mesh]
+      final_geometries += geometries
+    elif ".ply" in file or ".obj" in file or ".off" in file:
+      try: 
+        mesh = o3d.io.read_triangle_mesh(file)
+        if np.array(mesh.triangles).shape[0] == 0:
+          raise Exception("No face normals found in the ply file.")
+      except: 
+        mesh = o3d.io.read_point_cloud(file)
+      # mesh.paint_uniform_color([0.5,0.1,0.1])
+      print(mesh, type(mesh))
+      newgeo = return_geom(mesh)
+      final_geometries += [newgeo]
     elif ".xyzr" in file:
       xyzr_geoms = xyzr_to_o3d(file, radius_factor=1)
-      final_geometries += xyzr_geoms;
+      final_geometries += xyzr_geoms
     else:
       print(f"Warning: {file} is not a supported file type. Skipping...")
+      print(f"Check this website for supported file types: http://www.open3d.org/docs/0.9.0/tutorial/Basic/file_io.html")
 
   if os.environ.get("CUBE", None):
     from nearl.utils.view import NewCuboid
