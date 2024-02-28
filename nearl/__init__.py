@@ -8,15 +8,30 @@ __version__ = "0.0.1"
 _runtimelog = []
 _start_time = time.perf_counter()
 configfile = resources.files("nearl").joinpath("../CONFIG.json")
-if os.path.isfile(configfile):
-  configfile = os.path.abspath(configfile)
-  with open(configfile, "r") as f:
-    CONFIG = load(f)
+
+_clear = True
+_verbose = False
+_tempfolder =  "/tmp"
+_usegpu = False
+_debug =  False
+CONFIG = {}
+
+
+def update_config():
+  print("within the package update function", CONFIG, CONFIG.get("tempfolder", "/tmp"))
+  global _clear, _verbose, _tempfolder, _usegpu, _debug
   _clear = CONFIG.get("clear", True)
   _verbose = CONFIG.get("verbose", False)
   _tempfolder = CONFIG.get("tempfolder", "/tmp")
   _usegpu = CONFIG.get("usegpu", False)
   _debug = CONFIG.get("debug", False)
+
+
+if os.path.isfile(configfile):
+  configfile = os.path.abspath(configfile)
+  with open(configfile, "r") as f:
+    CONFIG = load(f)
+    update_config()
 else:
   raise FileNotFoundError(f"NEARL({__file__}): Not found the configuration file")
 

@@ -16,7 +16,7 @@ REPR_TYPES = [("atom_number", int), ("carbon_number", int), ("donor_number", int
 
 
 def temporary_dump(datalist, filename):
-  dataobj = np.array(datalist, dtype=object);
+  dataobj = np.array(datalist, dtype=object)
   np.save(filename, dataobj)
 
 
@@ -24,35 +24,17 @@ def array2dataset(data, dtypes):
   """
   Convert a NumPy array to a structured array with specified data types
   """
-  length = data.shape[0]; 
+  length = data.shape[0]
   template = np.zeros(length, dtype=dtypes)
-  
   for i in range(len(template)): 
     template[i] = tuple(data[i])
   return template
 
 
 class hdf_operator(h5.File):
-  def __init__(self, filename, default_flag="r", read_only=False, append=False, new=False, overwrite=False):
-    if True not in [read_only, append, new, overwrite]:
-      print("No reading mode specified, default to read-only.")
-      flag = default_flag;
-    elif read_only:
-      print("Read-only mode enabled.")
-      flag = "r";
-    elif append:
-      print(f"Appending to the file {filename}")
-      flag = "a";
-    elif overwrite or new:
-      print(f"Force writing to the file {filename}")
-      flag = "w"
-    elif not os.path.isfile(filename):
-      print(f"File {filename} does not exist, creating a new one.")
-      flag = "w"
-    else:
-      print(f"Undefine reading mode, default to read-only.")
-      flag = "r"
-    super().__init__(filename, flag);
+  def __init__(self, filename, reading_flag):
+    # print(f"Opening HDF5 file '{filename}' in mode '{reading_flag}'")
+    super().__init__(filename, reading_flag)
 
   # __enter__ and __exit__ are used to enable the "with" statement
   def __enter__(self):
@@ -61,10 +43,10 @@ class hdf_operator(h5.File):
     self.close()
 
   def data(self, key):
-    dset = self[key];
+    dset = self[key]
     return np.asarray(dset)
   def dtype(self,key):
-    dset = self[key];
+    dset = self[key]
     return dset.dtype
     
   def list_datasets(self):
@@ -106,19 +88,19 @@ class hdf_operator(h5.File):
       
     # Retrieve the dataset
     dataset = self.data(dataset_name)
-    shape_before = dataset.shape; 
+    shape_before = dataset.shape
     
     # Create a new dataset without the specified entries
     new_data = dataset[:][boolean_mask]
     new_dataset = self.dump_dataset(f"{dataset_name}_temp", new_data)
-    shape_after = new_dataset.shape; 
+    shape_after = new_dataset.shape
     # Copy attributes from the original dataset to the new one
     for key, value in dataset.attrs.items():
       new_dataset.attrs[key] = value
 
     # Remove the original dataset and rename the new one
-    self.pop(dataset_name, None);
-    self.move(f"{dataset_name}_temp", dataset_name);
+    self.pop(dataset_name, None)
+    self.move(f"{dataset_name}_temp", dataset_name)
     print(f"Successfully masked {np.count_nonzero(boolean_mask)} entries; Shape: {shape_before} -> {shape_after}")
     
   def remove_entry(self, dataset_name, index):
@@ -130,55 +112,55 @@ class hdf_operator(h5.File):
     index (int): The index of the entry to remove.
     """
     dataset = self.data(dataset_name)
-    shape_before = dataset.shape; 
+    shape_before = dataset.shape
     data = np.asarray(dataset)
     data = np.delete(data, index, axis=0)
     # Resize the dataset and overwrite with the new data
     dataset.resize(data.shape)
     dataset[...] = data
-    shape_after = dataset.shape; 
+    shape_after = dataset.shape
     print(f"Successfully Delete the entry {index}; Shape: {shape_before} -> {shape_after}")
 
   def dump_dataset(self, data_key, thedata, columns=[], **kwarg):
-    theshape = np.asarray(thedata).shape;
-    maxshape = [i for i in theshape];
-    maxshape[0] = None;
-    maxshape = tuple(maxshape); 
+    theshape = np.asarray(thedata).shape
+    maxshape = [i for i in theshape]
+    maxshape[0] = None
+    maxshape = tuple(maxshape)
     dset = self.create_dataset(data_key, data=thedata, compression="gzip", maxshape=maxshape, **kwarg)
-    print(f"Created Dataset: {data_key}"); 
+    print(f"Created Dataset: {data_key}")
     return dset
 
   def temporary_dump(self, datalist, filename):
     if ("a" in self.mode or "w" in self.mode):
       raise "Please check the read mode to make the HDF file is writable or not"
-    dataobj = np.array(thedata, dtype=object);
+    dataobj = np.array(datalist, dtype=object)
     np.save(filename, dataobj)
 
   def create_heterogeneous(self, data_key, thedata, **kwarg):
-    newgroup = self.create_group(data_key);
+    newgroup = self.create_group(data_key)
     for idx, data in enumerate(thedata):
-      newgroup.create_dataset(f"{data_key}_{str(idx)}", data=data, **kwarg);
+      newgroup.create_dataset(f"{data_key}_{str(idx)}", data=data, **kwarg)
   def append_heterogeneous(self, data_key, thedata, **kwarg):
     if data_key in self:
-      thegroup = self[data_key];
+      thegroup = self[data_key]
       current_datasets = len(thegroup)
     else:
       raise ValueError(f"Dataset {data_key} does not exist.")
     for idx, data in enumerate(thedata, start=current_datasets):
-      thegroup.create_dataset(f"{data_key}_{idx}", data=data, **kwarg);
+      thegroup.create_dataset(f"{data_key}_{idx}", data=data, **kwarg)
 
   def create_table(self, data_key, thedata, columns=[], **kwarg):
     if thedata.dtype.names: 
       names = [name.encode('utf-8') for name in thedata.dtype.names]
     else: 
-      names = columns; 
-    self.create_dataset(data_key, thedata, **kwarg); 
+      names = columns
+    self.create_dataset(data_key, thedata, **kwarg)
     if len(columns) > 0: 
-      dset.attrs['columns'] = names
+      dset.attrs['columns'] = names   ################## TODO Check here
 
   def delete_dataset(self, dataset_name):
     if dataset_name in self.list_datasets():
-      self.pop(dataset_name, None);
+      self.pop(dataset_name, None)
       print(f"Dataset '{dataset_name}' has been deleted.")
     else:
       print(f"Warning: Dataset '{dataset_name}' does not exist.")
@@ -200,14 +182,14 @@ class hdf_operator(h5.File):
       print(f"Warning: Entry '{name}' does not exist.")
   
   def append_entry(self, dataset_name, newdata):
-    dset = self[dataset_name];
-    current_shape = dset.shape;
+    dset = self[dataset_name]
+    current_shape = dset.shape
     # Calculate the new shape after appending the new data
     new_shape = (current_shape[0] + newdata.shape[0], *current_shape[1:])
     # Resize the dataset to accommodate the new data
     dset.resize(new_shape)
     # Append the new data to the dataset
-    dset[current_shape[0]:new_shape[0]] = newdata;
+    dset[current_shape[0]:new_shape[0]] = newdata
     print(f"Appended {newdata.shape[0]} entries to {dataset_name}")
 
   def draw_structure(self, depth=0):
@@ -218,14 +200,14 @@ class hdf_operator(h5.File):
     """
     print("############## HDF File Structure ##############")
     def print_structure(name, obj):
-      current_depth = name.count('/');
+      current_depth = name.count('/')
       if current_depth > depth:  # If the current item's depth exceeds the limit, return early
         return
       if isinstance(obj, h5.Group):
-        print(f"$ /{name:20s}/Heterogeneous Group");
+        print(f"$ /{name:20s}/Heterogeneous Group")
       else:
-        print(f"$ /{name:20s}: Shape-{obj.shape}");
-    self.visititems(print_structure);
+        print(f"$ /{name:20s}: Shape-{obj.shape}")
+    self.visititems(print_structure)
     print("############ END HDF File Structure ############")
     
   def alter_entry(self, dataset_name, index, new_data):

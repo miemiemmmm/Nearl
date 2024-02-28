@@ -1,4 +1,4 @@
-import time, os
+import time, os, subprocess
 
 import pytraj as pt
 import numpy as np
@@ -15,6 +15,13 @@ def parallelize_traj(traj_list, focused_res):
   ret_array = np.array([])
   feat = features.Featurizer3D(FEATURIZER_PARMS)
   c=0
+  # print(dir(nearl))
+  nearl.CONFIG["tempfolder"] = f"/home/yzhang/Documents/tests/tempfolder_mlproj/single_{focused_res.replace(':', '')}"
+  nearl.update_config()
+  if (not os.path.isdir(nearl._tempfolder)):
+    print("Creating the temp folder", nearl._tempfolder)
+    subprocess.run(["mkdir", "-p", nearl._tempfolder])
+
   for complex_idx, complex_file in enumerate(traj_list):
     print(f"Processing {complex_file} ({complex_idx + 1}/{len(traj_list)}, last complex took {(time.perf_counter() - st_this):.2f} seconds)")
     st_this = time.perf_counter()
@@ -92,7 +99,7 @@ if __name__ == '__main__':
     # TODO: Change these settings before running for production
     worker_num = 16
     thread_per_worker = 2
-    found_PDB = complex_files[:100]
+    found_PDB = complex_files[:50]
     split_groups = np.array_split(found_PDB, worker_num)
     cluster = LocalCluster(
       n_workers=worker_num,

@@ -1,3 +1,8 @@
+##############################################################################
+# 1. Combine the protein-ligand to complex PDB file'
+# 2. Featurize the required PDB complexes
+##############################################################################
+
 import os, time
 import h5py as h5
 from itertools import chain
@@ -53,15 +58,15 @@ def combine_complex(idx, row, ref_filedir):
   if False not in [profile, ligfile]: 
     print(f"Processing Molecule {idx}: {row[0]}")
     try: 
-      complex_str = utils.combine_molpdb(ligfile, profile,
-                                           outfile=os.path.join(out_filedir, f"{row[0]}_complex.pdb"))
-      return True;
+      complex_str = utils.combine_molpdb(ligfile, profile, 
+                                         outfile=os.path.join(out_filedir, f"{row[0]}_complex.pdb"))
+      return True
     except: 
       try: 
         ligfile = os.path.join(ref_filedir, f"{row[0]}/{row[0]}_ligand.sdf")
         complex_str = utils.combine_molpdb(ligfile, profile,
                                              outfile=os.path.join(out_filedir, f"{row[0]}_complex.pdb"))
-        return True;
+        return True
       except: 
         print(f"Failed to process molecule {idx}: {row[0]}")
         return False
@@ -181,10 +186,10 @@ if __name__ == '__main__':
   #################################################################################
   ########### Part1: Combine protein-ligand to complex PDB file ###################
   #################################################################################
-  ref_filedir1 = "/MieT5/PDBbind_v2020_refined/";
-  ref_filedir2 = "/MieT5/PDBbind_v2020_other_PL/";
-  out_filedir = "/MieT5/BetaPose/data/complexes/";           # Output directory for the combined complex PDB file
-  PDBBind_datafile = "/MieT5/BetaPose/data/PDBBind_general_v2020.csv";   # PDBBind V2020
+  ref_filedir1 = "/MieT5/PDBbind_v2020_refined/"
+  ref_filedir2 = "/MieT5/PDBbind_v2020_other_PL/"
+  out_filedir = "/MieT5/BetaPose/data/complexes/"           # Output directory for the combined complex PDB file
+  PDBBind_datafile = "/MieT5/BetaPose/data/PDBBind_general_v2020.csv"   # PDBBind V2020
   SKIP_COMBINE = True
 
   # Read the PDBBind dataset
@@ -195,9 +200,9 @@ if __name__ == '__main__':
     refdirs = []
     for pdbcode in table.pdbcode.tolist():
       if os.path.exists(os.path.join(ref_filedir1, pdbcode)):
-        refdirs.append(ref_filedir1);
+        refdirs.append(ref_filedir1)
       elif os.path.exists(os.path.join(ref_filedir2, pdbcode)):
-        refdirs.append(ref_filedir2);
+        refdirs.append(ref_filedir2)
       else:
         print(f"Cannot find the reference directory for {pdbcode}");
         exit(1);
@@ -208,8 +213,8 @@ if __name__ == '__main__':
 
     with Client(processes=True, n_workers=24, threads_per_worker=1) as client:
       tasks = [dask.delayed(combine_complex)(idx, row, refdir) for (idx, row),refdir in zip(table.iterrows(), refdirs) if not os.path.exists(os.path.join(out_filedir, f"{row[0]}_complex.pdb"))]
-      futures = client.compute(tasks);
-      results = client.gather(futures);
+      futures = client.compute(tasks)
+      results = client.gather(futures)
 
     printit(f"Complex combination finished. Used {time.perf_counter() - st:.2f} seconds.")
     printit(f"Success: {np.sum(results)}, Failed: {len(results) - np.sum(results)}");

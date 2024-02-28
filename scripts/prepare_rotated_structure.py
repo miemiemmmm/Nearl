@@ -1,3 +1,8 @@
+##############################################################################
+# Obsolete import 
+# Need to check if this script is still useful for the project 
+##############################################################################
+
 import sys, time
 
 import numpy as np

@@ -36,6 +36,11 @@ def get_hash(theinput="", mode="md5"):
     printit("Warning: Not a valid input, should be (string, tuple, list, np.ndarray, bytes). Using time.perf_counter() by default.")
     return hash_func(bytes(time.perf_counter().__str__(), "utf-8")).hexdigest()
 
+def closest_partner_indices(coord1, coord2):
+  dist_matrix = distance_matrix(coord1, coord2)
+  minindex = np.argmin(dist_matrix, axis=1)
+  return minindex
+
 
 def dist_caps(traj, mask1, mask2, use_mean=False, ref_frame=None):
   """

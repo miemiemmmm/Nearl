@@ -63,7 +63,7 @@ def boxinfo_to_coord(theboxinfo):
   return np.column_stack((mesh[0].ravel(), mesh[1].ravel(), mesh[2].ravel()));
 
 idx = 17
-with data_io.hdf_operator("/media/yzhang/MieT5/BetaPose/data/trainingdata/test_3d_data.h5", read_only=True) as f: 
+with data_io.hdf_operator("/media/yzhang/MieT5/BetaPose/data/trainingdata/test_3d_data.h5", "r") as f: 
 #   f.draw_structure()
   boxinfo = f.data("box")[idx]
   coord = boxinfo_to_coord(boxinfo)

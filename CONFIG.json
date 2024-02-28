@@ -1,7 +1,7 @@
 {
   "####################" : "System settings",
   "tempfolder" : "/home/yzhang/Documents/tests/tempfolder_mlproj/",
-  "clear" : true,
+  "clear" : false,
   "verbose" : false,
   "usegpu": true,
   "debug" : false,
