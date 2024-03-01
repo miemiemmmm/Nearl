@@ -1,6 +1,91 @@
-#include "baseutils.cuh"
+// Kernel functions
+__device__ double gaussian_device(const double x, const double mu, const double sigma) {
+	return exp(-0.5 * ((x - mu) / sigma) * ((x - mu) / sigma)) / (sigma * sqrt(2 * M_PI));
+}
 
-using namespace std;
+__device__ double distance(const double *coord1, const double *coord2, const int dim) {
+  double sum = 0.0;
+  for (int i = 0; i < dim; ++i) {
+    sum += (coord1[i] - coord2[i]) * (coord1[i] - coord2[i]);
+  }
+  return sqrt(sum);
+}
+
+__device__ float mean_device(const float *x, const int n) {
+  float sum = 0.0;
+  for (int i = 0; i < n; ++i) {
+    sum += x[i];
+  }
+  return sum / n;
+}
+
+__device__ double sum_device(const double *x, const int n) {
+  double sum = 0.0;
+  for (int i = 0; i < n; ++i) {
+    sum += x[i];
+  }
+  return sum;
+}
+
+__device__ float sum_device(const float *x, const int n) {
+  float sum = 0.0;
+  for (int i = 0; i < n; ++i) {
+    sum += x[i];
+  }
+  return sum;
+}
+
+__device__ float standard_deviation_device(const float *x, const int n) {
+  float mean = mean_device(x, n);
+  float sum = 0.0;
+  for (int i = 0; i < n; ++i) {
+    sum += (x[i] - mean) * (x[i] - mean);
+  }
+  return sqrt(sum / n);
+}
+
+__device__ float variance_device(const float *x, const int n) {
+  float mean = mean_device(x, n);
+  float sum = 0.0;
+  for (int i = 0; i < n; ++i) {
+    sum += (x[i] - mean) * (x[i] - mean);
+  }
+  return sum / n;
+}
+
+// TODO: determine later 
+// __device__ float median_device(float *x, const int n) {
+//   thrust::sort(x, x + n);
+//   if (n % 2 == 0) {
+//     return (x[n / 2 - 1] + x[n / 2]) / 2;
+//   } else {
+//     return x[n / 2];
+//   }
+// }
+
+
+__device__ void centroid_device(const float *coord, float *centroid, const int point_nr, const int dim) {
+  for (int i = 0; i < point_nr; ++i) {
+    for (int j = 0; j < dim; ++j) {
+      centroid[j] += coord[i * dim + j];
+    }
+  }
+  for (int i = 0; i < dim; ++i) {
+    centroid[i] /= point_nr;
+  }
+}
+
+
+
+
+
+
+
+
+
+///////////////////////////////////////////////////////////////////////////////
+// TODO: Not sure if it is necessary to use the following functions
+
 
 // Use float to obtain the highest speed
 __device__ float CosineSimilarity(const float *vec1, const float *vec2, int dim) {
@@ -127,3 +212,5 @@ void CosineSimilarityQueryMin(const float *vecs1, const float *vecs2, unsigned i
  cudaFree(result_device);
  cudaFree(sim_matrix_device);
 }
+
+

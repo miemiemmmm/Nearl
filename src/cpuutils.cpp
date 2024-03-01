@@ -73,6 +73,24 @@ bool almost_equal(const T& a, const T& b) {
 }
 
 
+template <typename Type>
+Type median_device(const Type *x, const int n) {
+  Type *y = new Type[n];
+  for (int i = 0; i < n; ++i) {
+    y[i] = x[i];
+  }
+  std::sort(y, y + n);
+  Type median;
+  if (n % 2 == 0) {
+    median = (y[n / 2 - 1] + y[n / 2]) / 2;
+  } else {
+    median = y[n / 2];
+  }
+  delete[] y;
+  return median;
+}
+
+
 template <typename T>
 double JaccardSimilarity(const std::vector<T>& vec1, const std::vector<T>& vec2){
 	if (vec1.empty() && vec2.empty()) return 1.0;

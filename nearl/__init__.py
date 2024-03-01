@@ -1,39 +1,47 @@
 import datetime, builtins, os, inspect, time
-from json import load
 import importlib.resources as resources
 
 ########################################################
 
 __version__ = "0.0.1"
-_runtimelog = []
 _start_time = time.perf_counter()
 configfile = resources.files("nearl").joinpath("../CONFIG.json")
 
-_clear = True
-_verbose = False
-_tempfolder =  "/tmp"
-_usegpu = False
-_debug =  False
-CONFIG = {}
+
+CONFIG = {
+  "tempfolder" : os.path.abspath("/tmp/"),
+  "clear" : True, 
+  "verbose" : False, 
+  "usegpu": True, 
+  "debug" : False, 
+
+  "WINDOW_SIZE" : 10,
+  
+
+  # Box partition parameters : TODO 
+  "SEGMENT_LIMIT" : 6,
+  "VIEWPOINT_STANDPOINT": "self",
+  "VIEWPOINT_BINS" : 24,
+  "DOWN_SAMPLE_POINTS" : 1000,
+
+  # SQL database parameters
+  "user" : "yang",
+  "dbname": "testfeatures",
+  "host": "localhost",
+  "password": "testyang",
+
+  "datadir": "/MieT5/BetaPose/data",
+
+  "SEGMENT_CMAP" : "inferno",
+}
 
 
-def update_config():
-  print("within the package update function", CONFIG, CONFIG.get("tempfolder", "/tmp"))
-  global _clear, _verbose, _tempfolder, _usegpu, _debug
-  _clear = CONFIG.get("clear", True)
-  _verbose = CONFIG.get("verbose", False)
-  _tempfolder = CONFIG.get("tempfolder", "/tmp")
-  _usegpu = CONFIG.get("usegpu", False)
-  _debug = CONFIG.get("debug", False)
 
-
-if os.path.isfile(configfile):
-  configfile = os.path.abspath(configfile)
-  with open(configfile, "r") as f:
-    CONFIG = load(f)
-    update_config()
-else:
-  raise FileNotFoundError(f"NEARL({__file__}): Not found the configuration file")
+# _clear = True
+# _verbose = False
+# _tempfolder =  "/tmp"
+# _usegpu = False
+# _debug =  False
 
 
 def logit(function):
@@ -62,9 +70,6 @@ def savelog(filename="", overwrite=True):
     filename = os.path.join(_tempfolder, "runtime.log")
   if (not os.path.exists(filename)) or (overwrite is True):
     printit(f"Runtime log saved to {filename}")
-    with open(filename, "w") as file:
-      for i in _runtimelog:
-        file.write(i+"\n")
   else:
     printit(f"File {filename} exists, skip saving log file")
 
@@ -78,6 +83,21 @@ def draw_call_stack():
     printit(f"Function: {frame_info.function:<20s} | Line: {frame_info.lineno:<5d} from File: {frame_info.filename:40}")
   printit(f"{'End Drawing Calling Stack':=^100s}")
 
+
+def update_config(dict_to_update:dict={}):
+  for key, value in dict_to_update.items():
+    if key in CONFIG:
+      CONFIG[key] = value
+    else:
+      raise KeyError(f"Key {key} is not in the configuration file")
+  global _clear, _verbose, _tempfolder, _usegpu, _debug
+  _clear = CONFIG.get("clear", True)
+  _verbose = CONFIG.get("verbose", False)
+  _tempfolder = CONFIG.get("tempfolder", os.path.abspath("/tmp"))
+  _usegpu = CONFIG.get("usegpu", False)
+  _debug = CONFIG.get("debug", False)
+
+update_config()
 
 
 PACKAGE_DIR = os.path.dirname(os.path.abspath(__file__))
