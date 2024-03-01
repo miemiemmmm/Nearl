@@ -17,8 +17,6 @@ if [ ${#env_name} -eq 0 ]; then
   exit -1;
 fi
 
-current_path=$(dirname $(realpath ${0}));
-cd ${current_path};
 files_to_check="setup.py%pyproject.toml%MANIFEST.in"
 echo ${files_to_check} | tr "%" "\n" | while read file; do
   if [ ! -f ${file} ]; then
