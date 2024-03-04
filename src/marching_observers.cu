@@ -1,11 +1,9 @@
 #include <iostream>
 
-// #include "marching_observers.cuh"
-#include "cuda_runtime.h"
-#include "gpuutils.cuh"
+#include "gpuutils.cuh"  // For hard-coded BLOCK_SIZE and device functions: mean_device, mean_device, standard_deviation_device
 
 
-// Device kernel: particle count in frame i
+// Device kernel (observation): particle count in frame i
 __device__ float particle_count_device(const float *coord, float *coord_framei, 
   int atomnr, float cutoff){
   // Work on each atoms in a frame to calculate the observable in that frame
@@ -34,7 +32,7 @@ __device__ float particle_count_device(const float *coord, float *coord_framei,
   return retval;
 }
 
-// Device kernel: particle exist in frame i
+// Device kernel (observation): particle exist in frame i
 __device__ float particle_exist_device(const float *coord, float *coord_framei, 
   int atomnr, float cutoff){
   // Work on each atoms in a frame to calculate the observable in that frame
@@ -61,7 +59,7 @@ __device__ float particle_exist_device(const float *coord, float *coord_framei,
   return 0.0f;
 }
 
-// Device kernel: mean distance to observer in frame i
+// Device kernel (observation): mean distance to observer in frame i
 __device__ float mean_distance_device(const float *coord, float *coord_framei,
   int atomnr, float cutoff){
   // Work on each atoms in a frame to calculate the observable in that frame
@@ -95,7 +93,8 @@ __device__ float mean_distance_device(const float *coord, float *coord_framei,
   }
 }
 
-// Device kernel: Radius of gyration in frame i
+
+// Device kernel (observation): Radius of gyration in frame i
 __device__ float radius_of_gyration_device(const float *coord, const float *coord_framei,
   const int atomnr, const float cutoff){
   // Work on each atoms in a frame to calculate the observable in that frame
@@ -108,7 +107,6 @@ __device__ float radius_of_gyration_device(const float *coord, const float *coor
   
   // __device__ void centroid_device(const float *coord, float *centroid, const int point_nr, const int dim);
   centroid_device(coord_framei, centroid, atomnr, 3);
-  // std::cout << "Centroid is :" << centroid[0] << " " << centroid[1] << " " << centroid[2] << std::endl;
 
   for (int j = 0; j < atomnr; j++){
     // Calculate the distance
@@ -131,9 +129,7 @@ __device__ float radius_of_gyration_device(const float *coord, const float *coor
       }
     }
   }
-
   delete[] centroid;
-
   if (count > 0){
     return sqrt(retval / count);
   } else {
@@ -142,29 +138,25 @@ __device__ float radius_of_gyration_device(const float *coord, const float *coor
 }
 
 
-
 // Global kernel: particle count
 __global__ void grid_dynamic_global(float *result, const float *coord_frames, 
-  const int *dims, const float *spacing, 
-  // float *series, float *coord_framei,
+  const int *dims, const float spacing, 
   const int frame_number, const int atomnr, 
-  const float cutoff, const int type_observable, const int type_aggregation){
-
-  // extern __shared__ float shared_mem[];
+  const float cutoff, const int type_observable, const int type_aggregation){ 
   int index = threadIdx.x + blockIdx.x * blockDim.x;
   if (index < dims[0]*dims[1]*dims[2]){
     float series[1000]; 
     float coord_framei[3000];
-    if (frame_number > 1000 || atomnr > 10000){
+    if (frame_number > 1000 || atomnr > 1000){
       printf("The frame number or atom number is too large, please reduce the number of frames or atoms");
       return;
     }
 
     // Get the coordinate of the grid point
     float coord[3] = {
-      static_cast<float>(index / (dims[0] * dims[1])) * spacing[0],
-      static_cast<float>((index / dims[0]) % dims[1]) * spacing[1],
-      static_cast<float>(index % dims[0]) * spacing[2]
+      static_cast<float>(index / (dims[0] * dims[1])) * spacing,
+      static_cast<float>((index / dims[0]) % dims[1]) * spacing,
+      static_cast<float>(index % dims[0]) * spacing
     }; 
     
     // Iterate over frames
@@ -174,7 +166,6 @@ __global__ void grid_dynamic_global(float *result, const float *coord_frames,
       for (int j = 0; j < 3*atomnr; j++){
         coord_framei[j] = coord_frames[coord_start_index + j];
       }
-      // printf("sum of the coordinates: %f\n", sum_device(shared_mem + frame_number, 3*atomnr));
       // Calculate the observable in the frame
       float ret_framei;
       if (type_observable == 0){
@@ -194,55 +185,32 @@ __global__ void grid_dynamic_global(float *result, const float *coord_frames,
     float ret_series; 
     if (type_aggregation == 0){
       ret_series = mean_device(series, frame_number);
-      // ret_series = mean_device(series, frame_number);
     } else if (type_aggregation == 1){
       ret_series = standard_deviation_device(series, frame_number);
-      // ret_series = standard_deviation_device(series, frame_number);
     } else if (type_aggregation == 2){
       // ret_series = median_device(series, frame_number);
     } else if (type_aggregation == 3){
       ret_series = variance_device(series, frame_number);
-      // ret_series = variance_device(series, frame_number);
     }
-    printf("Result of observer %d is: %f\n", index, ret_series);
-    result[index] = static_cast<float>(ret_series);
 
+    // printf("Result of observer %d is: %f\n", index, ret_series);
+    result[index] = static_cast<float>(ret_series);
   }
 }
 
 
-
-
 // Normal host function available to C++ part 
 void marching_observer_host(float *grid_return, const float *coord, 
-  const int *dims, const float *spacing, 
+  const int *dims, const float spacing, 
   const int frame_number, const int atom_per_frame,
   const float cutoff, const int type_obs, const int type_agg){
   // Determine the number of observers
   const int observer_number = dims[0] * dims[1] * dims[2];
-  std::cout << "dims are: " << dims[0] << " " << dims[1] << " " << dims[2] << std::endl;
-  std::cout << "spacing are: " << spacing[0] << " " << spacing[1] << " " << spacing[2] << std::endl;
-
-  float mean_x = 0.0;
-  float mean_y = 0.0;
-  float mean_z = 0.0;
-  for (int i = 0; i < atom_per_frame * frame_number * 3; i+=3){
-    mean_x += coord[i];
-    mean_y += coord[i+1];
-    mean_z += coord[i+2];
-  }
-  mean_x /= (atom_per_frame * frame_number);
-  mean_y /= (atom_per_frame * frame_number);
-  mean_z /= (atom_per_frame * frame_number);
-  std::cout << "Mean of the coordinates: " << mean_x << " " << mean_y << " " << mean_z << std::endl;
-  // TODO:  Cuda coordinate array clear 
-  std::cout << "coordinate point number "<< atom_per_frame * frame_number << std::endl;
 
   // Set all numbers in the return array to 0
   float *ret_arr; 
   cudaMalloc(&ret_arr, observer_number * sizeof(float));
   cudaMemset(ret_arr, 0, observer_number * sizeof(float));
-
 
   float *coord_device;
   cudaMalloc(&coord_device, atom_per_frame * frame_number * 3 * sizeof(float));
@@ -252,52 +220,26 @@ void marching_observer_host(float *grid_return, const float *coord,
   cudaMalloc(&dims_device, 3 * sizeof(int));
   cudaMemcpy(dims_device, dims, 3 * sizeof(int), cudaMemcpyHostToDevice);
 
-  float *spacing_device;
-  cudaMalloc(&spacing_device, 3 * sizeof(float));
-  cudaMemcpy(spacing_device, spacing, 3 * sizeof(float), cudaMemcpyHostToDevice);
-
-  // float *series = (float *)malloc(frame_number * sizeof(float));
-  // float *coord_framei = (float *)malloc(3*atomnr * sizeof(float));
-
-  // TODO: Determine how to pass frames to the C++ part
-  // Test with 5 frames and 3 atoms in each frame
   // NOTE: The coordinate should be uniformed meaning each frame have the same number of atoms
-
-  
   int grid_size = (observer_number + BLOCK_SIZE - 1) / BLOCK_SIZE;
-  // int shared_mem_size = block_size * (frame_number + 3*atom_per_frame) * sizeof(float);
-
-  std::cout << "###################################################" << std::endl;
-  std::cout << "frame number: " << frame_number << std::endl;
-  std::cout << "atom per frame: " << atom_per_frame << std::endl;
-  std::cout << "cutoff: " << cutoff << std::endl;
-  std::cout << "type_obs: " << type_obs << std::endl;
-  std::cout << "type_agg: " << type_agg << std::endl;
   grid_dynamic_global<<<grid_size, BLOCK_SIZE>>>(
     ret_arr, coord_device, 
-    dims_device, spacing_device, 
+    dims_device, spacing, 
     frame_number, atom_per_frame, 
     cutoff, type_obs, type_agg
   );
   cudaDeviceSynchronize();
-  
-  // Copy the return array to the host and measure the sum
   cudaMemcpy(grid_return, ret_arr, observer_number * sizeof(float), cudaMemcpyDeviceToHost);
   
+  // TODO: Is there necessity to normalize the return array?
+  // NOTE: Currently, normalize the return by the number of atoms in the frame
   float sum_return = 0.0;
+  for (int i = 0; i < observer_number; i++) sum_return += grid_return[i]; 
+  for (int i = 0; i < observer_number; i++) grid_return[i] = grid_return[i] * atom_per_frame / sum_return;
 
-  for (int i = 0; i < observer_number; i++){
-    sum_return += grid_return[i];
-  }
-  std::cout << "Sum of the return array: " << sum_return << std::endl;
-
-  
   cudaFree(ret_arr);
   cudaFree(coord_device);
   cudaFree(dims_device);
-  cudaFree(spacing_device);
-  // cudaFree(tmp_series);
-  // cudaFree(tmp_coord_framei);
 }
 
 
