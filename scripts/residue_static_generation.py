@@ -1,4 +1,4 @@
-import time, os
+import time, os, argparse, json
 import numpy as np
 import pandas as pd 
 import multiprocessing as mp
@@ -6,15 +6,20 @@ import feater
 import feater.voxelize
 import feater.utils
 
-# Read PDB coordinates
-FEATER_DATASET = "/Weiss/FEater_Dual_PDBHDF/TrainingSet_Dataset.h5"
-TARGET_NR = 1000
-CLASS_NR = 400
-CPU_NR = 16
-BATCH_NR = 1024
-START_BATCH = 0
-OUTPUT_DIR = "/Matter/nearl_single_static"
-WEIGHT_TYPE="mass"  # Types "mass" or "radius"
+
+
+
+def parse_args():
+  parser = argparse.ArgumentParser(description="Voxelization of the static dataset")
+  parser.add_argument("--dataset", type=str, default="single", help="Dataset to use")
+  parser.add_argument("--cpu", type=int, default=16, help="Number of CPUs to use")
+  parser.add_argument("--batch_nr", type=int, default=1024, help="Number of batches to use")
+  parser.add_argument("--start_batch", type=int, default=0, help="Start batch")
+  parser.add_argument("--output_dir", type=str, default="/Matter/nearl_single_static", help="Output directory")
+  parser.add_argument("--weight_type", type=str, default="mass", help="Weight type")
+  parser.add_argument("--target_nr", type=int, default=1000, help="Target number of residues")
+  parser.add_argument("--class_nr", type=int, default=20, help="Number of classes")
+  return parser.parse_args()
 
 
 # 4 foulders for static/dynamic and single/dual dataset. 
@@ -35,8 +40,27 @@ MASS2RADII = {
   31: 1.80,  # P
   0: 1.40,   # None
 }
-listfile = os.path.join(OUTPUT_DIR, "index_label.csv")
-h5outfile = os.path.join(OUTPUT_DIR, "voxel.h5")
+
+if __name__ == "__main__":
+  args = parse_args()
+
+  # Read PDB coordinates
+  FEATER_DATASET = "/Weiss/FEater_Dual_PDBHDF/TrainingSet_Dataset.h5"
+  TARGET_NR = 1000
+  CLASS_NR = 400
+  CPU_NR = 16
+  BATCH_NR = 1024
+  START_BATCH = 0
+  OUTPUT_DIR = "/Matter/nearl_single_static"
+  WEIGHT_TYPE="mass"  # Types "mass" or "radius"
+
+  print(args)
+  with open(os.path.join(OUTPUT_DIR, "args.txt"), "w") as f:
+    json.dumps(vars(args), f)
+
+
+  listfile = os.path.join(OUTPUT_DIR, "index_label.csv")
+  h5outfile = os.path.join(OUTPUT_DIR, "voxel.h5")
 
 
 # Check each tag and select the corresponding data
