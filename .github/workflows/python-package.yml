@@ -45,57 +45,44 @@ jobs:
 
     - name: Install the micromamba
       run: |
-        echo "##############################################"
-        echo "########## Install the micromamba ############"
-        echo "##############################################"
-        bash scripts/install_mamba.sh
-        [ -f ./micromamba/bin/micromamba ] && echo "micromamba is installed" || echo "micromamba is not installed"
+        echo "-----> Installing the micromamba"
+        mkdir -p ${HOME}/micromamba
+        curl https://gist.githubusercontent.com/miemiemmmm/40d2e2b49e82d682ef5a7b2aa94a243f/raw/94eb8ad3c087647426520d5f579c1e63683ee140/install_micromamba.sh -o ${HOME}/micromamba/install_mamba.sh
+        bash ${HOME}/micromamba/install_mamba.sh ${HOME}/micromamba
+        ls -la ${HOME}/micromamba
+        [ -f ${HOME}/micromamba/bin/micromamba ] && echo "micromamba is installed" || echo "micromamba is not installed"
 
     - name: Install dependencies
       run: |
-        echo "##############################################"
-        echo "########## Install dependencies ##############"
-        echo "##############################################"
+        echo "-----> Install dependencies "
         # Use the new installed conda for the following installation
-        if [ -f ./micromamba/bin/micromamba ]; then 
-          export PATH="$PWD/micromamba/bin:$PATH"
-          export MAMBA_EXE=$PWD/micromamba/bin/micromamba
-          export MAMBA_ROOT_PREFIX=$PWD/micromamba
-          eval "$(micromamba shell hook --shell bash --root-prefix ${MAMBA_ROOT_PREFIX})"
-        else
-          echo "micromamba is not installed"
-          exit 1
-        fi
+        # if [ -f ./micromamba/bin/micromamba ]; then 
+        #   export PATH="$PWD/micromamba/bin:$PATH"
+        #   export MAMBA_EXE=$PWD/micromamba/bin/micromamba
+        #   export MAMBA_ROOT_PREFIX=$PWD/micromamba
+        #   eval "$(micromamba shell hook --shell bash --root-prefix ${MAMBA_ROOT_PREFIX})"
+        # else
+        #   echo "micromamba is not installed"
+        #   exit 1
+        # fi
+        source ${HOME}/micromamba/bin/loadmamba
         envname="testenv"
-        bash scripts/create_env_mamba.sh $envname
+        bash scripts/misc/create_env_mamba.sh ${envname}
         micromamba activate $envname
-        echo "Check the mamba activation status"
+
+        echo "########## Check the mamba activation status"
         micromamba list
-        python -m pip install --upgrade pip
-        python -m pip install pytest
+        
 
     - name: Build the package
       run: |
-        echo "##############################################"
-        echo "########## Building the package ##############"
-        echo "##############################################"
+        echo "########## Building the package "
         # Since environment variables are not passed to the next step, we need to activate the environment again
-        if [ -f ./micromamba/bin/micromamba ]; then 
-          export PATH="$PWD/micromamba/bin:$PATH"
-          export MAMBA_EXE=$PWD/micromamba/bin/micromamba
-          export MAMBA_ROOT_PREFIX=$PWD/micromamba
-          eval "$(micromamba shell hook --shell bash --root-prefix ${MAMBA_ROOT_PREFIX})"
-        else
-          echo "micromamba is not installed"
-          exit 1
-        fi
+        source ${HOME}/micromamba/bin/loadmamba
         envname="testenv"
         micromamba activate $envname
-        echo "Check the mamba activation status"
-        micromamba list
-        bash build_dev.sh $envname
+        python -m build 
+        
+        find 
 
-#    import nearl.tests.training_jax as training_jax
-#    training_jax.cnn_2d()
-#    training_jax.simple_network()
-#    training_jax.cnn_3d()
+        

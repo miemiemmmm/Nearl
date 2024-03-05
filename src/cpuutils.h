@@ -270,9 +270,9 @@ void translate_coord(float* coord, const int atom_nr, const int *dims, const dou
 	cog_coord[2] /= atom_nr;
 
 	for (int i = 0; i < atom_nr; i++) {
-		coord[i*3]   = (coord[i*3] - cog_coord[0])/spacing + dims[0]/2;
-		coord[i*3+1] = (coord[i*3+1] - cog_coord[1])/spacing + dims[1]/2;
-		coord[i*3+2] = (coord[i*3+2] - cog_coord[2])/spacing + dims[2]/2;
+		coord[i*3]   = (coord[i*3] - cog_coord[0]) + (dims[0]*spacing)/2;
+		coord[i*3+1] = (coord[i*3+1] - cog_coord[1]) + (dims[1]*spacing)/2;
+		coord[i*3+2] = (coord[i*3+2] - cog_coord[2]) + (dims[2]*spacing)/2;
 	}
 }
 

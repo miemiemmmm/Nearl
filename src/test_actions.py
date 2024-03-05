@@ -44,6 +44,7 @@ print(f"Took {time.perf_counter() - st:.2f} seconds; Each run takes: {1000 * (ti
 ret = ret.reshape(dims)
 print(f"Return shape: {ret.shape}; Check sum {np.sum(ret)} -> {np.sum(weights)}")
 
+# view_ret(ret)
 
 ############################################################################### 
 print("Testing marching observers algorithm")
@@ -55,8 +56,29 @@ print(f"Took {time.perf_counter() - st:.2f} seconds; Each run takes: {1000 * (ti
 
 ret = ret.reshape(dims)
 print(f"Return shape: {ret.shape}; Check sum {np.sum(ret)}")
-view_ret(ret)
+# view_ret(ret)
 
 print("Done!")
+
+
+st = time.perf_counter()
+ret = all_actions.voxelize_traj(coords, weights, dims, spacing, 10, 1.0, 1.0)
+print(f"Took {time.perf_counter() - st:.2f} seconds; Each run takes: {1000 * (time.perf_counter() - st) / repeat_nr:.2f} ms")
+
+print(f"Return shape: {ret.shape}; ")
+
+
+
+
+# Normalization of dynamic features
+# A problem of overlapping and non-overlapping problems 
+
+# How to setup the cutoff (viewer range)
+# Smaller might be too noisy because of the discretization
+# Larger might also be noisy because of the overlapping
+
+
+# Using discrete atom might cause severe problem with very noisy data
+# Could use a cached atomic density to obtain the dynamic features instead
 
 

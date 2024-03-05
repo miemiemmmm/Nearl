@@ -44,19 +44,20 @@ py::array_t<float> do_voxelize(
     weights[i] = *(static_cast<float*>(buf_weights.ptr) + i);
   }
   
+  // No scaling of the coordinates and only translation is applied
   translate_coord(coords, atom_nr, dims, spacing);
-  float new_cutoff = cutoff / spacing;
-  float new_sigma = sigma / spacing;
+  // float new_cutoff = cutoff / spacing;
+  // float new_sigma = sigma / spacing;
+  
 
   // Initialize the return array and launch the computation kernel
   py::array_t<float> result({grid_point_nr});
   for (int i = 0; i < grid_point_nr; i++) result.mutable_at(i) = 0; 
-  voxelize_host(result.mutable_data(), coords, weights, static_cast<int*>(buf_dims.ptr), atom_nr, new_cutoff, new_sigma);
+  voxelize_host(result.mutable_data(), coords, weights, static_cast<int*>(buf_dims.ptr), atom_nr, spacing, cutoff, sigma);
   delete[] coords;
   delete[] weights;
   return result;
 }
-
 
 py::array_t<float> do_marching_observers(
   py::array_t<float> arr_coord, 
@@ -93,6 +94,56 @@ py::array_t<float> do_marching_observers(
 }
 
 
+py::array_t<float> voxelize_traj_host(
+  py::array_t<float> arr_traj, 
+  py::array_t<float> arr_weights,
+  py::array_t<int> grid_dims, 
+  const float spacing, 
+  const int interval,
+  const float cutoff, 
+  const float sigma
+){
+  py::buffer_info buf_traj = arr_traj.request();
+  py::buffer_info buf_weights = arr_weights.request();
+  py::buffer_info buf_dims = grid_dims.request();
+
+  if (buf_traj.shape[0] != buf_weights.shape[0]){
+    std::cerr << "Input arrays must have the same length" << std::endl;
+    return py::array_t<float>({0});
+  }
+
+  int frame_nr = buf_traj.shape[0];
+  int atom_nr = buf_traj.shape[1];
+  int *dims = static_cast<int*>(buf_dims.ptr);
+  unsigned int gridpoint_nr = dims[0] * dims[1] * dims[2];
+  int dyn_pool_nr = frame_nr / interval;
+  if (dyn_pool_nr * interval != frame_nr){
+    std::cerr << "Warning: The interval must be a divisor of the frame number, the last frames will be ignored" << std::endl;
+    std::cerr << "The output dimension will be " << dyn_pool_nr << " * " << gridpoint_nr << std::endl;
+  }
+  py::array_t<float> result({gridpoint_nr * dyn_pool_nr});
+  for (int i = 0; i < gridpoint_nr * dyn_pool_nr; i++) result.mutable_at(i) = 0;
+  trajectory_voxelization_host(
+    result.mutable_data(), 
+    static_cast<float*>(buf_traj.ptr), 
+    static_cast<float*>(buf_weights.ptr), 
+    dims,
+    frame_nr, 
+    atom_nr, 
+    interval, 
+    spacing,
+    cutoff, 
+    sigma
+  ); 
+  return result;
+}
+
+
+
+
+
+
+
 
 
 PYBIND11_MODULE(all_actions, m) {
@@ -114,6 +165,17 @@ PYBIND11_MODULE(all_actions, m) {
     "Marching cubes algorithm to create a mesh from a 3D grid"
   );
 
+
+  m.def("voxelize_traj", &voxelize_traj_host, 
+    py::arg("traj"),
+    py::arg("weights"),
+    py::arg("grid_dims"),
+    py::arg("spacing"),
+    py::arg("interval"),
+    py::arg("cutoff"),
+    py::arg("sigma"),
+    "Voxelize a trajectory"
+  );
 
 }
 

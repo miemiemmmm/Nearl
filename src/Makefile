@@ -39,7 +39,7 @@ voxelize.so: voxelize.cu voxelize.cuh
 
 all_actions: voxelize.so marching_observers
 		$(CC) $(PYFLAGS) -shared -fPIC -o all_actions.so actions_py.cpp marching_observers_link.o marching_observers.o voxelize_link.so voxelize.o $(CUDA_RUNTIME)
-		python3 /MieT5/BetaPose/src/test_actions.py
+		# python3 /MieT5/BetaPose/src/test_actions.py
 
 test_gpu: testgpu_template.cu 
 		$(NVCC) $(NVCCFLAGS) -o a.out testgpu_template.cu 

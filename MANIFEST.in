@@ -7,8 +7,12 @@ include LICENSE
 include nearl/myconfig.json
 
 include src/CMakeLists.txt 
+include src/Makefile
 include src/*.cpp 
+include src/*.cu
 include src/*.h
+include src/*.cuh
+
 
 include nearl/*.so
 include CMakeLists.txt

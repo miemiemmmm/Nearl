@@ -1,13 +1,12 @@
 [build-system]
-requires = ["setuptools", "wheel", "cmake>=3.12.0", "pybind11"]
+requires = ["setuptools", "wheel", "pybind11"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "nearl"  # as it would appear on PyPI
 version = "0.0.1"
-description = ""
+description = "Nearl Package Installation"
 authors = [
-    {name = "Yang Zhang", email = "credo_zhang@163.com"},
     {name = "Yang Zhang", email = "y.zhang@bioc.uzh.ch"},
 ]
 dependencies = [
@@ -18,3 +17,6 @@ license = {text = "MIT"}
 
 [tool.setuptools]
 include-package-data = true
+
+[project.scripts]
+
