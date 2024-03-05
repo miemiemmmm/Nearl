@@ -1,6 +1,34 @@
 import os, sys, subprocess, platform, shutil, importlib
 from setuptools import setup, find_packages, Extension
 from setuptools.command.build_ext import build_ext
+from setuptools.command.install import install
+
+class install_Nearl(install):
+  def run(self): 
+    print("Running the install command")
+    os.chdir("src")
+    subprocess.check_call(["make", "all_actions"])
+    os.chdir("..")
+    if os.path.isfile("./src/all_actions.so"):
+      if os.path.isdir("./build/lib/nearl"):
+        shutil.copy2("./src/all_actions.so", "./build/lib/nearl/all_actions.so")
+      else:
+        shutil.copy2("./src/all_actions.so", "./nearl/all_actions.so")
+    else:
+      raise Exception("The shared object file (all_actions.so) is not found; Please check the build process")
+    print("######################################")
+    
+    install.run(self)
+
+setup_params = dict(
+  cmdclass = {"install": install_Nearl},
+  packages = find_packages(),
+  zip_safe = False,
+)
+
+
+if __name__ == "__main__":
+  setup(**setup_params)
 
 class CMakeExtension(Extension):
   def __init__(self, name, sourcedir='', pybind_dir="", openacc_compiler="", **kwarg):
@@ -76,98 +104,66 @@ class CMakeBuild(build_ext):
     print(dir(self))
 
 
-if __name__ == "__main__":
-  if importlib.util.find_spec("pybind11") is not None:
-    print(f">>>>>>>> Found pybind11, Directly using it for building");
-    path_pybind = importlib.util.find_spec("pybind11").submodule_search_locations[0]
-  else:
-    print(f">>>>>>>> pybind11 not found, using the local copy");
-    path_pybind = os.path.dirname(os.path.realpath(__file__)) + "/external/pybind11"
+# if __name__ == "__main__":
+#   if importlib.util.find_spec("pybind11") is not None:
+#     print(f">>>>>>>> Found pybind11, Directly using it for building");
+#     path_pybind = importlib.util.find_spec("pybind11").submodule_search_locations[0]
+#   else:
+#     print(f">>>>>>>> pybind11 not found, using the local copy");
+#     path_pybind = os.path.dirname(os.path.realpath(__file__)) + "/external/pybind11"
 
-  if "NEARL_BUILD_TYPE" in os.environ:
-    if os.environ["NEARL_BUILD_TYPE"].upper() == "CPU":
-      USE_GPU = False
-    else:
-      USE_GPU = True
-  else:
-    USE_GPU = False
+#   if "NEARL_BUILD_TYPE" in os.environ:
+#     if os.environ["NEARL_BUILD_TYPE"].upper() == "CPU":
+#       USE_GPU = False
+#     else:
+#       USE_GPU = True
+#   else:
+#     USE_GPU = False
 
-  if USE_GPU:
-    if shutil.which("nvc++") is not None:
-      print("Using NVIDIA nvc++ compiler")
-      path_openacc_compiler = shutil.which("nvc++")
-      ext_modules = [
-        # CMakeExtension("parent", sourcedir="./", pybind_dir=path_pybind, openacc_compiler=path_openacc_compiler),
-        CMakeExtension("interpolate", sourcedir='src', pybind_dir=path_pybind, openacc_compiler=path_openacc_compiler),
-        # CMakeExtension("testmodule", sourcedir='src', pybind_dir=path_pybind, openacc_compiler=path_openacc_compiler),
-      ]
+#   if USE_GPU:
+#     if shutil.which("nvc++") is not None:
+#       print("Using NVIDIA nvc++ compiler")
+#       path_openacc_compiler = shutil.which("nvc++")
+#       ext_modules = [
+#         # CMakeExtension("parent", sourcedir="./", pybind_dir=path_pybind, openacc_compiler=path_openacc_compiler),
+#         CMakeExtension("interpolate", sourcedir='src', pybind_dir=path_pybind, openacc_compiler=path_openacc_compiler),
+#         # CMakeExtension("testmodule", sourcedir='src', pybind_dir=path_pybind, openacc_compiler=path_openacc_compiler),
+#       ]
 
-    elif shutil.which("pgc++") is not None:
-      print("Using PGI compiler")
-      path_openacc_compiler = shutil.which("pgc++")
-      ext_modules = [
-        # CMakeExtension("parent", sourcedir="./", pybind_dir=path_pybind, openacc_compiler=path_openacc_compiler),
-        CMakeExtension("interpolate", sourcedir='src', pybind_dir=path_pybind, openacc_compiler=path_openacc_compiler),
-        # CMakeExtension("testmodule", sourcedir='src', pybind_dir=path_pybind, openacc_compiler=path_openacc_compiler),
-      ]
+#     elif shutil.which("pgc++") is not None:
+#       print("Using PGI compiler")
+#       path_openacc_compiler = shutil.which("pgc++")
+#       ext_modules = [
+#         # CMakeExtension("parent", sourcedir="./", pybind_dir=path_pybind, openacc_compiler=path_openacc_compiler),
+#         CMakeExtension("interpolate", sourcedir='src', pybind_dir=path_pybind, openacc_compiler=path_openacc_compiler),
+#         # CMakeExtension("testmodule", sourcedir='src', pybind_dir=path_pybind, openacc_compiler=path_openacc_compiler),
+#       ]
 
-    else:
-      print("No OpenACC/C++ compiler found; Falling back to CPU only")
-      ext_modules = [
-        # CMakeExtension("parent", sourcedir="./", pybind_dir=path_pybind),
-        CMakeExtension("interpolate", sourcedir='src', pybind_dir=path_pybind),
-        # CMakeExtension("testmodule", sourcedir='src', pybind_dir=path_pybind),
-      ]
-  else:
-    print("Using CPU only mode")
-    ext_modules = [
-      # CMakeExtension("parent", sourcedir="./", pybind_dir=path_pybind),
-      CMakeExtension("interpolate", sourcedir='src', pybind_dir=path_pybind),
-      # CMakeExtension("testmodule", sourcedir='src', pybind_dir=path_pybind),
-    ]
-  setup(
-    packages = [
-      "nearl",
-    ],
-    ext_modules=ext_modules,
-    cmdclass={
-      'build_ext': CMakeBuild,
+#     else:
+#       print("No OpenACC/C++ compiler found; Falling back to CPU only")
+#       ext_modules = [
+#         # CMakeExtension("parent", sourcedir="./", pybind_dir=path_pybind),
+#         CMakeExtension("interpolate", sourcedir='src', pybind_dir=path_pybind),
+#         # CMakeExtension("testmodule", sourcedir='src', pybind_dir=path_pybind),
+#       ]
+#   else:
+#     print("Using CPU only mode")
+#     ext_modules = [
+#       # CMakeExtension("parent", sourcedir="./", pybind_dir=path_pybind),
+#       CMakeExtension("interpolate", sourcedir='src', pybind_dir=path_pybind),
+#       # CMakeExtension("testmodule", sourcedir='src', pybind_dir=path_pybind),
+#     ]
+    
+#   setup(
+#     packages = [
+#       "nearl",
+#     ],
+#     ext_modules=ext_modules,
+#     cmdclass={
+#       'build_ext': CMakeBuild,
 
-    },
-  )
+#     },
+#   )
 
-
-
-# from setuptools import setup, find_packages
-# from setuptools.command.install import install
-# import sys, os, subprocess, shutil
-
-
-# class install_FEater(install):
-#   def run(self):
-#     # Install FEater
-#     # subprocess.call(["pip", "install", "feater"])
-#     subprocess.check_call(["make", "compile"])
-
-#     if os.path.isfile("./src/voxelize.so"):
-#       if os.path.isdir("./build/lib/feater"):
-#         shutil.copy2("./src/voxelize.so", "./build/lib/feater/voxelize.so")
-#       else:
-#         # Is this necessary?
-#         shutil.copy2("./src/voxelize.so", "./feater/voxelize.so")
-#     cwd = os.getcwd()
-#     subprocess.call(["find"])
-#     # shutil.copy2()
-#     print("######################################")
-
-#     install.run(self)
-
-
-
-# setup(
-#   cmdclass={"install": install_FEater},
-#   packages=find_packages(),
-#   zip_safe=False,
-# )
 
 

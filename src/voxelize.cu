@@ -1,16 +1,18 @@
 #include <iostream>
 #include <vector>
 
+
 #include "gpuutils.cuh"
-#include "voxelize.cuh" // TODO: Check the necessity of this file
+// #include "voxelize.cuh" // TODO: Check the necessity of this file
 
 // TODO : and simplify this module. 
 
 
 __global__ void sum_kernel(const float *array, float *result, int N) {
   int index = threadIdx.x + blockIdx.x * blockDim.x;
-  if (index < N)
+  if (index < N){
     atomicAdd(result, array[index]);
+  }
 }
 
 
@@ -79,7 +81,41 @@ __global__ void normalize_kernel(float *array, const float *sum, const float wei
 }
 
 
-__global__ void coordi_interp_kernel(const float *coord, float *interpolated, const int *dims, const float cutoff, const float sigma){
+__global__ void pool_per_frame_global(float *array, float *result, const int pool_size, const int stride){
+  /*
+    Pool the array per frame
+  */
+  int index = threadIdx.x + blockIdx.x * blockDim.x;
+  if (index < stride){
+    // strides equals to frame_nr * gridpoint_nr
+    // Mapping from (atom_nr * frame_nr * gridpoint_nr) to (frame_nr, gridpoint_nr)
+    for (int i = 0; i < pool_size; ++i){
+      result[index] += array[index + i * stride]; 
+    }
+  }
+}
+
+__global__ void aggregate_per_frame_global(float *array, float *result, const int pool_size, const int stride, const int func_type){
+  /*
+    Aggregate the array per frame 
+    TODO 
+  */
+  int index = threadIdx.x + blockIdx.x * blockDim.x;
+  if (index < stride){
+    // strides equals to frame_nr * gridpoint_nr
+    // Mapping from (atom_nr * frame_nr * gridpoint_nr) to (frame_nr, gridpoint_nr)
+    if (func_type == 0){
+      // Use device kernel 
+
+    }
+    for (int i = 0; i < pool_size; ++i){
+      result[index] += array[index + i * stride]; 
+    }
+  }
+}
+
+
+__global__ void coordi_interp_kernel(const float *coord, float *interpolated, const int *dims, const float spacing, const float cutoff, const float sigma){
   /*
   Interpolate the atomic density to the grid
   */
@@ -88,11 +124,10 @@ __global__ void coordi_interp_kernel(const float *coord, float *interpolated, co
 
   if (task_index < grid_size){
     // Compute the grid coordinate from the grid index
-    // TODO: Check why the grid coordinate is like this???
     float grid_coord[3] = {
-      static_cast<float>(task_index / dims[0] / dims[1]),
-      static_cast<float>(task_index / dims[0] % dims[1]),
-      static_cast<float>(task_index % dims[0]),
+      static_cast<float>(task_index / dims[0] / dims[1]) * spacing,
+      static_cast<float>(task_index / dims[0] % dims[1]) * spacing,
+      static_cast<float>(task_index % dims[0]) * spacing
     };
     float dist_square = 0.0f;
     for (int i = 0; i < 3; ++i) {
@@ -153,11 +188,18 @@ __global__ void g_grid_entropy(double* data1, double* data2, int* atominfo, doub
 }
 
 
-void voxelize_host(float *interpolated, const float *coord, const float *weight, const int *dims, 
-  const int atom_nr, const float cutoff, const float sigma){
+void voxelize_host(float *interpolated, 
+  const float *coord, 
+  const float *weight, 
+  const int *dims, 
+  const int atom_nr, 
+  const float spacing, 
+  const float cutoff, 
+  const float sigma
+){
   /*
     Interpolate the atomic density to a grid using the Gaussian function
-  */
+   */
   unsigned int gridpoint_nr = dims[0] * dims[1] * dims[2];
 
   float *tmp_interp_cpu = new float[gridpoint_nr];
@@ -179,7 +221,7 @@ void voxelize_host(float *interpolated, const float *coord, const float *weight,
     // Copy the coordinates of the atom to the GPU and do interpolation on this atom
     float coordi[3] = {coord[atm_idx*3], coord[atm_idx*3+1], coord[atm_idx*3+2]};
     cudaMemcpy(coordi_gpu, coordi, 3 * sizeof(float), cudaMemcpyHostToDevice);
-    coordi_interp_kernel<<<grid_size, BLOCK_SIZE>>>(coordi_gpu, tmp_interp_gpu, dims_gpu, cutoff, sigma);
+    coordi_interp_kernel<<<grid_size, BLOCK_SIZE>>>(coordi_gpu, tmp_interp_gpu, dims_gpu, spacing, cutoff, sigma);
     cudaDeviceSynchronize();
 
     // Perform the normalization with CPU
@@ -224,6 +266,109 @@ void voxelize_host(float *interpolated, const float *coord, const float *weight,
   cudaFree(interp_gpu);
   cudaFree(coordi_gpu);
   cudaFree(dims_gpu);
+}
+
+
+void trajectory_voxelization_host(
+  float *voxelize_dynamics, 
+  const float *coord, 
+  const float *weight, 
+  const int *dims, 
+  const int frame_nr, 
+  const int atom_nr, 
+  const int interval, 
+  const float spacing,
+  const float cutoff, 
+  const float sigma
+){
+  /*
+    Interpolate the trajectory to a grid using the Gaussian distance mapping
+    interpolated should be a 1D array of 4D things sized as (frame_nr, dims[0], dims[1], dims[2])
+   */
+  unsigned int gridpoint_nr = dims[0] * dims[1] * dims[2];
+  float *tmp_framei_cpu = new float[gridpoint_nr];
+  float *voxelized_trajectory = new float[frame_nr * gridpoint_nr];
+
+  float *coordi_gpu;
+  cudaMallocManaged(&coordi_gpu, 3 * sizeof(float));
+
+  int *dims_gpu;
+  cudaMallocManaged(&dims_gpu, 3 * sizeof(int));
+  cudaMemcpy(dims_gpu, dims, 3 * sizeof(int), cudaMemcpyHostToDevice);
+
+  float *tmp_interp_gpu;
+  cudaMallocManaged(&tmp_interp_gpu, gridpoint_nr * sizeof(float));
+
+  float *voxelized_atoms_gpu = new float(frame_nr * atom_nr * gridpoint_nr * sizeof(float));
+  cudaMallocManaged(&voxelized_atoms_gpu, frame_nr * atom_nr * gridpoint_nr * sizeof(float));
+
+  float *tmp_sum;
+  cudaMallocManaged(&tmp_sum, sizeof(float));
+
+  float coordi[3] = {0.0f, 0.0f, 0.0f};
+  int grid_size = (gridpoint_nr + BLOCK_SIZE - 1) / BLOCK_SIZE;
+  for (int frame_idx = 0; frame_idx < frame_nr; ++frame_idx) {
+    // Copy the coordinates of the frame to the GPU and do interpolation by frames and atoms
+    for (int ai = 0; ai < atom_nr; ++ai) {
+      int stride = frame_idx * atom_nr * 3 + ai * 3;
+      coordi[0] = coord[stride];
+      coordi[1] = coord[stride + 1];
+      coordi[2] = coord[stride + 2];
+      cudaMemcpy(coordi_gpu, coordi, 3 * sizeof(float), cudaMemcpyHostToDevice);
+
+      int start_idx = frame_idx * atom_nr * gridpoint_nr + ai * gridpoint_nr;
+      coordi_interp_kernel<<<grid_size, BLOCK_SIZE>>>(coordi_gpu, voxelized_atoms_gpu + start_idx, dims_gpu, spacing, cutoff, sigma);
+      sum_kernel<<<grid_size, BLOCK_SIZE>>>(voxelized_atoms_gpu + start_idx, tmp_sum, gridpoint_nr);
+      normalize_kernel<<<grid_size, BLOCK_SIZE>>>(voxelized_atoms_gpu + start_idx, tmp_sum, weight[ai], gridpoint_nr);
+    }
+  }
+
+  // Pool the atomic density for each frame
+  float *voxel_cache;
+  cudaMallocManaged(&voxel_cache, frame_nr * gridpoint_nr * sizeof(float));
+  cudaMemset(voxel_cache, 0, frame_nr * gridpoint_nr * sizeof(float));
+
+  int grid_size3 = (frame_nr * gridpoint_nr + BLOCK_SIZE - 1) / BLOCK_SIZE;
+  pool_per_frame_global<<<grid_size3, BLOCK_SIZE>>>(voxelized_atoms_gpu, voxel_cache, atom_nr, gridpoint_nr*frame_nr);
+
+  // Copy the pooled atomic density to the host
+  cudaMemcpy(voxelized_trajectory, voxel_cache, frame_nr * gridpoint_nr * sizeof(float), cudaMemcpyDeviceToHost);
+
+  // Aggregate the atomic density to the voxelized trajectory every N steps
+  int ret_size = frame_nr / interval;
+  if (ret_size != frame_nr / interval){
+    std::cerr << "Warning: The frame number is not divisible by the step size; " << std::endl; 
+  }
+
+  // float tmp_array[interval]; 
+  float stat; 
+  for (int i = 0; i < ret_size; ++i){
+    for (int j = 0; j < gridpoint_nr; ++j){
+      // Obtain the temporary array
+      // for (int k = 0; k < interval; ++k){
+      //   tmp_array[k] = voxelized_trajectory[i * interval * gridpoint_nr  + k * gridpoint_nr + j];
+      // }
+      // Hard-coded statistical function: mean
+      stat = 0.0f;
+      for (int k = 0; k < interval; ++k){
+        // stat += tmp_array[k];
+        stat += voxelized_trajectory[i * interval * gridpoint_nr  + k * gridpoint_nr + j];
+      }
+      stat /= interval;
+      voxelize_dynamics[i*gridpoint_nr + j] = stat;
+    }
+  }
+
+  // Delete the temporary CPU memory
+  delete[] voxelized_trajectory;    // (frame_nr, dims[0], dims[1], dims[2])
+  delete[] tmp_framei_cpu;          // (dims[0], dims[1], dims[2])
+  // Free the GPU memory
+  cudaFree(coordi_gpu);
+  cudaFree(dims_gpu);
+  cudaFree(tmp_interp_gpu);
+  cudaFree(voxelized_atoms_gpu);
+  cudaFree(voxel_cache);
+  cudaFree(tmp_sum);
 }
 
 
