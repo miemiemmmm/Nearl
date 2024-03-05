@@ -48,7 +48,7 @@ jobs:
         echo "-----> Installing the micromamba"
         mkdir -p ./tmp_mamba
         curl https://gist.githubusercontent.com/miemiemmmm/40d2e2b49e82d682ef5a7b2aa94a243f/raw/94eb8ad3c087647426520d5f579c1e63683ee140/install_micromamba.sh -o tmp_mamba/install_mamba.sh
-        bash ${HOME}/micromamba/install_mamba.sh ./tmp_mamba
+        bash ./tmp_mamba/install_mamba.sh ./tmp_mamba
         ls -la tmp_mamba/
         [ -f ./tmp_mamba/bin/micromamba ] && echo "micromamba is installed" || echo "micromamba is not installed"
 
@@ -78,7 +78,7 @@ jobs:
       run: |
         echo "########## Building the package "
         # Since environment variables are not passed to the next step, we need to activate the environment again
-        source ${HOME}/micromamba/bin/loadmamba
+        source ./tmp_mamba/bin/loadmamba
         envname="testenv"
         micromamba activate $envname
         python -m build 
