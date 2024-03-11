@@ -1,10 +1,10 @@
-import os, time, re, hashlib, inspect
+import os, time, re, hashlib
 
 import numpy as np 
 import pytraj as pt
 from scipy.spatial import distance_matrix
 
-from .. import printit, draw_call_stack
+from .. import printit
 
 def get_hash(theinput="", mode="md5"):
   """
@@ -263,6 +263,12 @@ def cosine_similarity(vec1, vec2):
   # just in case both norms are zero.
   similarity = dot_product / (norm_vec1 * norm_vec2 + 1e-9)
   return similarity
+
+
+def penalties(cosine_sim, ref_val, scale_factor=0.1, max_val=0.95):
+  # scale_factor represents the variability of the label
+  # max_val represents cutoff of penalty
+  return (max_val - np.array(cosine_sim)) * ref_val * scale_factor
 
 
 def smarts_supplier(smarts):

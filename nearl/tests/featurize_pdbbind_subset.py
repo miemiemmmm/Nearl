@@ -1,3 +1,0 @@
-from nearl import interpolate
-
-

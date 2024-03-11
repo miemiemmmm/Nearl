@@ -3,7 +3,7 @@ import numpy as np
 from rdkit import Chem
 from rdkit.Chem import AllChem, rdFMCS, rdMolTransforms
 
-from .. import _verbose, printit, savelog
+from .. import _verbose, printit
 
 # Default charge partially from Charmm36 forcefield
 DEFAULT_PARTIAL_CHARGE = {
@@ -55,7 +55,6 @@ def traj_to_rdkit(traj, atomidx, frameidx):
     print("Please check the following PDB string:")
     print(pdbstr)
     print("#############################################")
-    savelog()
     return None
 
 def DACbytraj(traj, frameidx, themask, **kwargs):

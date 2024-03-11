@@ -35,8 +35,9 @@ ATOM_NUM = {0: 15, 1: 15, 2: 2, 3: 18, 4: 22, 5: 22, 6: 9, 7: 4, 8: 7, 9: 10, 10
 
 
 # Color map for the segments of the molecule block
-_SEGMENT_LIMIT = nearl.CONFIG.get("SEGMENT_LIMIT", 6)
-_SEGMENT_CMAP = nearl.CONFIG.get("SEGMENT_CMAP", None)
+# TODO removed the CONFIG from the nearl module, figure how to fix the passing of necessary variable 
+_SEGMENT_LIMIT = 6
+_SEGMENT_CMAP = None
 
 if _SEGMENT_CMAP is not None and _SEGMENT_CMAP != "inferno":
   # Not the default color map;
@@ -284,8 +285,8 @@ class generator:
 
     # Load parameters from the configuration file
     self.SEGMENT_LIMIT = _SEGMENT_LIMIT
-    self.FPFH_DOWN_SAMPLES = nearl.CONFIG.get("DOWN_SAMPLE_POINTS", 600)
-    self.VIEWPOINTBINS = nearl.CONFIG.get("VIEWPOINT_BINS", 125)
+    self.FPFH_DOWN_SAMPLES = 600  # TODO: removed config, how to pass this variable
+    self.VIEWPOINTBINS = 125      # TODO: removed config, how to pass this variable
 
     self._SEGMENTS = np.zeros(self.traj.n_atoms)
     self._SEGMENTS_ORDER = None
@@ -306,7 +307,7 @@ class generator:
     self._VP_HIST = None
     self._ATOM_COUNT = None
     self._TEMP_PREFIX = None
-    self._STANDPOINT = nearl.CONFIG.get("VIEWPOINT_STANDPOINT", "next").lower()
+    self._STANDPOINT = "next"  # TODO: removed config, how to pass this variable
     self._STANDPOINT_COORD = None
 
     if nearl._verbose:
