@@ -94,7 +94,7 @@ py::array_t<float> do_marching_observers(
 }
 
 
-py::array_t<float> voxelize_traj_host(
+py::array_t<float> do_traj_voxelize(
   py::array_t<float> arr_traj, 
   py::array_t<float> arr_weights,
   py::array_t<int> grid_dims, 
@@ -141,11 +141,6 @@ py::array_t<float> voxelize_traj_host(
 
 
 
-
-
-
-
-
 PYBIND11_MODULE(all_actions, m) {
   m.def("do_voxelize", &do_voxelize, 
     py::arg("coords"),
@@ -165,8 +160,7 @@ PYBIND11_MODULE(all_actions, m) {
     "Marching cubes algorithm to create a mesh from a 3D grid"
   );
 
-
-  m.def("voxelize_traj", &voxelize_traj_host, 
+  m.def("voxelize_traj", &do_traj_voxelize, 
     py::arg("traj"),
     py::arg("weights"),
     py::arg("grid_dims"),

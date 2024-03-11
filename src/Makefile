@@ -1,17 +1,21 @@
-# Prepare necessary flags for compilation
+# Prepare default environment variable for compilation
 CUDA_HOME ?= /usr/local/cuda
 CUDA_COMPUTE_CAPABILITY ?= sm_80
 
-PYTHON_INC := $(shell python3 -c "import sysconfig; print(sysconfig.get_path('include'))")
-PYBIND_INC := $(shell python3 -c "import pybind11; print(pybind11.get_include())")
+# Python-related variables
+# PYTHON_INC := $(shell python3 -c "import sysconfig; print(sysconfig.get_path('include'))")
+# PYBIND_INC := $(shell python3 -c "import pybind11; print(pybind11.get_include())")
+PYTHON_INC := $(shell python3-config --includes)
+PYTHON_TAIL := $(shell python3-config --extension-suffix)
+PYBIND_INC := $(shell python3 -m pybind11 --includes)
 
-
+# Compiler and compiler flags
 NVCC=nvcc
 # NVCCFLAGS=-use_fast_math -std=c++17 --compiler-options "-fPIC" -O3 -arch=$(CUDA_COMPUTE_CAPABILITY)
 NVCCFLAGS=-Xcompiler -fPIC -std=c++17 -use_fast_math -O3 -arch=$(CUDA_COMPUTE_CAPABILITY)
 
 CC=g++
-PYFLAGS=-I. -I$(PYTHON_INC) -I$(PYBIND_INC) 
+PYFLAGS=-I. $(PYTHON_INC) $(PYBIND_INC) 
 CUDA_RUNTIME=-I$(CUDA_HOME)/include/ -L$(CUDA_HOME)/lib64/ -lcudart
 
 

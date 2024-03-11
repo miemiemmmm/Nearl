@@ -74,21 +74,21 @@ for func_name in TRANSFORM_ACTIONS:
   else:
     print(f"Function {func_name} not found.")
 
-VIEW_ACTIONS = [
-  "display_config",
-  "random_color",
-  "nglview_mask",
-  "TrajectoryViewer",
-  "NewCuboid",
-  "NewCoordFrame",
-  "display_icp",
-]
-for func_name in VIEW_ACTIONS:
-  imported_function = importlib.import_module(f'nearl.utils.view').__dict__.get(func_name)
-  if imported_function is not None:
-    globals()[func_name] = imported_function
-  else:
-    print(f"Function {func_name} not found.")
+# VIEW_ACTIONS = [
+#   "display_config",
+#   "random_color",
+#   "nglview_mask",
+#   "TrajectoryViewer",
+#   "NewCuboid",
+#   "NewCoordFrame",
+#   "display_icp",
+# ]
+# for func_name in VIEW_ACTIONS:
+#   imported_function = importlib.import_module(f'nearl.utils.view').__dict__.get(func_name)
+#   if imported_function is not None:
+#     globals()[func_name] = imported_function
+#   else:
+#     print(f"Function {func_name} not found.")
 
 ####################################################################
 # cluster, session_prep and other are not fully developed yet

@@ -25,16 +25,4 @@ pandas==2.0.3
 # flax=0.7.0
 
 # Possible packages to use in the future
-# trimesh
 # seaborn
-# numba
-# requests
-# biopython
-# hilbertcurve=2.0.5
-
-# Not yet used packages
-# pdbfixer selenium geckodriver
-# pip install git+https://github.com/jvkersch/tmtools.git#egg=tmtools   # Evaluate the structure after preparation
-# openmm openff-toolkit openmmforcefields
-# pcl   # point cloud library
-
