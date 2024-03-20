@@ -1,39 +1,30 @@
-import tempfile, copy
+import tempfile
 
 import numpy as np
 import pytraj as pt
 from rdkit import Chem
-
-from open3d.geometry import TriangleMesh
-
-from nearl import utils
-from nearl.io import hdf5
-
-from . import fingerprint
-from .. import printit, _verbose, _debug
-
 import multiprocessing as mp
+from tqdm import tqdm
+
+from . import utils, constants
+from . import printit, _verbose, _debug
 
 __all__ = [
-  "initialize_grid",
-  "Featurizer3D",
-
+  "Featurizer",
 ]
 
-def initialize_grid(thecenter, thelengths, thedims):
-  thegrid = np.meshgrid(
-    np.linspace(thecenter[0] - thelengths[0] / 2, thecenter[0] + thelengths[0] / 2, thedims[0]),
-    np.linspace(thecenter[1] - thelengths[1] / 2, thecenter[1] + thelengths[1] / 2, thedims[1]),
-    np.linspace(thecenter[2] - thelengths[2] / 2, thecenter[2] + thelengths[2] / 2, thedims[2]),
-    indexing='ij'
-  )
-  thecoord = np.column_stack([thegrid[0].ravel(), thegrid[1].ravel(), thegrid[2].ravel()])
-  return thegrid, thecoord
 
-class Featurizer3D:
-  def __init__(self, parms, segment_limit=6, viewpoint_bins=30):
+class Featurizer:
+  """
+  Featurizer aims to automate the process of featurization of multiple Features for a batch of structures or trajectories
+  """
+  def __init__(self, parms):
     """
     Initialize the featurizer with the given parameters
+    Parameters
+    ----------
+    parms: dict
+      A dictionary of parameters for the featurizer
     """
     # Check the essential parameters for the featurizer
     self.parms = parms
@@ -53,7 +44,7 @@ class Featurizer3D:
     self.__cutoff = 4.0
     self.__interval = 1 
 
-    # Derivative parameters
+    # Derivative parameters from trajectory 
     self._traj = None
     self.FRAMENUMBER = 0
     self.FRAMESLICENUMBER = 0
@@ -71,23 +62,8 @@ class Featurizer3D:
     self.TRAJLOADER = None
     self.TRAJECTORYNUMBER = 0
     
-
-    # Initialize the attributes for featurization
-    # TODO
-    self.__status_flag = []
-    self.contents = {}
-
-    # TODO: Identity vector generation related variables
-    self.mesh = TriangleMesh()
-    self.BOX_MOLS = {}
-    self.SEGMENTNR = int(segment_limit)
-    # Hard coded structural features (12)
-    self.VPBINS = 12 + int(viewpoint_bins)
-    
     if _verbose:
-      printit("Featurizer is initialized successfully")
-      print("With Dimensions: ", self.__dims)
-      print("With Lengths: ", self.__lengths)
+      printit(f"Featurizer is initialized successfully with dimensions: {self.__dims} and lengths: {self.__lengths}")
 
   def __str__(self):
     finalstr = f"Feature Number: {self.FEATURENUMBER}; \n"
@@ -98,6 +74,9 @@ class Featurizer3D:
   # The most important attributes to determine the size of the 3D grid
   @property
   def dims(self):
+    """
+    The 3 dimensions of the 3D grid
+    """
     return np.array(self.__dims)
   @dims.setter
   def dims(self, newdims):
@@ -115,6 +94,9 @@ class Featurizer3D:
   # The most important attributes to determine the size of the 3D grid
   @property
   def lengths(self):
+    """
+    The lengths of the grid in 3 dimensions
+    """
     return self.__lengths
   @lengths.setter
   def lengths(self, new_length):
@@ -160,11 +142,14 @@ class Featurizer3D:
   
   @property
   def traj(self):
+    """
+    Structures are regarded as trajectories (static PDB is view as a trajectory with only 1 frame). 
+    """
     return self._traj
   @traj.setter
   def traj(self, the_traj):
     """
-      Set the trajectory and its related parameters
+    Set the trajectory and its related parameters
     """
     self._traj = the_traj
     self.FRAMENUMBER = the_traj.n_frames
@@ -179,20 +164,6 @@ class Featurizer3D:
   def top(self):
     return self.traj.top
 
-
-  # TODO: check how to use this property
-  @property
-  def status_flag(self):
-    return self.__status_flag
-  @status_flag.setter
-  def status_flag(self, newstatus):
-    self.__status_flag.append(bool(newstatus))
-  
-
-  def reset_status(self):
-    self.__status_flag = []
-
-
   def update_box_length(self, length=None, scale_factor=1.0):
     if length is not None:
       self.__lengths = float(length)
@@ -203,8 +174,11 @@ class Featurizer3D:
   def register_feature(self, feature):
     """
     Register a feature to the featurizer
-    Args:
-      feature: A feature object
+    
+    Parameters
+    ----------
+    feature: nearl.features.Feature
+      A feature object
     """
     feature.hook(self)  # Hook the featurizer to the feature
     self.FEATURESPACE.append(feature)
@@ -213,26 +187,51 @@ class Featurizer3D:
   def register_features(self, features):
     """
     Register a list of features to the featurizer
-    Args:
-      features: A list of feature objects
+
+    Parameters
+    ----------
+    features: list_like
+      A list of feature objects
     """
     for feature in features:
       self.register_feature(feature)
 
   def register_trajloader(self, trajloader):
+    """
+    Register a trajectory iterator for future featurization
+
+    Parameters
+    ----------
+    trajloader: nearl.io.TrajectoryLoader
+      A trajectory iterator
+    """
     self.TRAJLOADER = trajloader
     self.TRAJECTORYNUMBER = len(trajloader)
     print(f"Registered {self.TRAJECTORYNUMBER} trajectories")
 
 
   def register_focus(self, focus, format):
-    # Define the focus points to process
-    # Formats includes: 
-    # "cog": provide a masked selection of atoms
-    # "absolute": provide a list of 3D coordinates
-    # "index": provide a list of atom indexes (int)
-    # NOTE: before running the featurizer, the focus should be registered and it is specific to the trajectory
-    # for each interval, there is one focus point
+    """
+    Register the focal points to process in the featurization
+
+    Parameters
+    ----------
+    focus: 
+      The focal points to process
+    format: string
+      The format of the focal points
+
+    Notes
+    -----
+    Formats includes:
+    - "cog": provide a masked selection of atoms
+    - "absolute": provide a list of 3D coordinates
+    - "index": provide a list of atom indexes (int)
+
+    Focal points are applied to each slice of the trajectory
+
+    For each trajectory, the parse of focal points should be re-done to match the trajectory
+    """
     if format == "cog":
       self.FOCALPOINTS_PROTOTYPE = focus
       self.FOCALPOINTS_TYPE = "cog"
@@ -251,6 +250,15 @@ class Featurizer3D:
       raise ValueError(f"Unexpected focus format: {format}")
 
   def parse_focus(self): 
+    """
+    Parse the focal points to the correct format after the active trajectories are registered. 
+    This will be run in the main_loop method. 
+
+    Notes
+    -----
+    Prepare the focal points for each slice of the trajectory by slice_number * focus number 
+
+    """
     # Parse the focus points to the correct format
     self.FOCALPOINTS = np.full((self.SLICENUMBER, len(self.FOCALPOINTS_PROTOTYPE), 3), 99999, dtype=np.float32)
     self.FOCALNUMBER = len(self.FOCALPOINTS_PROTOTYPE)
@@ -276,124 +284,20 @@ class Featurizer3D:
     else:
       raise ValueError(f"Unexpected focus format: {self.FOCALPOINTS_TYPE}")
 
-
-  def run_frame(self, centers, fp_generator):
-    """
-    Generate the feature vectors for each center in the current frame
-    Explicitly transfer the generator object to the function
-    Needs to correctly set the box of the fingerprint.generator by desired center and lengths
-    Args:
-      centers: list, a list of 3D coordinates
-      fp_generator: fingerprint.generator, the generator object
-    """
-    # Step1: Initialize the identity vector and feature vector
-    centernr = len(centers)
-    repr_vector = np.zeros((centernr, 6 * self.VPBINS))
-    feat_vector = np.zeros((centernr, self.FEATURENUMBER)).tolist()
-    mask = np.ones(centernr).astype(bool)  # Mask failed centers for run time rubustness
-
-    fp_generator.frame = self.active_frame_index
-    if _verbose:
-      printit(f"Expected to generate {centernr} fingerprint anchors")
-
-    # Compute the one-time-functions of each feature
-    for feature in self.FEATURESPACE:
-      feature.before_focus()
-
-    # Step2: Iterate each center
-    for idx, center in enumerate(centers):
-      # Reset the focus of representation generator
-      self.center = center
-      fp_generator.set_box(self.center, self.lengths)
-      # Segment the box and generate feature vectors for each segment
-      segments = fp_generator.query_segments()
-
-      # DEBUG ONLY
-      if _verbose or _debug:
-        seg_set = set(segments)
-        seg_set.discard(0)
-        printit(f"Found {len(seg_set)} non-empty segments", {i: j for i, j in zip(*np.unique(segments, return_counts=True)) if i != 0})
-
-      """
-      Compute the identity vector for the molecue block
-      Identity generation is compulsory because it is the only hint to retrieve the feature block
-      """
-      feature_vector = fp_generator.vectorize()
-
-      try:
-        feature_vector.sum()
-      except:
-        print("Error: Feature vector is not generated correctly")
-        print(feature_vector)
-        print(feature_vector[0].shape)
-
-      if np.count_nonzero(feature_vector) == 0 or None in fp_generator.mols:
-        # Returned feature vector is all-zero, the featurization is most likely failed
-        mask[idx] = False
-        continue
-
-      # Collect the results before processing the features
-      # Use the dictionary as the result container to improve the flexibility (rather than attributes)
-      self.contents = {
-        "meshes": fp_generator.meshes,
-        "final_mesh": fp_generator.final_mesh,
-        "vertices": fp_generator.vertices,
-        "faces": fp_generator.faces,
-        "normals": fp_generator.normals,
-
-        "segments": segments,
-        "indices": fp_generator.indices,
-        "indices_res": fp_generator.indices_res,
-        "mols": fp_generator.mols,
-
-        "pdb_result": fp_generator.get_pdb_string(),
-        "ply_result": fp_generator.get_ply_string(),
-      }
-
-      if len(feature_vector) == 0:
-        if _verbose:
-          printit(f"Center {center} has no feature vector")
-        mask[idx] = False
-        continue
-      repr_vector[idx] = feature_vector
-
-      # Step2.5: Iterate different features
-      for fidx, feature in enumerate(self.FEATURESPACE):
-        feat_arr = feature.featurize()
-        if isinstance(feat_arr, np.ndarray) and isinstance(feat_arr.dtype, (int, np.int32, np.int64,
-          float, np.float32, np.float64, complex, np.complex64, np.complex128)):
-          feat_arr = np.nan_to_num(feat_arr, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
-        feat_vector[idx][fidx] = feat_arr
-
-      # Clear the result contents
-      self.contents = {}
-    """
-    Step3: Remove the masked identity vector and feature vector
-    Final size of the feature vector: (number of centers, number of features)
-    """
-    ret_repr_vector = repr_vector[mask]
-    ret_feat_vector = [item for item, use in zip(feat_vector, mask) if use]
-
-    # Compute the one-time-functions of each feature
-    for feature in self.FEATURESPACE:
-      feature.after_focus()
-
-    # DEBUG ONLY: After the iteration, check the shape of the feature vectors
-    if _verbose:
-      printit(f"Result identity vector: {ret_repr_vector.shape} ; Feature vector: {ret_feat_vector.__len__()} - {ret_feat_vector[0].__len__()}")
-    return ret_repr_vector, ret_feat_vector
-
   def main_loop(self, process_nr=20): 
     pool = mp.Pool(process_nr)
     for tid in range(self.TRAJECTORYNUMBER):
       # Setup the trajectory and its related parameters such as slicing of the trajectory
       self.traj = self.TRAJLOADER[tid]
+      printit(f"{self.__class__.__name__}: Start processing the trajectory {tid} with {self.SLICENUMBER} frames")
 
-      # Cache the weights for each atoms in the trajectory
+      # Cache the weights for each atoms in the trajectory (run once for each trajectory)
       for feat in self.FEATURESPACE:
         feat.cache(self.traj)
 
-      printit(f"{self.__class__.__name__}: Start processing the trajectory {tid} with {self.SLICENUMBER} frames")
+      # Update the focus points for each bin as (self.SLICENUMBER, self.FOCALNUMBER, 3) array (run once for each trajectory)
+      self.parse_focus() 
+      print("Focal points shape: ", self.FOCALPOINTS.shape)
 
       tasks = []
       feature_map = []
@@ -401,15 +305,10 @@ class Featurizer3D:
       for bid in range(self.SLICENUMBER): 
         frames = self.traj.xyz[self.FRAMESLICES[bid]]
 
-        # Update the focus points for each bin  
-        self.parse_focus()    # generate the self.FOCALPOINTS as (self.FOCALNUMBER, 3) array
-        print("Focal points shape: ", self.FOCALPOINTS.shape)
-
         # After determineing each focus point, run the featurizer for each focus point
         for pid in range(self.FOCALNUMBER):
-          printit(f"Processing the focal point {pid} at the bin {bid}")
+          # printit(f"Processing the focal point {pid} at the bin {bid}")
           focal_point = self.FOCALPOINTS[bid, pid]
-          assert len(focal_point) == 3, "The focal point should be a 3D coordinate"   # TODO temporary check for debugging
 
           # Crop the trajectory and send the coordinates/trajectory to the featurizer
           for fidx in range(self.FEATURENUMBER):
@@ -422,46 +321,101 @@ class Featurizer3D:
       # Run the actions in the process pool
       _tasks = [pool.apply_async(wrapper_runner, task) for task in tasks]
       results = [task.get() for task in _tasks]
-      # print(results)
-      print("Nan in return", [(np.nan in i) for i in results])
-      print([i.shape for i in results])
 
+      if _verbose or _debug:
+        printit("Dumping the results to the feature space...")
+        
+      # Dump to file for each feature
+      for feat_meta, result in zip(feature_map, results):
+        tid, bid, pid, fidx = feat_meta
+        self.FEATURESPACE[fidx].dump(result)
 
-      print("Dumping the results to the feature space...")
-      # TODO: dump to file for each feature
-      # for feat_meta, result in zip(feature_map, results):
-      #   tid, bid, pid, fidx = feat_meta
-      #   self.FEATURESPACE[fidx].dump(result)
-      print(f"Finished the trajectory {tid} with {len(tasks)} tasks")
+      if _verbose or _debug: 
+        printit(f"Finished the trajectory {tid} with {len(tasks)} tasks")
       break
+    print("All trajectories and tasks are finished")
     pool.close()
     pool.join()
+
+  def loop_by_residue(self, process_nr=20, restype="single"): 
+    for tid in range(self.TRAJECTORYNUMBER):
+      # Setup the trajectory and its related parameters such as slicing of the trajectory
+      self.traj = self.TRAJLOADER[tid]
+      printit(f"{self.__class__.__name__}: Start processing the trajectory {tid} with {self.SLICENUMBER} frames")
+
+      # Cache the weights for each atoms in the trajectory (run once for each trajectory)
+      for feat in self.FEATURESPACE:
+        feat.cache(self.traj)
+      
+      # Calculate the slices to pro cess based on the single / dual residue tag
+      tasks = []
+      feature_map = []
+      for bid in range(self.SLICENUMBER): 
+        frames = self.traj.xyz[self.FRAMESLICES[bid]]
+        if restype == "single":  
+          for label, single_resname in constants.LAB2RES.items(): 
+            # Find all of the residue block in the sequence and iterate them 
+            slices = utils.find_block_single(self.traj, single_resname) 
+            for s_ in slices:
+              sliced_top = self.traj.top[s_]
+              sliced_coord = frames[:, s_, :] 
+              focal_point = np.mean(sliced_coord[0], axis=0)
+              for fidx in range(self.FEATURENUMBER):
+                queried = self.FEATURESPACE[fidx].query(sliced_top, sliced_coord, focal_point)
+                tasks.append([self.FEATURESPACE[fidx].run, queried])
+                feature_map.append((tid, bid, fidx, label))
+
+        elif restype == "dual":
+          for label, dual_resname in constants.LAB2RES_DUAL.items(): 
+            # Find the residue block in the sequence.
+            slices = utils.find_block_dual(self.traj, dual_resname)
+            for s_ in slices:
+              sliced_top = self.traj.top[s_]
+              sliced_coord = frames[:, s_, :] 
+              focal_point = np.mean(sliced_coord[0], axis=0)
+              for fidx in range(self.FEATURENUMBER):
+                queried = self.FEATURESPACE[fidx].query(sliced_top, sliced_coord, focal_point)
+                tasks.append([self.FEATURESPACE[fidx].run, queried])
+                feature_map.append((tid, bid, fidx, label))
+
+      print(f"Task set containing {len(tasks)} tasks are created for the trajectory {tid}; ")
+      
+      ######################################################
+      # TODO: Find a proper way to parallelize the CUDA function. 
+      results = [wrapper_runner(*task) for task in tqdm(tasks)] 
+      ######################################################
+      # Run the actions in the process pool 
+      # Not working
+      # pool = mp.Pool(process_nr)
+      # _tasks  = [pool.apply_async(wrapper_runner, task) for task in tasks]
+      # results = [task.get() for task in _tasks]
+      # OR results = pool.starmap(wrapper_runner, tasks) 
+      ######################################################
+      # Not working
+      # with dask.config.set(scheduler='processes', num_workers=process_nr):
+      #   results = dask.compute(*[dask.delayed(wrapper_runner)(func, args) for func, args in tasks])
+      ######################################################
+        
+
+      # Dump to file for each feature
+      for feat_meta, result in zip(feature_map, results):
+        tid, bid, fidx, label = feat_meta
+        self.FEATURESPACE[fidx].dump(result)
+      if _verbose or _debug: 
+        printit(f"Finished the trajectory {tid} with {len(tasks)} tasks")
+      break
     print("All trajectories and tasks are finished")
 
 def wrapper_runner(func, args):
   """
-    Take the feature.run methods and its input arguments for multiprocessing
+  Take the feature.run methods and its input arguments for multiprocessing
+
+  Parameters
+  ----------
+  func: function
+    The function to be run
+  args: list
+    The arguments for the function
   """
-  return func(*args)
+  return func(*args)  
 
-def selection_to_mol(traj, frameidx, selection):
-  if isinstance(selection, str):
-    atom_sel = traj.top.select(selection)
-  elif isinstance(selection, (list, tuple, np.ndarray)):
-    atom_sel = np.asarray(selection)
-  else:
-    raise ValueError(f"{__file__}: Unexpected selection type")
-
-  try:
-    rdmol = utils.traj_to_rdkit(traj, atom_sel, frameidx)
-    if rdmol is None:
-      with tempfile.NamedTemporaryFile(suffix=".pdb") as temp:
-        outmask = "@"+",".join((atom_sel+1).astype(str))
-        _traj = traj[outmask].copy_traj()
-        pt.write_traj(temp.name, _traj, frame_indices=[frameidx], overwrite=True)
-        with open(temp.name, "r") as tmp:
-          print(tmp.read())
-        rdmol = Chem.MolFromMol2File(temp.name, sanitize=False, removeHs=False)
-    return rdmol
-  except:
-    return None

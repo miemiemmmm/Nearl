@@ -77,7 +77,8 @@ def summary():
   elif not os.access(_tempfolder, os.W_OK):
     raise OSError("The temporary folder (tempfolder) is not writable")
   
-summary()
+if _verbose:
+  summary()
 
 
 from inspect import stack as __call_stack
@@ -91,4 +92,12 @@ def draw_call_stack():
   printit(f"{'End Drawing Calling Stack':=^100s}")
 
 
-from nearl import io, features, models, utils, data
+# from nearl import io, features, models, utils, data
+from . import features, featurizer, io
+
+
+# from . import commands
+
+
+
+
