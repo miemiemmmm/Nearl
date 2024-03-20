@@ -156,7 +156,7 @@ class hdf_operator(h5.File):
       names = columns
     self.create_dataset(data_key, thedata, **kwarg)
     if len(columns) > 0: 
-      dset.attrs['columns'] = names   ################## TODO Check here
+      self.attrs['columns'] = names 
 
   def delete_dataset(self, dataset_name):
     if dataset_name in self.list_datasets():

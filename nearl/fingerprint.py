@@ -1240,6 +1240,7 @@ def reduce_geometry(va, na, ta, vi, ti):
   return rva, rna, rta
 
 def ses_surface_geometry(xyz, radii, grid_spacing=0.3):
+  # TODO need to implement the new SiESTA-based surface generation
   from nearl.static import surface
   xyzr_array = np.zeros((len(xyz), 4), np.float32)
   xyzr_array[:, :3] = xyz
@@ -1257,97 +1258,115 @@ def ses_surface_geometry(xyz, radii, grid_spacing=0.3):
   return newmesh
 
 
-def _ses_surface_geometry(xyz, radii, probe_radius=1.4, grid_spacing=0.5):
-  '''
-  Calculate a solvent excluded molecular surface using a distance grid
-  contouring method.  Vertex, normal and triangle arrays are returned.
-  If sas is true then the solvent accessible surface is returned instead.
-  This avoid generating the
-  '''
-  from nearl.static import _geometry, _surface, _map
-  from nearl.static import test_surf
-
-  radii = np.asarray(radii, np.float32)
-  # Compute bounding box for atoms
-  xyz_min, xyz_max = xyz.min(axis=0), xyz.max(axis=0)
-  pad = 2 * probe_radius + radii.max() + grid_spacing
-  origin = [x - pad for x in xyz_min]
-
-  # Create 3d grid for computing distance map
-  shape = [int(np.ceil((xyz_max[a] - xyz_min[a] + 2 * pad) / grid_spacing))
-           for a in (2, 1, 0)]
-  matrix = np.empty(shape, np.float32)
-
-  max_index_range = 2
-  matrix[:, :, :] = max_index_range
-
-  # Transform centers and radii to grid index coordinates
-  tf_matrix34 = np.array(((1.0 / grid_spacing, 0, 0, -origin[0] / grid_spacing),
-                          (0, 1.0 / grid_spacing, 0, -origin[1] / grid_spacing),
-                          (0, 0, 1.0 / grid_spacing, -origin[2] / grid_spacing)))
-
-  # transforms the atomic coordinates to grid index coordinates
-  ijk = affine_transform_vertices(xyz, tf_matrix34)
-  # print("Original vertices: ", xyz.shape)
-  # print("Transformed vertices: ", ijk.shape) # Scale up the coordinate for 1/spacing times.
-
-  ri = radii.astype(np.float32)
-  ri += probe_radius
-  ri /= grid_spacing
-
-  # Compute distance map from surface of spheres, positive outside.
-  _map.sphere_surface_distance(ijk, ri, max_index_range, matrix)
-  # Returned matrix is in np.float32 type
-  # matrix = test_surf.sphere_surface_distance(ijk, ri, np.float32(max_index_range), np.float32(shape))
-
-  # Get the SAS surface as a contour surface of the distance map
-  # print("Matrix shape: ", matrix.shape)
-  level = 0
-  sas_va, sas_ta, sas_na = _map.contour_surface(matrix, level, cap_faces=False, calculate_normals=True)
-  # write_ply(sas_va, normals=(sas_na*-1), triangles=sas_ta, filename="/tmp/sas.ply")
-
-  # a = test_surf.contour_surface(matrix, level, cap_faces=False, calcu   late_normals=True)
-
-  # Compute SES surface distance map using SAS surface vertex
-  # points as probe sphere centers.
-  matrix[:, :, :] = max_index_range
-  rp = np.empty((len(sas_va),), np.float32)
-  rp[:] = float(probe_radius) / grid_spacing
-  _map.sphere_surface_distance(sas_va, rp, max_index_range, matrix)
-  ses_va, ses_ta, ses_na = _map.contour_surface(matrix, level, cap_faces=False, calculate_normals=True)
-  # write_ply(ses_va, normals=ses_na, triangles=ses_ta, filename="/tmp/ses.ply")
-
-  # Transform surface from grid index coordinates to atom coordinates
-  invert_m34 = invert_matrix(tf_matrix34)
-  ses_va = affine_transform_vertices(ses_va, invert_m34)
-
-  # Delete connected components more than 1.5 probe radius from atom spheres.
-  kvi = []
-  kti = []
-  vtilist = _surface.connected_pieces(ses_ta)
-
-  for vi, ti in vtilist:
-    v0 = ses_va[vi[0], :]
-    d = xyz - v0
-    d2 = (d * d).sum(axis=1)
-    adist = (np.sqrt(d2) - radii).min()
-    if adist < 1.5 * probe_radius:
-      kvi.append(vi)
-      kti.append(ti)
-  keepv = np.concatenate(kvi) if kvi else []
-  keept = np.concatenate(kti) if kti else []
-  va, na, ta = reduce_geometry(ses_va, ses_na, ses_ta, keepv, keept)
-
-  # print("Before reduction: ", ses_va.shape, ses_na.shape, ses_ta.shape)
-  # print("After reduction: ", va.shape, na.shape, ta.shape)
-  newgeom = o3d.geometry.TriangleMesh()
-  newgeom.vertices = o3d.utility.Vector3dVector(va)
-  newgeom.triangles = o3d.utility.Vector3iVector(ta)
-  newgeom.remove_degenerate_triangles()
-  newgeom.compute_vertex_normals()
-
-  return newgeom
 
 
+
+  ######################################################################
+  # Used to be in the featurizer for fingerprint generation
+  # def run_frame(self, centers, fp_generator):
+  #   """
+  #   Generate the feature vectors for each center in the current frame
+  #   Explicitly transfer the generator object to the function
+  #   Needs to correctly set the box of the fingerprint.generator by desired center and lengths
+  #   Args:
+  #     centers: list, a list of 3D coordinates
+  #     fp_generator: fingerprint.generator, the generator object
+  #   """
+  #   # Step1: Initialize the identity vector and feature vector
+  #   centernr = len(centers)
+  #   repr_vector = np.zeros((centernr, 6 * self.VPBINS))
+  #   feat_vector = np.zeros((centernr, self.FEATURENUMBER)).tolist()
+  #   mask = np.ones(centernr).astype(bool)  # Mask failed centers for run time rubustness
+
+  #   fp_generator.frame = self.active_frame_index
+  #   if _verbose:
+  #     printit(f"Expected to generate {centernr} fingerprint anchors")
+
+  #   # Compute the one-time-functions of each feature
+  #   for feature in self.FEATURESPACE:
+  #     feature.before_focus()
+
+  #   # Step2: Iterate each center
+  #   for idx, center in enumerate(centers):
+  #     # Reset the focus of representation generator
+  #     self.center = center
+  #     fp_generator.set_box(self.center, self.lengths)
+  #     # Segment the box and generate feature vectors for each segment
+  #     segments = fp_generator.query_segments()
+
+  #     # DEBUG ONLY
+  #     if _verbose or _debug:
+  #       seg_set = set(segments)
+  #       seg_set.discard(0)
+  #       printit(f"Found {len(seg_set)} non-empty segments", {i: j for i, j in zip(*np.unique(segments, return_counts=True)) if i != 0})
+
+  #     """
+  #     Compute the identity vector for the molecue block
+  #     Identity generation is compulsory because it is the only hint to retrieve the feature block
+  #     """
+  #     feature_vector = fp_generator.vectorize()
+
+  #     try:
+  #       feature_vector.sum()
+  #     except:
+  #       print("Error: Feature vector is not generated correctly")
+  #       print(feature_vector)
+  #       print(feature_vector[0].shape)
+
+  #     if np.count_nonzero(feature_vector) == 0 or None in fp_generator.mols:
+  #       # Returned feature vector is all-zero, the featurization is most likely failed
+  #       mask[idx] = False
+  #       continue
+
+  #     # Collect the results before processing the features
+  #     # Use the dictionary as the result container to improve the flexibility (rather than attributes)
+  #     self.contents = {
+  #       "meshes": fp_generator.meshes,
+  #       "final_mesh": fp_generator.final_mesh,
+  #       "vertices": fp_generator.vertices,
+  #       "faces": fp_generator.faces,
+  #       "normals": fp_generator.normals,
+
+  #       "segments": segments,
+  #       "indices": fp_generator.indices,
+  #       "indices_res": fp_generator.indices_res,
+  #       "mols": fp_generator.mols,
+
+  #       "pdb_result": fp_generator.get_pdb_string(),
+  #       "ply_result": fp_generator.get_ply_string(),
+  #     }
+
+  #     if len(feature_vector) == 0:
+  #       if _verbose:
+  #         printit(f"Center {center} has no feature vector")
+  #       mask[idx] = False
+  #       continue
+  #     repr_vector[idx] = feature_vector
+
+  #     # Step2.5: Iterate different features
+  #     for fidx, feature in enumerate(self.FEATURESPACE):
+  #       feat_arr = feature.featurize()
+  #       if isinstance(feat_arr, np.ndarray) and isinstance(feat_arr.dtype, (int, np.int32, np.int64,
+  #         float, np.float32, np.float64, complex, np.complex64, np.complex128)):
+  #         feat_arr = np.nan_to_num(feat_arr, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+  #       feat_vector[idx][fidx] = feat_arr
+
+  #     # Clear the result contents
+  #     self.contents = {}
+  #   """
+  #   Step3: Remove the masked identity vector and feature vector
+  #   Final size of the feature vector: (number of centers, number of features)
+  #   """
+  #   ret_repr_vector = repr_vector[mask]
+  #   ret_feat_vector = [item for item, use in zip(feat_vector, mask) if use]
+
+  #   # Compute the one-time-functions of each feature
+  #   for feature in self.FEATURESPACE:
+  #     feature.after_focus()
+
+  #   # DEBUG ONLY: After the iteration, check the shape of the feature vectors
+  #   if _verbose:
+  #     printit(f"Result identity vector: {ret_repr_vector.shape} ; Feature vector: {ret_feat_vector.__len__()} - {ret_feat_vector[0].__len__()}")
+  #   return ret_repr_vector, ret_feat_vector
 
 

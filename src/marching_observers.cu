@@ -188,9 +188,13 @@ __global__ void grid_dynamic_global(float *result, const float *coord_frames,
     } else if (type_aggregation == 1){
       ret_series = standard_deviation_device(series, frame_number);
     } else if (type_aggregation == 2){
-      // ret_series = median_device(series, frame_number);
+      // ret_series = median_device(series, frame_number);    // TODO implement this 
     } else if (type_aggregation == 3){
       ret_series = variance_device(series, frame_number);
+    } else if (type_aggregation == 4){
+      // ret_series = max_device(series, frame_number);       // TODO implement this 
+    } else if (type_aggregation == 5){
+      // ret_series = min_device(series, frame_number);       // TODO implement this 
     }
 
     // printf("Result of observer %d is: %f\n", index, ret_series);
@@ -231,11 +235,11 @@ void marching_observer_host(float *grid_return, const float *coord,
   cudaDeviceSynchronize();
   cudaMemcpy(grid_return, ret_arr, observer_number * sizeof(float), cudaMemcpyDeviceToHost);
   
-  // TODO: Is there necessity to normalize the return array?
   // NOTE: Currently, normalize the return by the number of atoms in the frame
+  // TODO: Find a better way to normalize the return
   float sum_return = 0.0;
-  for (int i = 0; i < observer_number; i++) sum_return += grid_return[i]; 
-  for (int i = 0; i < observer_number; i++) grid_return[i] = grid_return[i] * atom_per_frame / sum_return;
+  for (int i = 0; i < observer_number; i++){ sum_return += grid_return[i]; }
+  for (int i = 0; i < observer_number; i++){ grid_return[i] = grid_return[i] * atom_per_frame / sum_return; }
 
   cudaFree(ret_arr);
   cudaFree(coord_device);

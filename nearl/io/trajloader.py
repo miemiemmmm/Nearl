@@ -1,3 +1,4 @@
+import numpy as np
 from .traj import  Trajectory
 
 
@@ -7,28 +8,55 @@ __all__ = [
 
 
 class TrajectoryLoader: 
-  def __init__(self, trajs, tops, **kwarg):
+  def __init__(self, trajs = None, trajtype = None, **kwarg):
     """
     Systematically load trajectories for further processing
-    Args:
-        trajs (str or list): Trajectory file names
-        tops (str or list): Topology file names
-        **kwarg: Keyword arguments for pytraj.load
+
+    Parameters
+    ----------
+    trajs : str or list
+      Trajectory file names
+    trajtype: trajectory_like
+      The trajectory type to be used while loading the trajectory
     """
-    if isinstance(trajs, str):
-      self.trajs = [trajs]
-      self.tops = [tops]
-    elif isinstance(trajs, list):
-      self.trajs = trajs
-      self.tops = tops
+    self.trajs = []
+    if isinstance(trajs, (list, tuple)):
+      for traj in trajs:
+        self.trajs.append(tuple(traj))
+    elif hasattr(trajs, "__iter__"):
+      # Check if it is iterable
+      for traj in trajs:
+        self.trajs.append(tuple(traj))
+    else: 
+      raise ValueError(f"The input should be a list or tuple of trajectory arguments rather than {type(trajs)}")
+
+    if len(self.trajs) > 0: 
+      if trajtype is None:
+        # If the user does not specify the output type, use Trajectory as default
+        self.OUTPUT_TYPE = [Trajectory] * len(self.trajs)
+      else:
+        self.OUTPUT_TYPE = [trajtype] * len(self.trajs)
+    else: 
+      self.OUTPUT_TYPE = []
+
     # Remember the user's configuration
-    self.kwargs = {
-      "stride": kwarg.get("stride", 1),
-      "mask": kwarg.get("mask", "*"),
-      "frame_indices": kwarg.get("frame_indices", None)
-    }
-    # If the user does not specify the output type, use Trajectory
-    self.OUTPUT_TYPE = Trajectory
+    self.__loading_options = {"stride": None, "frame_indices": None, "mask": None }
+    self.loading_options = kwarg
+
+  @property
+  def loading_options(self): 
+    """
+    Get the loading options (stride, frame_indices, mask)
+    """
+    return {key: value for key, value in self.__loading_options.items()}
+  @loading_options.setter
+  def loading_options(self, kwargs):
+    """
+    Update the loading options
+    """
+    for key, value in kwargs.items():
+      if key in self.kwargs:
+        self.__loading_options[key] = value
 
   def __str__(self):
     outstr = ""
@@ -37,38 +65,38 @@ class TrajectoryLoader:
     return outstr.strip("\n")
 
   def __iter__(self):
-    return self.__loadtrajs(self.trajs, self.tops)
+    options = self.loading_options
+    for i in range(len(self.trajs)): 
+      yield self.OUTPUT_TYPE[i](*self.trajs[i], **options)
 
   def __len__(self):
     return len(self.trajs)
 
   def __getitem__(self, index):
-    used_kwargs = self.__desolve_trajload_settings()
+    options = self.loading_options
     if isinstance(index, int):
-      ret = self.OUTPUT_TYPE(self.trajs[index], self.tops[index], **used_kwargs)
-    elif isinstance(index, slice):
-      ret = [self.OUTPUT_TYPE(traj, top, **used_kwargs) for traj, top in zip(self.trajs[index], self.tops[index])]
+      ret = self.OUTPUT_TYPE[index](*self.trajs[index], **options)
+    elif isinstance(index, (list, tuple)):
+      tmpindices = np.array(index, dtype=int)
+      ret = [self.OUTPUT_TYPE[i](*self.trajs[i], **options) for i in tmpindices]
+    elif isinstance(index, (slice, np.ndarray)):
+      tmpindices = np.arange(self.__len__())[index]
+      ret = [self.OUTPUT_TYPE[i](*self.trajs[i], **options) for i in tmpindices]
     else: 
       raise IndexError("Index must be either an integer or a slice")
     return ret
-
-  def set_outtype(self, outtype):
-    self.OUTPUT_TYPE = outtype
-
-  def __loadtrajs(self, trajs, tops):
-    used_kwargs = self.__desolve_trajload_settings()
-    for traj, top in zip(trajs, tops):
-      yield self.OUTPUT_TYPE(traj, top, **used_kwargs)
-
-  def __desolve_trajload_settings(self):
-    ret_kwargs = {}
-    ret_kwargs["stride"] = self.kwargs.get("stride", None)
-    ret_kwargs["mask"] = self.kwargs.get("mask", None)
-    ret_kwargs["frame_indices"] = self.kwargs.get("frame_indices", None)
-    return ret_kwargs
   
-  def update(self, **kwargs):
-    for key, value in kwargs.items():
-      self.kwargs[key] = value
-    
+  def append(self, trajs = None, trajtype = None): 
+    """
+    Append a trajectory or a list of trajectories to the trajectory loader
+    """
+    # determine how many trajectories will be appended
+    traj_nr = len(trajs) if isinstance(trajs, (list, tuple)) else 0
+    if traj_nr == 0: 
+      raise ValueError(f"The input should be a list or tuple of trajectory arguments rather than {type(trajs)}")
+    # Append to self.trajs, self.tops and self.OUTPUT_TYPE
+    for i in range(traj_nr):
+      self.trajs.append(trajs)
+      # self.tops.append(None)
+      self.OUTPUT_TYPE.append(trajtype)
 

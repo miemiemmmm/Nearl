@@ -1,12 +1,12 @@
 #include <iostream>
 #include <vector>
 
-
 #include "gpuutils.cuh"
-// #include "voxelize.cuh" // TODO: Check the necessity of this file
+#include "cpuutils.h"
 
-// TODO : and simplify this module. 
+#define DEFAULT_COORD_PLACEHOLDER 0.0f
 
+// TODO : Simplify this module. 
 
 __global__ void sum_kernel(const float *array, float *result, int N) {
   int index = threadIdx.x + blockIdx.x * blockDim.x;
@@ -17,8 +17,6 @@ __global__ void sum_kernel(const float *array, float *result, int N) {
 
 
 __global__ void add_temparray_kernel(const float *temp_array, float *interpolated, const int grid_size){
-  /*
-  */
   unsigned int task_index = blockIdx.x * blockDim.x + threadIdx.x;
   if (task_index < grid_size){
     interpolated[task_index] += temp_array[task_index];
@@ -50,6 +48,7 @@ float sum_host(std::vector<float> input_array) {
 
   return result_host;
 }
+
 
 float sum_host(const float *input_array, int N) {
   /*
@@ -117,11 +116,10 @@ __global__ void aggregate_per_frame_global(float *array, float *result, const in
 
 __global__ void coordi_interp_kernel(const float *coord, float *interpolated, const int *dims, const float spacing, const float cutoff, const float sigma){
   /*
-  Interpolate the atomic density to the grid
-  */
+    Interpolate the atomic density to the grid
+   */
   unsigned int task_index = blockIdx.x * blockDim.x + threadIdx.x;
   unsigned int grid_size = dims[0] * dims[1] * dims[2];
-
   if (task_index < grid_size){
     // Compute the grid coordinate from the grid index
     float grid_coord[3] = {
@@ -131,12 +129,12 @@ __global__ void coordi_interp_kernel(const float *coord, float *interpolated, co
     };
     float dist_square = 0.0f;
     for (int i = 0; i < 3; ++i) {
-      float diff = coord[i] - grid_coord[i];
-      dist_square += diff * diff;
+      dist_square += (coord[i] - grid_coord[i]) * (coord[i] - grid_coord[i]);
     }
-    // Process the interpolated array with the task_index (Should not be race condition)
-    if (dist_square < cutoff * cutoff)
-      interpolated[task_index] = gaussian_map_device(sqrt(dist_square), 0.0f, static_cast<float>(sigma));
+    // Process the interpolated array with the task_index (Should not be race conditions)
+    if (dist_square < cutoff * cutoff){
+      interpolated[task_index] = gaussian_map_device(sqrt(dist_square), 0.0f, sigma);
+    }
   }
 }
 
@@ -144,14 +142,12 @@ __global__ void coordi_interp_kernel(const float *coord, float *interpolated, co
 __global__ void g_grid_entropy(double* data1, double* data2, int* atominfo, double* gridpoints,
   int atom_nr, int gridpoint_nr, int d, double cutoff_sq) {
   /*
-  Compute the entropy of each grid by modifying the gridpoints[i];
-  */
-  /*
-  data1: coordinates of the grid points
-  data2: coordinates of the atoms
-  atominfo: atom information
-  gridpoints: grid points to be calculated
-  */
+    Compute the entropy of each grid by modifying the gridpoints[i];
+    data1: coordinates of the grid points
+    data2: coordinates of the atoms
+    atominfo: atom information
+    gridpoints: grid points to be calculated
+   */
   int i = blockIdx.x * blockDim.x + threadIdx.x;
   // Note there is limitation in the Max number of shared memory in CUDA; ~48KB, ~12K int, ~6K double
   const int MAX_INFO_VALUE = 10000;
@@ -201,41 +197,45 @@ void voxelize_host(float *interpolated,
     Interpolate the atomic density to a grid using the Gaussian function
    */
   unsigned int gridpoint_nr = dims[0] * dims[1] * dims[2];
-
+  int grid_size = (gridpoint_nr + BLOCK_SIZE - 1) / BLOCK_SIZE;
   float *tmp_interp_cpu = new float[gridpoint_nr];
-  float *tmp_interp_gpu;
-  cudaMallocManaged(&tmp_interp_gpu, gridpoint_nr * sizeof(float));
-
-  float *interp_gpu; 
-  cudaMallocManaged(&interp_gpu, gridpoint_nr * sizeof(float));
+  float coordi[3] = {0.0f, 0.0f, 0.0f};
+  float tmp_sum = 0.0f;
 
   float *coordi_gpu;
   cudaMallocManaged(&coordi_gpu, 3 * sizeof(float));
-
+  float *tmp_interp_gpu;
+  cudaMallocManaged(&tmp_interp_gpu, gridpoint_nr * sizeof(float));
+  float *interp_gpu;
+  cudaMallocManaged(&interp_gpu, gridpoint_nr * sizeof(float));
   int *dims_gpu;
   cudaMallocManaged(&dims_gpu, 3 * sizeof(int));
   cudaMemcpy(dims_gpu, dims, 3 * sizeof(int), cudaMemcpyHostToDevice);
 
-  int grid_size = (gridpoint_nr + BLOCK_SIZE - 1) / BLOCK_SIZE;
+  for (int i = 0; i < gridpoint_nr; ++i) { interpolated[i] = 0.0f; }
+
   for (int atm_idx = 0; atm_idx < atom_nr; ++atm_idx) {
     // Copy the coordinates of the atom to the GPU and do interpolation on this atom
-    float coordi[3] = {coord[atm_idx*3], coord[atm_idx*3+1], coord[atm_idx*3+2]};
+    coordi[0] = coord[atm_idx*3];
+    coordi[1] = coord[atm_idx*3+1];
+    coordi[2] = coord[atm_idx*3+2];
+    if (coordi[0] == DEFAULT_COORD_PLACEHOLDER || coordi[1] == DEFAULT_COORD_PLACEHOLDER || coordi[2] == DEFAULT_COORD_PLACEHOLDER){
+      // Skip the voxelization if the coordinate is the default value
+      std::cout << "Skipping coordinate: " << coordi[0] << " " << coordi[1] << " " << coordi[2] << "; " << std::endl;
+      continue;
+    }
     cudaMemcpy(coordi_gpu, coordi, 3 * sizeof(float), cudaMemcpyHostToDevice);
     coordi_interp_kernel<<<grid_size, BLOCK_SIZE>>>(coordi_gpu, tmp_interp_gpu, dims_gpu, spacing, cutoff, sigma);
     cudaDeviceSynchronize();
 
     // Perform the normalization with CPU
     cudaMemcpy(tmp_interp_cpu, tmp_interp_gpu, gridpoint_nr * sizeof(float), cudaMemcpyDeviceToHost);
-    float tmp_sum = 0; 
-    // Compute the sum of the temporary array
-    for (int i = 0; i < gridpoint_nr; ++i) {
-      tmp_sum += tmp_interp_cpu[i];
-    }
+    tmp_sum = sum(tmp_interp_cpu, gridpoint_nr);
     if (tmp_sum - 0 < 0.001) {
       /* The sum of the temporary array is used for normalization, skip if the sum is 0 */
-      std::cerr << "Warning: The sum of the temporary array is 0; It might be due to CUDA error or the coordinate is out of the box; " << std::endl;
-      std::cerr << "Coordinate: " << coordi[0] << " " << coordi[1] << " " << coordi[2] << std::endl;
-      std::cerr << "Boundary: " << dims[0] << " " << dims[1] << " " << dims[2] << std::endl;
+      // std::cerr << "Warning: The sum of the temporary array is 0; It might be due to CUDA error or the coordinate is out of the box; " << std::endl;
+      // std::cerr << "Coordinate: " << coordi[0] << " " << coordi[1] << " " << coordi[2] << "; ";
+      // std::cerr << "Boundary: " << dims[0]*spacing << " " << dims[1]*spacing << " " << dims[2]*spacing << std::endl;
       continue;
     } else {
       // Normalize the temporary array
@@ -276,99 +276,88 @@ void trajectory_voxelization_host(
   const int *dims, 
   const int frame_nr, 
   const int atom_nr, 
-  const int interval, 
   const float spacing,
   const float cutoff, 
-  const float sigma
+  const float sigma,
+  const int type_agg
 ){
-  /*
-    Interpolate the trajectory to a grid using the Gaussian distance mapping
-    interpolated should be a 1D array of 4D things sized as (frame_nr, dims[0], dims[1], dims[2])
-   */
   unsigned int gridpoint_nr = dims[0] * dims[1] * dims[2];
-  float *tmp_framei_cpu = new float[gridpoint_nr];
-  float *voxelized_trajectory = new float[frame_nr * gridpoint_nr];
+  int grid_size = (gridpoint_nr + BLOCK_SIZE - 1) / BLOCK_SIZE;
+  float *tmp_interp_cpu = new float[gridpoint_nr];
+  float *voxelized_traj = new float[frame_nr * gridpoint_nr];
+  float coordi[3] = {0.0f, 0.0f, 0.0f};
+  float tmp_sum = 0.0f;
 
   float *coordi_gpu;
   cudaMallocManaged(&coordi_gpu, 3 * sizeof(float));
-
+  float *tmp_interp_gpu;
+  cudaMallocManaged(&tmp_interp_gpu, gridpoint_nr * sizeof(float));
+  float *interp_gpu;
+  cudaMallocManaged(&interp_gpu, gridpoint_nr * sizeof(float));
   int *dims_gpu;
   cudaMallocManaged(&dims_gpu, 3 * sizeof(int));
   cudaMemcpy(dims_gpu, dims, 3 * sizeof(int), cudaMemcpyHostToDevice);
 
-  float *tmp_interp_gpu;
-  cudaMallocManaged(&tmp_interp_gpu, gridpoint_nr * sizeof(float));
+  for (int i = 0; i < frame_nr * gridpoint_nr; ++i) { voxelized_traj[i] = 0.0f; }
 
-  float *voxelized_atoms_gpu = new float(frame_nr * atom_nr * gridpoint_nr * sizeof(float));
-  cudaMallocManaged(&voxelized_atoms_gpu, frame_nr * atom_nr * gridpoint_nr * sizeof(float));
-
-  float *tmp_sum;
-  cudaMallocManaged(&tmp_sum, sizeof(float));
-
-  float coordi[3] = {0.0f, 0.0f, 0.0f};
-  int grid_size = (gridpoint_nr + BLOCK_SIZE - 1) / BLOCK_SIZE;
   for (int frame_idx = 0; frame_idx < frame_nr; ++frame_idx) {
-    // Copy the coordinates of the frame to the GPU and do interpolation by frames and atoms
+    int stride_per_frame = frame_idx * atom_nr * 3; 
     for (int ai = 0; ai < atom_nr; ++ai) {
-      int stride = frame_idx * atom_nr * 3 + ai * 3;
-      coordi[0] = coord[stride];
-      coordi[1] = coord[stride + 1];
-      coordi[2] = coord[stride + 2];
-      cudaMemcpy(coordi_gpu, coordi, 3 * sizeof(float), cudaMemcpyHostToDevice);
-
-      int start_idx = frame_idx * atom_nr * gridpoint_nr + ai * gridpoint_nr;
-      coordi_interp_kernel<<<grid_size, BLOCK_SIZE>>>(coordi_gpu, voxelized_atoms_gpu + start_idx, dims_gpu, spacing, cutoff, sigma);
-      sum_kernel<<<grid_size, BLOCK_SIZE>>>(voxelized_atoms_gpu + start_idx, tmp_sum, gridpoint_nr);
-      normalize_kernel<<<grid_size, BLOCK_SIZE>>>(voxelized_atoms_gpu + start_idx, tmp_sum, weight[ai], gridpoint_nr);
-    }
-  }
-
-  // Pool the atomic density for each frame
-  float *voxel_cache;
-  cudaMallocManaged(&voxel_cache, frame_nr * gridpoint_nr * sizeof(float));
-  cudaMemset(voxel_cache, 0, frame_nr * gridpoint_nr * sizeof(float));
-
-  int grid_size3 = (frame_nr * gridpoint_nr + BLOCK_SIZE - 1) / BLOCK_SIZE;
-  pool_per_frame_global<<<grid_size3, BLOCK_SIZE>>>(voxelized_atoms_gpu, voxel_cache, atom_nr, gridpoint_nr*frame_nr);
-
-  // Copy the pooled atomic density to the host
-  cudaMemcpy(voxelized_trajectory, voxel_cache, frame_nr * gridpoint_nr * sizeof(float), cudaMemcpyDeviceToHost);
-
-  // Aggregate the atomic density to the voxelized trajectory every N steps
-  int ret_size = frame_nr / interval;
-  if (ret_size != frame_nr / interval){
-    std::cerr << "Warning: The frame number is not divisible by the step size; " << std::endl; 
-  }
-
-  // float tmp_array[interval]; 
-  float stat; 
-  for (int i = 0; i < ret_size; ++i){
-    for (int j = 0; j < gridpoint_nr; ++j){
-      // Obtain the temporary array
-      // for (int k = 0; k < interval; ++k){
-      //   tmp_array[k] = voxelized_trajectory[i * interval * gridpoint_nr  + k * gridpoint_nr + j];
-      // }
-      // Hard-coded statistical function: mean
-      stat = 0.0f;
-      for (int k = 0; k < interval; ++k){
-        // stat += tmp_array[k];
-        stat += voxelized_trajectory[i * interval * gridpoint_nr  + k * gridpoint_nr + j];
+      coordi[0] = coord[stride_per_frame + ai*3];
+      coordi[1] = coord[stride_per_frame + ai*3 + 1];
+      coordi[2] = coord[stride_per_frame + ai*3 + 2];
+      if (coordi[0] == DEFAULT_COORD_PLACEHOLDER || coordi[1] == DEFAULT_COORD_PLACEHOLDER || coordi[2] == DEFAULT_COORD_PLACEHOLDER){
+        // Skip the voxelization if the coordinate is the default value
+        std::cout << "Skipping the default coordinate: " << coordi[0] << " " << coordi[1] << " " << coordi[2] << "; " << std::endl;
+        continue;
       }
-      stat /= interval;
-      voxelize_dynamics[i*gridpoint_nr + j] = stat;
+
+      cudaMemcpy(coordi_gpu, coordi, 3 * sizeof(float), cudaMemcpyHostToDevice);
+      coordi_interp_kernel<<<grid_size, BLOCK_SIZE>>>(coordi_gpu, tmp_interp_gpu, dims_gpu, spacing, cutoff, sigma);
+      cudaDeviceSynchronize();
+
+      // Perform the normalization with CPU
+      cudaMemcpy(tmp_interp_cpu, tmp_interp_gpu, gridpoint_nr * sizeof(float), cudaMemcpyDeviceToHost);
+      tmp_sum = sum(tmp_interp_cpu, gridpoint_nr);
+      
+      if (tmp_sum - 0 < 0.001) {
+        /* The sum of the temporary array is used for normalization, skip if the sum is 0 */
+        // std::cerr << "Warning: The sum of the temporary array is 0; It might be due to CUDA error or the coordinate is out of the box; " << std::endl;
+        // std::cerr << "Coordinate: " << coordi[0] << " " << coordi[1] << " " << coordi[2] << "; ";
+        // std::cerr << "Boundary: " << dims[0]*spacing << " " << dims[1]*spacing << " " << dims[2]*spacing << std::endl;
+        continue;
+      } else {
+        // Normalize the temporary array
+        for (int i = 0; i < gridpoint_nr; ++i) {
+          voxelized_traj[frame_idx*gridpoint_nr + i] += tmp_interp_cpu[i] * weight[frame_idx * atom_nr + ai] / tmp_sum;
+        }
+      }
     }
   }
 
-  // Delete the temporary CPU memory
-  delete[] voxelized_trajectory;    // (frame_nr, dims[0], dims[1], dims[2])
-  delete[] tmp_framei_cpu;          // (dims[0], dims[1], dims[2])
-  // Free the GPU memory
-  cudaFree(coordi_gpu);
-  cudaFree(dims_gpu);
-  cudaFree(tmp_interp_gpu);
-  cudaFree(voxelized_atoms_gpu);
-  cudaFree(voxel_cache);
-  cudaFree(tmp_sum);
+  // Aggregate the atomic density to the voxelized trajectory every N frames
+  float tmp_array[frame_nr]; 
+  for (int i = 0; i < gridpoint_nr; ++i){
+    for (int j = 0; j < frame_nr; ++j){
+      tmp_array[j] = voxelized_traj[j * gridpoint_nr + i];
+    }
+    if (type_agg == 0){
+      voxelize_dynamics[i] = mean(tmp_array, frame_nr);
+    } else if (type_agg == 1){
+      voxelize_dynamics[i] = median(tmp_array, frame_nr);
+    } else if (type_agg == 2){
+      voxelize_dynamics[i] = standard_deviation(tmp_array, frame_nr);
+    } else if (type_agg == 3){
+      voxelize_dynamics[i] = variance(tmp_array, frame_nr);
+    } else if (type_agg == 4){
+      voxelize_dynamics[i] = max(tmp_array, frame_nr);
+    } else if (type_agg == 5){
+      voxelize_dynamics[i] = min(tmp_array, frame_nr);
+    } else {
+      // Throw Exception
+      throw std::invalid_argument("The aggregation type " + std::to_string(type_agg) + " is not supported");
+    }
+  }
 }
 
 

@@ -16,10 +16,9 @@ void trajectory_voxelization_host(
   const int *dims, 
   const int frame_nr, 
   const int atom_nr, 
-  const int interval, 
   const float spacing,
-  const float cutoff, const float sigma
+  const float cutoff, 
+  const float sigma,
+  const int type_agg
 );
-
-
 
