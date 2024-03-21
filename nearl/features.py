@@ -1,27 +1,43 @@
-import subprocess, json, tempfile
-import sys
-import numpy as np
+import sys, tempfile, os
+import subprocess, json
 
+import numpy as np
+import pytraj as pt
 from rdkit import Chem
 from scipy.spatial import KDTree
-import pytraj as pt
 
-from . import utils, commands, constants
-
-
-from . import printit, draw_call_stack
-from . import _verbose
+from . import utils, commands, constants, chemtools   # local modules 
+from . import printit, config   # local static methods/objects
 
 __all__ = [
   # Base class
   "Feature",
+
   # Static Features
+  "AtomicNumber",
   "Mass",
   "HeavyAtom",
+  "Aromaticity",
+  "Ring",
+  "HBondDonor",
+  "HBondAcceptor",
+  "Hybridization",
+  "Backbone",
+  "AtomType",
+  "PartialCharge",
 
   # Dynamic features
   "DensityFlow",
   "MarchingObservers",
+
+  # Label-type features
+  "Label_RMSD",
+  "Label_PCDT",
+  "Label_ResType",
+
+  # Other features
+  "VectorizerViewpoint", 
+  
 ]
 
 """
@@ -35,8 +51,7 @@ __all__ = [
 
 def crop(points, upperbound, padding):
   """
-  Crop the points to the box defined by the center and lengths
-  The mask is returned as a boolean array
+  Crop the points to the box defined by the center and lengths. 
 
   Parameters
   ----------
@@ -62,7 +77,7 @@ def crop(points, upperbound, padding):
   z_state_0 = points[:, 2] < upperbound[2] + padding
   z_state_1 = points[:, 2] > 0 - padding
   # All states
-  mask_inbox = x_state_0 * x_state_1 * y_state_0 * y_state_1 * z_state_0 * z_state_1
+  mask_inbox = np.asarray(x_state_0 * x_state_1 * y_state_0 * y_state_1 * z_state_0 * z_state_1, dtype=bool)
   return mask_inbox
 
 
@@ -84,12 +99,14 @@ class Feature:
   # --------------
   # - dims: The dimensions of the grid
   # - spacing: The spacing of the grid
-  def __init__(self, dims=None, spacing=None, 
-               outfile=None, outkey=None,
-               cutoff=None, sigma=None,
-               padding=0, byres=None, 
-               outshape=None, force_requery=False,
-               **kwargs):
+  def __init__(self, 
+    dims=None, spacing=None, 
+    outfile=None, outkey=None,
+    cutoff=None, sigma=None,
+    padding=0, byres=None, 
+    outshape=None, force_recache=False,
+    **kwargs
+  ):
     # Fundamental variables need setter callback 
     self.__dims = None
     self.__spacing = None
@@ -115,8 +132,8 @@ class Feature:
     # Simple variables, no need for setter callback and hook to featurizer
     self.outshape = outshape
     self._outshape = False if outshape is None else True
-    self.force_requery = force_requery
-    self._force_requery = False if force_requery is False else True
+    self.force_recache = force_recache
+    self._force_recache = False if force_recache is False else True
 
   def __str__(self):
     ret_str = "Feature: "
@@ -139,7 +156,7 @@ class Feature:
     elif isinstance(value, (list, tuple, np.ndarray)):
       self.__dims = np.array([int(i) for i in value][:3])
     else:
-      if _verbose:
+      if config.verbose():
         printit(f"Warning: The dims should be a number, list, tuple or a numpy array, not {type(value)}")
       self.__dims = None
     if self.__spacing is not None:
@@ -158,7 +175,7 @@ class Feature:
     if isinstance(value, (int, float, np.int64, np.float64, np.int32, np.float32)):
       self.__spacing = float(value)
     else: 
-      if _verbose:
+      if config.verbose():
         printit(f"{self.__class__.__name__}: Warning: The spacing is not a valid number, setting to None")
       self.__spacing = None
     if self.__dims is not None:
@@ -240,37 +257,32 @@ class Feature:
     """
     if focal_point.shape.__len__() > 1: 
       raise ValueError(f"The focal point should be a 1D array with length 3, not {focal_point.shape}")
-    new_coords = frame_coords - focal_point + self.center 
-    # No padding 
-    mask = crop(new_coords, self.lengths, self.padding)
-    # Get the boolean array of residues within the bounding box
     
-    if (len(self.resids) != topology.n_atoms) or self.force_requery: 
-      # Deal with inhomogeneous topology during iterating focal points
-      if _verbose:
+    if (len(self.resids) != topology.n_atoms) or self.force_recache: 
+      if config.verbose():
         printit(f"{self.__class__.__name__}: Dealing with inhomogeneous topology")
-      if self.byres:
-        res_ids = np.array([i.resid for i in topology.atoms])
-        # print(f"Resids: {res_ids}, {mask}, {frame_coords.shape}")
-        res_inbox = np.unique(res_ids[mask])
-        final_mask = np.full(len(res_ids), False)
-        for res in res_inbox:
-          final_mask[np.where(res_ids == res)] = True
-      else: 
-        final_mask = mask
+      if len(frame_coords.shape) == 2:
+        self.cache(pt.Trajectory(xyz=np.array([frame_coords]), top=topology))
+      else:
+        self.cache(pt.Trajectory(xyz=frame_coords, top=topology))
+    
+    # Apply the padding to the box croppring
+    new_coords = frame_coords - focal_point + self.center 
+    mask = crop(new_coords, self.lengths, self.padding)
+
+    # Get the boolean array of residues within the bounding box
+    if self.byres:
+      res_inbox = np.unique(self.resids[mask])
+      final_mask = np.full(len(self.resids), False)
+      for res in res_inbox:
+        final_mask[np.where(self.resids == res)] = True
     else: 
-      if self.byres:
-        res_inbox = np.unique(self.resids[mask])
-        final_mask = np.full(len(self.resids), False)
-        for res in res_inbox:
-          final_mask[np.where(self.resids == res)] = True
-      else: 
-        final_mask = mask
+      final_mask = mask
     return final_mask
 
   def run(self, coords, weights):
     """
-    Take the output from 
+    By default use voxelize_coords to voxelize the coordinates and weights
 
     Parameters
     ----------
@@ -285,7 +297,22 @@ class Feature:
       The result feature array
 
     """
-    return np.zeros(self.dims, dtype=np.float32)
+    if len(coords) == 0:
+      printit(f"{self.__class__.__name__}: Warning: The coordinates are empty")
+      return np.zeros(self.dims, dtype=np.float32)
+    
+    ret = commands.voxelize_coords(coords, weights, self.dims, self.spacing, self.cutoff, self.sigma)
+
+    # Check the sum of the absolute values of the returned array
+    ret_sum = np.sum(np.abs(ret))
+    if np.isclose(ret_sum, 0):
+      printit(f"{self.__class__.__name__} Warning: The sum of the returned array is zero")
+    elif np.isnan(ret_sum):
+      printit(f"{self.__class__.__name__} Warning: The returned array has {np.isnan(ret).sum()} NaN values")
+    # Near the boundary, the coordinates might not sum up to the weights
+    # elif not np.isclose(ret_sum, np.sum(weights)):
+    #   printit(f"{self.__class__.__name__} Warning: The sum of the returned array {ret_sum} is not equal to the sum of the weights {np.sum(weights)}")
+    return ret
 
   def dump(self, result):
     """
@@ -297,12 +324,29 @@ class Feature:
       The result feature array
     """
     if ("outfile" in dir(self)) and ("outkey" in dir(self)) and (len(self.outfile) > 0):
-      if self._outshape is True:  
+      if self.outshape is not None or self._outshape != False: 
         # Explicitly set the shape of the output
         utils.append_hdf_data(self.outfile, self.outkey, np.asarray([result], dtype=np.float32), dtype=np.float32, maxshape=(None, *self.outshape), chunks=True, compression="gzip", compression_opts=4)
       elif len(self.dims) == 3: 
         utils.append_hdf_data(self.outfile, self.outkey, np.asarray([result], dtype=np.float32), dtype=np.float32, maxshape=(None, *self.dims), chunks=True, compression="gzip", compression_opts=4)
+
+
+class AtomicNumber(Feature):
+  def __init__(self, **kwargs):
+    super().__init__(**kwargs)
+
+  def cache(self, trajectory):
+    super().cache(trajectory)
   
+  def query(self, topology, frame_coords, focal_point): 
+    if frame_coords.shape.__len__() == 3: 
+      frame_coords = frame_coords[0]
+    
+    idx_inbox = super().query(topology, frame_coords, focal_point)
+    coord_inbox = frame_coords[idx_inbox]
+    weights = np.array([self.atomic_numbers[i] for i in self.atomic_numbers[idx_inbox]], dtype=np.float32)
+    coord_inbox = coord_inbox - focal_point + self.center
+    return coord_inbox, weights
 
 
 class Mass(Feature):
@@ -312,8 +356,13 @@ class Mass(Feature):
   Explicitly pass the cutoff and sigma while initializing the Feature object for the time being
   Atomic mass as a feature
   """
-  def __init__(self, cutoff=None, sigma=None, **kwargs):
-    super().__init__(cutoff=cutoff, sigma=sigma, **kwargs)
+  def __init__(self, **kwargs):
+    super().__init__(**kwargs)
+
+  def cache(self, trajectory):
+    super().cache(trajectory)
+    self.mass = np.array([constants.ATOMICMASS[i] for i in self.atomic_numbers], dtype=np.float32)
+
 
   def query(self, topology, frame_coords, focal_point): 
     """
@@ -348,40 +397,20 @@ class Mass(Feature):
     
     idx_inbox = super().query(topology, frame_coords, focal_point)
     coord_inbox = frame_coords[idx_inbox]
-    if (len(self.resids) != topology.n_atoms) or self.force_requery: 
-      atomic_numbers = np.array([i.atomic_number for i in topology.atoms])
-      weights = np.array([constants.ATOMICMASS[i] for i in atomic_numbers[idx_inbox]], dtype=np.float32)
-    else:
-      weights = np.array([constants.ATOMICMASS[i] for i in self.atomic_numbers[idx_inbox]], dtype=np.float32)
+    weights = np.array([self.mass[i] for i in self.atomic_numbers[idx_inbox]], dtype=np.float32)
     coord_inbox = coord_inbox - focal_point + self.center
     return coord_inbox, weights
 
-  def run(self, coords, weights): 
-    """
-    Voxelization of the atomic mass
-    """
-    if len(coords) == 0:
-      printit(f"{self.__class__.__name__}: Warning: The coordinates are empty")
-      return np.zeros(self.dims, dtype=np.float32)
-    # printit(f"{self.__class__.__name__}: Center of the coordinates: {np.mean(coords, axis=0)}")
-    ret = commands.voxelize_coords(coords, weights, self.dims, self.spacing, self.cutoff, self.sigma)
-    printit(f"{self.__class__.__name__}: The sum of the returned array: {np.sum(ret)} VS {np.sum(weights)} from {len(weights)} atoms")
-    return ret
-    
 
 class HeavyAtom(Feature):
-  def __init__(self, default_weight=1, 
-               cutoff=None, sigma=None, **kwargs):
-    super().__init__(cutoff=cutoff, sigma=sigma, **kwargs)
+  def __init__(self, default_weight=1, **kwargs):
+    super().__init__(**kwargs)
     self.default_weight = default_weight
 
   def cache(self, trajectory):
     """
     Prepare the heavy atom weights
     """
-    if not hasattr(trajectory, "atoms") or not hasattr(trajectory, "residues"): 
-      trajectory.make_index()
-
     super().cache(trajectory)
     self.heavy_atoms = np.full(len(self.resids), 0, dtype=np.float32)
     self.heavy_atoms[np.where(self.atomic_numbers > 1)] = self.default_weight
@@ -394,522 +423,285 @@ class HeavyAtom(Feature):
       frame_coords = frame_coords[0]  # NOTE: Get the first frame if multiple frames are given
     idx_inbox = super().query(topology, frame_coords, focal_point)
     coord_inbox = frame_coords[idx_inbox]
-    if (len(self.resids) != topology.n_atoms) or self.force_requery: 
-      weights = np.array([i.atomic_number > 1 for i in topology.atoms], dtype=np.float32)[idx_inbox]
-    else:
-      weights = self.heavy_atoms[idx_inbox]
+    weights = self.heavy_atoms[idx_inbox]
     # Translate the result coordinates to the center of the box
     coord_inbox = coord_inbox - focal_point + self.center
     return coord_inbox, weights
 
-  def run(self, coords, weights): 
-    """
-    Voxelization of the atomic mass
-    """
-    # printit(f"{self.__class__.__name__}: Center of the coordinates: {np.mean(coords, axis=0)}")
-    # Host-py function: voxelize_coords(coords, weights, grid_dims, spacing, cutoff, sigma):
 
-    # from nearl.all_actions import do_voxelize
+class Aromaticity(Feature):
+  def __init__(self, reverse=None, **kwargs): 
+    super().__init__(**kwargs)
+    # Set reverse to True if you want to get the non-aromatic atoms to be 1
+    self.reverse = reverse 
+
+  def cache(self, trajectory):
+    super().cache(trajectory)
+    with tempfile.NamedTemporaryFile(suffix=".pdb") as fpt:
+      pt.write_traj(fpt.name, trajectory, format="pdb", frame_indices=[0], overwrite=True)
+      atoms_aromatic = chemtools.label_aromaticity(fpt.name)
+
+    if len(atoms_aromatic) != trajectory.n_atoms:
+      printit(f"{self.__class__.__name__} Warning: The number of atoms in PDB does not match the number of aromaticity values")
+    if self.reverse: 
+      self.atoms_aromatic = np.asarray([1 if i == 0 else 0 for i in atoms_aromatic], dtype=np.float32)
+    else: 
+      self.atoms_aromatic = np.asarray(atoms_aromatic, dtype=np.float32)
+
+  def query(self, topology, frame_coords, focal_point):
+    if frame_coords.shape.__len__() == 3: 
+      frame_coords = frame_coords[0]
+    idx_inbox = super().query(topology, frame_coords, focal_point)
+    coord_inbox = frame_coords[idx_inbox]
+    weights = self.atoms_aromatic[idx_inbox]
+    coord_inbox = coord_inbox - focal_point + self.center
+    return coord_inbox, weights
+
+
+class Ring(Feature):
+  def __init__(self, reverse=False, **kwargs):
+    super().__init__(**kwargs)
+    # Set reverse to True if you want to get the non-ring atoms to be 1
+    self.reverse = reverse 
+
+  def cache(self, trajectory):
+    super().cache(trajectory)
+    with tempfile.NamedTemporaryFile(suffix=".pdb") as fpt:
+      pt.write_traj(fpt.name, trajectory, format="pdb", frame_indices=[0], overwrite=True)
+      atoms_in_ring = chemtools.label_ring_status(fpt.name)
+
+    if len(atoms_in_ring) != trajectory.n_atoms:
+      printit(f"{self.__class__.__name__} Warning: The number of atoms in PDB does not match the number of aromaticity values")
+
+    if self.reverse: 
+      self.atoms_in_ring = np.asarray([1 if i == 0 else 0 for i in atoms_in_ring], dtype=np.float32)
+    else: 
+      self.atoms_in_ring = np.asarray(atoms_in_ring, dtype=np.float32)
+  
+  def query(self, topology, frame_coords, focal_point): 
+    if frame_coords.shape.__len__() == 3: 
+      frame_coords = frame_coords[0]
+    idx_inbox = super().query(topology, frame_coords, focal_point)
+    coord_inbox = frame_coords[idx_inbox]
+    weights = self.atoms_in_ring[idx_inbox]
+    coord_inbox = coord_inbox - focal_point + self.center
+    return coord_inbox, weights
+
+
+class HBondDonor(Feature):
+  def __init__(self, **kwargs):
+    super().__init__(**kwargs)
+
+  def cache(self, trajectory):
+    super().cache(trajectory)
+    with tempfile.NamedTemporaryFile(suffix=".pdb") as fpt:
+      pt.write_traj(fpt.name, trajectory, format="pdb", frame_indices=[0], overwrite=True)
+      atoms_hbond_donor = chemtools.label_hbond_donor(fpt.name)
+
+    if len(atoms_hbond_donor) != trajectory.n_atoms:
+      printit(f"{self.__class__.__name__} Warning: The number of atoms in PDB does not match the number of aromaticity values")
+    self.atoms_hbond_donor = np.asarray(atoms_hbond_donor, dtype=np.float32)
+  
+  def query(self, topology, frame_coords, focal_point):
+    if frame_coords.shape.__len__() == 3: 
+      frame_coords = frame_coords[0]
+    idx_inbox = super().query(topology, frame_coords, focal_point)
+    coord_inbox = frame_coords[idx_inbox]
+    weights = self.atoms_hbond_donor[idx_inbox]
+    coord_inbox = coord_inbox - focal_point + self.center
+    return coord_inbox, weights
+
+
+class HBondAcceptor(Feature):
+  def __init__(self, **kwargs):
+    super().__init__(**kwargs)
+
+  def cache(self, trajectory):
+    super().cache(trajectory)
+    with tempfile.NamedTemporaryFile(suffix=".pdb") as fpt:
+      pt.write_traj(fpt.name, trajectory, format="pdb", frame_indices=[0], overwrite=True)
+      atoms_hbond_acceptor = chemtools.label_hbond_acceptor(fpt.name)
+
+    if len(atoms_hbond_acceptor) != trajectory.n_atoms:
+      printit(f"{self.__class__.__name__} Warning: The number of atoms in PDB does not match the number of aromaticity values")
+    self.atoms_hbond_acceptor = np.asarray(atoms_hbond_acceptor, dtype=np.float32)
+
+  def query(self, topology, frame_coords, focal_point):
+    if frame_coords.shape.__len__() == 3: 
+      frame_coords = frame_coords[0]
+    idx_inbox = super().query(topology, frame_coords, focal_point)
+    coord_inbox = frame_coords[idx_inbox]
+    weights = self.atoms_hbond_acceptor[idx_inbox]
+    coord_inbox = coord_inbox - focal_point + self.center
+    return coord_inbox, weights
+
+
+class Hybridization(Feature):
+  def __init__(self, **kwargs):
+    super().__init__(**kwargs)
+
+  def cache(self, trajectory):
+    super().cache(trajectory)
+    with tempfile.NamedTemporaryFile(suffix=".pdb") as fpt:
+      pt.write_traj(fpt.name, trajectory, format="pdb", frame_indices=[0], overwrite=True)
+      atoms_hybridization = chemtools.label_hybridization(fpt.name)
+
+    if len(atoms_hybridization) != trajectory.n_atoms:
+      printit(f"{self.__class__.__name__} Warning: The number of atoms in PDB does not match the number of aromaticity values")
+    self.atoms_hybridization = np.asarray(atoms_hybridization, dtype=np.float32)
+
+  def query(self, topology, frame_coords, focal_point):
+    if frame_coords.shape.__len__() == 3: 
+      frame_coords = frame_coords[0]
+    idx_inbox = super().query(topology, frame_coords, focal_point)
+    coord_inbox = frame_coords[idx_inbox]
+    weights = self.atoms_hybridization[idx_inbox]
+    coord_inbox = coord_inbox - focal_point + self.center
+    return coord_inbox, weights
+
+class Backbone(Feature):
+  def __init__(self, reverse=False, **kwargs):
+    super().__init__(**kwargs)
+    self.reverse = reverse
+
+  def cache(self, trajectory):
+    super().cache(trajectory)
+    backboneness = [1 if i.name in ["C", "O", "CA", "HA", "N", "HN"] else 0 for i in trajectory.top.atoms]
+    if self.reverse: 
+      self.backboneness = np.array([1 if i == 0 else 0 for i in backboneness], dtype=np.float32)
+    else: 
+      self.backboneness = np.array(backboneness, dtype=np.float32)
     
-    # thefunc = copy.deepcopy(commands.voxelize_coords)
-    # ret = thefunc(coords, weights, self.dims, self.spacing, self.cutoff, self.sigma)
-    # coords = np.array(coords, dtype=np.float32)
-    # ret = do_voxelize(coords, weights, self.dims, self.spacing, self.cutoff, self.sigma, auto_translate=0)
-    ret = commands.voxelize_coords(coords, weights, self.dims, self.spacing, self.cutoff, self.sigma)
-    # ret = tmpfunc("voxelize", coords, weights, self.dims, self.spacing, self.cutoff, self.sigma)
-    
-    printit(f"{self.__class__.__name__}: The sum of the returned array: {np.sum(ret)} VS {np.sum(weights)} from {len(weights)} atoms")
-    return ret
-
-def tmpfunc(functype, *args): 
-  if functype == "voxelize": 
-    ret = commands.voxelize_coords(*args)
-  elif functype == "marching":
-    ret = commands.marching_observers(*args)
-  return ret
-
+  def query(self, topology, frame_coords, focal_point):
+    if frame_coords.shape.__len__() == 3: 
+      frame_coords = frame_coords[0]
+    idx_inbox = super().query(topology, frame_coords, focal_point)
+    coord_inbox = frame_coords[idx_inbox]
+    weights = self.backboneness[idx_inbox]
+    coord_inbox = coord_inbox - focal_point + self.center
+    return coord_inbox, weights
   
 
+class AtomType(Feature):
+  def __init__(self, focus_element, **kwargs):
+    super().__init__(**kwargs)
+    self.focus_element = focus_element
 
+  def cache(self, trajectory):
+    super().cache(trajectory)
+    self.atom_type = np.array([1 if i == self.focus_element else 0 for i in trajectory.top.atoms], dtype=np.float32)
+
+  def query(self, topology, frame_coords, focal_point):
+    if frame_coords.shape.__len__() == 3: 
+      frame_coords = frame_coords[0]
+    idx_inbox = super().query(topology, frame_coords, focal_point)
+    coord_inbox = frame_coords[idx_inbox]
+    weights = self.atom_type[idx_inbox]
+    coord_inbox = coord_inbox - focal_point + self.center
+    return coord_inbox, weights
+
+
+# /MieT5/BetaPose/nearl/data/charge_charmm36.json   # self.mode = "charmm36"
+# /MieT5/BetaPose/nearl/data/charge_ff14sb.json     # self.mode = "ff14sb"
+# self.charge_type = "eem" # self.charge_parm = "EEM_00_NEEMP_ccd2016_npa"
+# self.charge_type = "peoe" # self.charge_parm = "PEOE_00_original"
 class PartialCharge(Feature):
   """
   Auxiliary class for featurizer. Needs to be hooked to the featurizer after initialization.
   Atomic charge feature for the structure of interest;
-  Compute the charge based on the self.featurizer.boxed_pdb;
   """
-  def __init__(self, type=None, parm=None, mode=None):
-    super().__init__()
+  def __init__(self, charge_type="qeq", charge_parm="QEq_00_original", **kwargs):
+    super().__init__(**kwargs)
+    # The following types are supported by ChargeFW: 
     [ "sqeqp",  "eem",  "abeem",  "sfkeem",  "qeq",
       "smpqeq",  "eqeq",  "eqeqc",  "delre",  "peoe",
       "mpeoe",  "gdac",  "sqe",  "sqeq0",  "mgc",
       "kcm",  "denr",  "tsef",  "charge2",  "veem",
-      "formal"]
-    # TODO: Change the way of using different modes 
-    # /MieT5/BetaPose/nearl/data/charge_charmm36.json
-    # /MieT5/BetaPose/nearl/data/charge_ff14sb.json
-    # if mode == "manual":
-    #   self.mode = "manual"
-    # elif mode == "gasteiger": 
-    #   self.mode = "gasteiger"
-    # elif mode == "charmm36":
-    #   self.mode = "charmm36"
-    # elif mode == "ff14sb":
-    #   self.mode = "ff14sb"
-    # else:
-    #   self.mode = "charmm36"
+      "formal"
+    ]
 
-    self.charge_type = "eem"
-    self.charge_parm = "EEM_00_NEEMP_ccd2016_npa"
-    self.charge_values = None
+    self.charge_type = charge_type
+    self.charge_parm = charge_parm
 
   def cache(self, trajectory):
     super().cache(trajectory)
-    if "charge" in trajectory.cached.keys(): 
-      self.charge_values = np.array(trajectory.cached["charge"])
-    else: 
-      import chargefw2_python as cfw
-      charges = None
-      with tempfile.NamedTemporaryFile(suffix=".pdb") as f:
-        trajectory.write_frame(0, outfile=f.name)
-        try: 
-          printit(f"Calculating the molecular charge of the trajectory")
-          mol = cfw.Molecules(f.name)
-          charges = cfw.calculate_charges(mol, self.charge_type, self.charge_parm)
-          printit(f"Finished the partial charge calculation")
-        except Exception as e: 
-          printit(f"Failed to calculate molecular charge: {e}")
-      if charges is not None:
-        thekey = charges.keys()[0]
-        self.charge_values = np.array(charges[thekey])
-      else: 
-        print("Warning: The charge values are not set", file=sys.stderr)
-        self.charge_values = np.zeros(len(trajectory.n_atoms))
-    
-    
-    # self.ATOM_INDICES = self.traj.top.select(self.MASK)
-    # if self.mode == "manual":
-    #   self.charge_values = np.asarray(self.charge_values).astype(float)
-    # elif self.mode == "gasteiger":
-    #   retmol = self.query_mol(self.ATOM_INDICES)
-    #   if retmol is not None:
-    #     self.charge_values = np.array([float(atom.GetProp("_GasteigerCharge")) for atom in retmol.GetAtoms()]).astype(float)
-    #     self.charge_values = self.charge_values[:len(self.ATOM_INDICES)]
-    #   else:
-    #     self.charge_values = np.zeros(len(self.ATOM_INDICES)).astype(float)
-    # elif self.mode == "charmm36":
-    #   # Use /MieT5/BetaPose/nearl/data/charge_charmm36.json
-    #   atom_ids = [i.name for i in self.traj.top.atoms]
-    #   with open("/MieT5/BetaPose/nearl/data/charge_charmm36.json", "r") as f:
-    #     self.charge_values = json.load(f)
-    # elif self.mode == "ff14sb":
-    #   with open("/MieT5/BetaPose/nearl/data/charge_ff14sb.json", "r") as f:
-    #     self.charge_values = json.load(f)
-    # if len(self.charge_values) != len(self.ATOM_INDICES):
-    #   printit("Warning: The number of atoms in PDB does not match the number of charge values")
+
+    import chargefw2_python as cfw
+    charges = None
+    charge_values = None
+    with tempfile.NamedTemporaryFile(suffix=".pdb") as f:
+      pt.write_traj(f.name, trajectory, format="pdb", frame_indices=[0], overwrite=True)
+      try: 
+        mol = cfw.Molecules(f.name)
+        charges = cfw.calculate_charges(mol, self.charge_type, self.charge_parm)
+        # File name is the keyword of the returned charge values
+        filename = os.path.basename(f.name).split(".")[0]
+        if filename not in charges.keys():
+          raise ValueError(f"{self.__class__.__name__} The charges are not calculated for the file {filename}")
+        else: 
+          charge_values = np.array(charges[filename], dtype=np.float32)
+          if len(charge_values) != trajectory.n_atoms:
+            raise ValueError(f"{self.__class__.__name__} The number of charge values does not match the number of atoms in the trajectory")
+          else: 
+            self.charge_values = charge_values
+      except Exception as e: 
+        subprocess.call(["cp", f.name, "/tmp/chargefailed.pdb"])
+        printit(f"{self.__class__.__name__} Warning: Failed to calculate molecular charge because of the following error:\n {e}")
+
+    if charges is None or charge_values is None:
+      printit(f"{self.__class__.__name__} Warning: The charge values are not set", file=sys.stderr)
+      self.charge_values = np.zeros(trajectory.n_atoms)
 
   def query(self, topology, frame_coords, focal_point):
-    """
-    NOTE:
-    The self.boxed_pdb is already cropped and atom are reindexed in the PDB block.
-    Hence use the self.boxed_indices to get the original atom indices standing for the PDB block
-    """
-    # Get the atoms within the bounding box
     if frame_coords.shape.__len__() == 3: 
-      frame_coords = frame_coords[0]  # NOTE: Get the first frame if multiple frames are given
+      frame_coords = frame_coords[0]  
     idx_inbox = super().query(topology, frame_coords, focal_point)
     coord_inbox = frame_coords[idx_inbox]
-    weights = self.charge_values[idx_inbox]   # TODO change this 
+    weights = self.charge_values[idx_inbox] 
     # Translate the result coordinates to the center of the box
     coord_inbox = coord_inbox - focal_point + self.center
     return coord_inbox, weights
-  
-  def run(self, coords, weights): 
-    """
-    Voxelization of the atomic mass
-    """
-    printit(f"{self.__class__.__name__}: Center of the coordinates: {np.mean(coords, axis=0)}")
-    # Host-py function: voxelize_coords(coords, weights, grid_dims, spacing, cutoff, sigma):
-    ret = commands.voxelize_coords(coords, weights, self.dims, self.spacing, self.cutoff, self.sigma)
-    printit(f"{self.__class__.__name__}: The sum of the returned array: {np.sum(ret)} VS {np.sum(weights)} from {len(weights)} atoms")
-    return ret
 
 
+class Electronegativity(Feature):
+  def __init__(self, **kwargs):
+    super().__init__(**kwargs)
 
-class AtomTypeFeature(Feature):
-  def __init__(self, element=None):
-    super().__init__()
-
-    self.element = element
-
-  def element_type(self, atomic_number):
-    return 
-  
   def cache(self, trajectory):
     super().cache(trajectory)
-    self.istype = [1 if i == 12 else 0 for i in self.atomic_numbers]
+    self.electronegativity = np.array([constants.ELECNEG[i] for i in self.atomic_numbers], dtype=np.float32)
 
-
+  def query(self, topology, frame_coords, focal_point):
+    if frame_coords.shape.__len__() == 3: 
+      frame_coords = frame_coords[0]
+    idx_inbox = super().query(topology, frame_coords, focal_point)
+    coord_inbox = frame_coords[idx_inbox]
+    weights = self.electronegativity[idx_inbox]
+    coord_inbox = coord_inbox - focal_point + self.center
+    return coord_inbox, weights
+  
 
 class HydrophobicityFeature(Feature):
   def __int__(self):
     super().__init__()
 
-  def featurize(self):
-    pass
+  def cache(self, trajectory):
+    super().cache(trajectory)
+    elecnegs = np.array([constants.ELECNEG[i] for i in self.atomic_numbers], dtype=np.float32)
+    self.hydrophobicity = np.abs(elecnegs - constants.ELECNEG[6])
+  
+  def query(self, topology, frame_coords, focal_point):
+    if frame_coords.shape.__len__() == 3: 
+      frame_coords = frame_coords[0]
+    idx_inbox = super().query(topology, frame_coords, focal_point)
+    coord_inbox = frame_coords[idx_inbox]
+    weights = self.hydrophobicity[idx_inbox]
+    coord_inbox = coord_inbox - focal_point + self.center
+    return coord_inbox, weights
 
-
-class Aromaticity(Feature):
-  def __init__(self, mask="*"):
-    super().__init__()
-    self.MASK = mask
-    self.ATOM_INDICES = np.array([])
-    self.AROMATICITY = np.array([])
-
-  def before_frame(self):
-    """
-    Compute the aromaticity of each atom in the moiety of interest
-    The atomic index matches between the
-    """
-    self.ATOM_INDICES = self.traj.top.select(self.MASK)
-    retmol = self.query_mol(self.ATOM_INDICES)
-    if retmol is not None:
-      self.AROMATICITY = np.array([atom.GetIsAromatic() for atom in retmol.GetAtoms()]).astype(int)
-      self.AROMATICITY = self.AROMATICITY[:len(self.ATOM_INDICES)]
-    else:
-      self.AROMATICITY = np.zeros(len(self.ATOM_INDICES)).astype(int)
-
-  def featurize(self):
-    # Interpolate the feature values to the grid points
-    coord_candidate = self.active_frame.xyz[self.ATOM_INDICES]
-    mask_inbox = self.crop_box(coord_candidate)
-    coords = coord_candidate[mask_inbox]
-    weights = self.AROMATICITY[mask_inbox]
-    feature_arr = self.interpolate(coords, weights)
-    return feature_arr
-
-
-class Ring(Feature):
-  def __init__(self, mask="*"):
-    super().__init__()
-    self.MASK = mask
-    self.ATOM_INDICES = np.array([])
-    self.RING = np.array([])
-
-  def before_frame(self):
-    self.ATOM_INDICES = self.traj.top.select(self.MASK)
-    retmol = self.query_mol(self.ATOM_INDICES)
-    if retmol is not None:
-      self.RING = np.array([atom.IsInRing() for atom in retmol.GetAtoms()])
-      self.RING = self.RING[:len(self.ATOM_INDICES)].astype(int)
-    else:
-      self.RING = np.zeros(len(self.ATOM_INDICES)).astype(int)
-    if len(self.RING) != len(self.ATOM_INDICES):
-      printit("Warning: The number of atoms in PDB does not match the number of aromaticity values")
-
-  def featurize(self):
-    coord_candidates = self.active_frame.xyz[self.ATOM_INDICES]
-    mask_inbox = self.crop_box(coord_candidates)
-    coords = coord_candidates[mask_inbox]
-    weights = self.RING[mask_inbox]
-    feature_arr = self.interpolate(coords, weights)
-    return feature_arr
-
-
-class Hybridization(Feature):
-  def __init__(self, mask="*"):
-    super().__init__()
-    self.MASK = mask
-    self.HYBRIDIZATION_DICT = {'SP': 1, 'SP2': 2, 'SP3': 3, "UNSPECIFIED": 0}
-    self.ATOM_INDICES = np.array([])
-    self.HYBRIDIZATION = np.array([])
-
-  def before_frame(self):
-    self.ATOM_INDICES = self.traj.top.select(self.MASK)
-    retmol = self.query_mol(self.ATOM_INDICES)
-    if retmol is not None:
-      self.HYBRIDIZATION = [atom.GetHybridization() for atom in retmol.GetAtoms()]
-      self.HYBRIDIZATION = np.array([self.HYBRIDIZATION_DICT[i] if i in self.HYBRIDIZATION_DICT else 0 for i in self.HYBRIDIZATION]).astype(int)
-      self.HYBRIDIZATION = self.HYBRIDIZATION[:len(self.ATOM_INDICES)]
-    else:
-      self.HYBRIDIZATION = np.zeros(len(self.ATOM_INDICES)).astype(int)
-    if len(self.HYBRIDIZATION) != len(self.ATOM_INDICES):
-      printit("Warning: The number of atoms in PDB does not match the number of HYBRIDIZATION values")
-
-  def featurize(self):
-    coord_candidates = self.active_frame.xyz[self.ATOM_INDICES]
-    mask_inbox = self.crop_box(coord_candidates)
-    coords = coord_candidates[mask_inbox]
-    weights = self.HYBRIDIZATION[mask_inbox]
-    feature_arr = self.interpolate(coords, weights)
-    return feature_arr
-
-
-class HydrogenBond(Feature):
-  def __init__(self, mask="*", donor=False, acceptor=False):
-    super().__init__()
-    self.MASK = mask
-    if not donor and not acceptor:
-      raise ValueError("Either donor or acceptor should be True")
-    self.FIND_DONOR = bool(donor)
-    self.FIND_ACCEPTOR = bool(acceptor)
-    self.ATOM_INDICES = np.array([])
-    self.HBP_STATE = np.array([])
-
-  def before_frame(self):
-    self.ATOM_INDICES = self.traj.top.select(self.MASK)
-    retmol = self.query_mol(self.ATOM_INDICES)
-    result = []
-    if retmol is not None:
-      for atom in retmol.GetAtoms():
-        symbol = atom.GetSymbol()
-        hydrogen_count = atom.GetTotalNumHs()
-        if self.FIND_DONOR:
-          is_hbp = symbol in ['N', 'O', 'F'] and hydrogen_count > 0
-        elif self.FIND_ACCEPTOR:
-          is_hbp = symbol in ['N', 'O', 'F']
-        else:
-          is_hbp = False
-        result.append(is_hbp)
-    else:
-      atoms = np.array([i for i in self.traj.top.atoms])
-      for atom in atoms[self.ATOM_INDICES]:
-        symbol = atom.atomic_number
-        partners = atom.bonded_indices()
-        atom_partners = atoms[partners]
-        atom_numbers = np.array([i.atomic_number for i in atom_partners])
-        hydrogen_count = np.count_nonzero(atom_numbers == 1)
-        if self.FIND_DONOR:
-          is_hbp = symbol in [7, 8, 9] and hydrogen_count > 0
-        elif self.FIND_ACCEPTOR:
-          is_hbp = symbol in [7, 8, 9]
-        else:
-          is_hbp = False
-        result.append(is_hbp)
-
-    self.HBP_STATE = np.array(result)[:len(self.ATOM_INDICES)].astype(int)
-
-  def featurize(self):
-    coord_candidates = self.active_frame.xyz[self.ATOM_INDICES]
-    mask_inbox = self.crop_box(coord_candidates)
-    coords = coord_candidates[mask_inbox]
-    weights = self.HBP_STATE[mask_inbox]
-    feature_arr = self.interpolate(coords, weights)
-    return feature_arr
-
-
-class PenaltyFeature(Feature):
-  """
-  Auxiliary class for featurizer. Needs to be hooked to the featurizer after initialization.
-  Deviation from the center of the box
-  """
-  def __init__(self, mask1, mask2, **kwargs):
-    super().__init__()
-    self.mask1 = mask1
-    self.mask2 = mask2
-    self.use_mean = kwargs.get("use_mean", False)
-    self.ref_frame = kwargs.get("ref_frame", 0)
-    self.FAIL_FLAG = False
-    self.pdist_mean = 999
-    self.pdist = np.array([])
-    self.pdistinfo = np.array([])
-
-  def before_frame(self):
-    """
-    Get the mean pairwise distance
-    """
-    if _verbose:
-      print("Precomputing the pairwise distance between the closest atom pairs")
-
-    if isinstance(self.mask1, str):
-      atom_select = self.traj.top.select(self.mask1)
-    elif isinstance(self.mask1, (list, tuple, np.ndarray)):
-      atom_select = np.array([int(i) for i in self.mask1])
-    if isinstance(self.mask2, str):
-      atom_counterpart = self.traj.top.select(self.mask2)
-    elif isinstance(self.mask2, (list, tuple, np.ndarray)):
-      atom_counterpart = np.array([int(i) for i in self.mask2])
-    if len(atom_select) == 0:
-      self.FAIL_FLAG = True
-      printit("Warning: PenaltyFeature: Mask1 is empty. Marked the FAIL_FLAG. Please check the atom selection")
-      return
-    elif len(atom_counterpart) == 0:
-      self.FAIL_FLAG = True
-      printit("Warning: PenaltyFeature: Mask2 is empty. Marked the FAIL_FLAG. Please check the atom selection")
-      return
-
-    traj_copy = self.traj.copy_traj()
-    traj_copy.top.set_reference(traj_copy[self.ref_frame])
-    self.pdist, self.pdistinfo = utils.dist_caps(traj_copy, atom_select, atom_counterpart,
-                                                        use_mean=self.use_mean, ref_frame=self.ref_frame)
-    self.pdist_mean = self.pdist.mean(axis=1)
-    if self.pdist.mean() > 8:
-      printit("Warning: the mean distance between the atom of interest and its counterpart is larger than 8 Angstrom")
-      printit("Please check the atom selection")
-    elif np.percentile(self.pdist, 85) > 12:
-      printit("Warning: the 85th percentile of the distance between the atom of interest and its counterpart is larger than 12 Angstrom")
-      printit("Please check the atom selection")
-
-    info_lengths = [len(self.pdistinfo[key]) for key in self.pdistinfo]
-    if len(set(info_lengths)) != 1:
-      printit("Warning: The length of the pdistinfo is not consistent", self.pdistinfo)
-
-  def featurize(self):
-    """
-    Get the deviation from the center of the box
-    """
-    if self.FAIL_FLAG is True:
-      return 0
-    coord_diff = self.active_frame.xyz[self.pdistinfo["indices_group1"]] - self.active_frame.xyz[self.pdistinfo["indices_group2"]]
-    dists = np.linalg.norm(coord_diff, axis=1)
-    cosine_sim = utils.cosine_similarity(dists, self.pdist_mean)
-    return cosine_sim
-
-
-class MSCVFeature(Feature):
-  def __init__(self, mask1, mask2, window_size, **kwargs):
-    super().__init__()
-    self.mask1 = mask1
-    self.mask2 = mask2
-    self.use_mean = kwargs.get("use_mean", False)
-    self.ref_frame = kwargs.get("ref_frame", 0)
-    self.WINDOW_SIZE = int(window_size)
-
-  def before_frame(self):
-    """
-    Get the mean pairwise distance
-    """
-    if _verbose:
-      print("Precomputing the pairwise distance between the closest atom pairs")
-    self.traj_copy = self.traj.copy()
-    self.traj_copy.top.set_reference(self.traj_copy[self.ref_frame])
-    self.pd_arr, self.pd_info = utils.dist_caps(self.traj_copy, self.mask1, self.mask2,
-                                                       use_mean=self.use_mean, ref_frame=self.ref_frame)
-    self.mean_pd = np.mean(self.pd_arr, axis=1)
-
-  def featurize(self):
-    """
-    Get the mean square coefficient of variation of the segment
-    """
-    framenr = self.traj.n_frames
-    if framenr < self.WINDOW_SIZE:
-      # If the window size is larger than the number of frames, then use the whole trajectory
-      frames = np.arange(0, framenr)
-    elif (self.active_frame_index + self.WINDOW_SIZE > framenr):
-      # If the last frame is not enough to fill the window, then use the last window
-      frames = np.arange(framenr - self.WINDOW_SIZE, framenr)
-    else:
-      frames = np.arange(self.active_frame_index, self.active_frame_index + self.WINDOW_SIZE)
-
-    # Store the pairwise distance for each frame
-    pdists = np.zeros((self.pd_arr.shape[0], len(frames)))
-    for fidx in frames:
-      dists = np.linalg.norm(
-        self.active_frame.xyz[self.pd_info["indices_group1"]] - self.active_frame.xyz[self.pd_info["indices_group2"]],
-        axis=1)
-      pdists[:, fidx] = dists
-    mscv = utils.mscv(pdists)
-    return mscv
-
-class EntropyResidueID(Feature):
-  def __init__(self, mask="*", window_size=10):
-    super().__init__()
-    self.WINDOW_SIZE = int(window_size)
-    self.MASK = mask
-
-  def before_focus(self):
-    """
-    Before processing focus points, get the correct slice of frames
-    """
-    # Determine the slice of frames from a trajectory
-    framenr = self.traj.n_frames
-    if framenr < self.WINDOW_SIZE:
-      print("The slice is larger than the total frames, using the whole trajectory")
-      frames = np.arange(0, framenr)
-    elif (self.active_frame_index + self.WINDOW_SIZE > framenr):
-      print("Unable to fill the last frame and unable not enough to fill the window, then use the last window")
-      frames = np.arange(framenr - self.WINDOW_SIZE, framenr)
-    else:
-      frames = np.arange(self.active_frame_index, self.active_frame_index + self.WINDOW_SIZE)
-    self.ENTROPY_CUTOFF = np.linalg.norm(self.lengths / self.dims)    # Automatically set the cutoff for each grid
-    self.ATOM_INDICES = self.top.select(self.MASK)
-    self._COORD = self.traj.xyz[frames, self.ATOM_INDICES].reshape((-1, 3))
-    self.RESID_ENSEMBLE = np.array([i.resid for idx,i in enumerate(self.top.atoms) if idx in self.ATOM_INDICES] * len(frames))
-    self.FRAME_NUMBER = len(frames)
-    if len(self._COORD) != len(self.RESID_ENSEMBLE):
-      raise Exception("Warning: The number of coordinates and the number of residue indices are not equal")
-
-  def featurize(self):
-    """
-    Get the information entropy(Chaoticity in general) of the box
-    """
-    grid_coord = np.array(self.points3d, dtype=np.float64)
-    atom_coord = np.array(self._COORD, dtype=np.float64)
-    atom_info = np.array(self.RESID_ENSEMBLE, dtype=int)
-    entropy_arr = interpolate.query_grid_entropy(grid_coord, atom_coord, atom_info,
-                                                 cutoff=self.ENTROPY_CUTOFF)
-    if len(entropy_arr) != len(self.featurizer.distances):
-      draw_call_stack()
-      raise Exception("Warning: The entropy array does not match the number of grid points")
-    elif len(entropy_arr) == 0:
-      raise Exception("Warning: The entropy array is empty")
-    entropy_arr = entropy_arr.reshape(self.dims)
-    return entropy_arr
-
-
-class EntropyAtomID(Feature):
-  def __init__(self, mask="*", window_size=10):
-    super().__init__()
-    self.WINDOW_SIZE = int(window_size)
-    self.MASK = mask
-    self.ENTROPY_CUTOFF = 0.01
-    self._COORD = None
-    self.ATOM_INDICES = None
-    self.INDEX_ENSEMBLE = None
-    self.FRAME_NUMBER = 0
-
-  def before_focus(self):
-    # Determine the slice of frames from a trajectory
-    framenr = self.traj.n_frames
-    if framenr < self.WINDOW_SIZE:
-      print("The slice is larger than the total frames, using the whole trajectory")
-      frames = np.arange(0, framenr)
-    elif self.active_frame_index + self.WINDOW_SIZE > framenr:
-      print("Unable to fill the last frame and unable not enough to fill the window, then use the last window")
-      frames = np.arange(framenr - self.WINDOW_SIZE, framenr)
-    else:
-      frames = np.arange(self.active_frame_index, self.active_frame_index + self.WINDOW_SIZE)
-    self.ENTROPY_CUTOFF = np.linalg.norm(self.lengths / self.dims)    # Automatically set the cutoff for each grid
-    self.ATOM_INDICES = self.top.select(self.MASK)
-    self._COORD = self.traj.xyz[frames, self.ATOM_INDICES].reshape((-1, 3))
-    self.INDEX_ENSEMBLE = np.array([i.index for idx, i in enumerate(self.top.atoms) if idx in self.ATOM_INDICES] * len(frames))
-    self.FRAME_NUMBER = len(frames)
-    if len(self._COORD) != len(self.INDEX_ENSEMBLE):
-      raise Exception("Warning: The number of coordinates and the number of residue indices are not equal")
-
-  def featurize(self):
-    """
-    Get the information entropy(Chaoticity in general) of the box
-    """
-    entropy_arr = interpolate.query_grid_entropy(self.points3d, self._COORD, self.INDEX_ENSEMBLE, cutoff=self.ENTROPY_CUTOFF)
-    if len(entropy_arr) != len(self.featurizer.distances):
-      draw_call_stack()
-      raise Exception("Warning: returned entropy array does not match the grid size")
-    entropy_arr = entropy_arr.reshape(self.dims)
-    return entropy_arr
-
-
-class DensityFlow(Feature):
-  """
-  Dynamic feature: Density flow,
-
-  Aggregation type: mean, std, sum
-
-  Weight type: mass, radius, residue_id, sidechainness, uniform
-    
-  """
-  def __init__(self, agg = "mean", weight_type="mass", 
-               cutoff=None, sigma=None, outfile=None, outkey=None, **kwargs):
-    super().__init__(cutoff=cutoff, sigma=sigma, outfile=outfile, outkey=outkey, **kwargs)
+class DynamicFeature(Feature):
+  def __init__(self, agg="mean", weight_type="mass", **kwargs):
+    super().__init__(**kwargs)
     self.__agg_type = agg
     self.__weight_type = weight_type
 
@@ -933,7 +725,7 @@ class DensityFlow(Feature):
   def agg(self, value):
     assert isinstance(value, str), "The aggregation type should be a string"
     self.__agg_type = value
-  
+
   @property
   def weight_type(self):
     if self.__weight_type == "atomic_number":
@@ -953,9 +745,8 @@ class DensityFlow(Feature):
     assert isinstance(value, str), "The weight type should be a string"
     self.__weight_type = value
   
-
   def cache(self, trajectory): 
-    super().cache(trajectory)
+    super().cache(trajectory)   # Obtain the atomic number and residue IDs
     cache = np.full((trajectory.n_atoms), 0.0, dtype=np.float32)
     if self.weight_type == 0:
       cache = np.array(self.atomic_numbers, dtype=np.float32)
@@ -979,38 +770,59 @@ class DensityFlow(Feature):
   def query(self, topology, frame_coords, focal_point):
     """
     Query the coordinates and weights and feed for the following self.run function
+
+    Notes
+    -----
+    - MAX_ALLOWED_ATOMS: Depends on the GPU cache size for each thread
+
+    - DEFAULT_COORD: The coordinates for padding of atoms in the box across required frames. Also hard coded in GPU code. 
+
+    The return weight array should be flattened to a 1D array
     """
     assert len(frame_coords.shape) == 3, f"Warning from feature ({self.__str__()}): The coordinates should follow the convention (frames, atoms, 3); "
-    # NOTE: Depend on the GPU cache size for each thread
     MAX_ALLOWED_ATOMS = 1000 
+    DEFAULT_COORD = 99999.0
+
+    coords = np.full((len(frame_coords), MAX_ALLOWED_ATOMS, 3), DEFAULT_COORD, dtype=np.float32)
+    weights = np.full((len(frame_coords), MAX_ALLOWED_ATOMS), 0.0, dtype=np.float32)
     max_atom_nr = 0
-    coord_list = []
-    weight_list = []
-
-    if self.force_requery:
-      self.cache(pt.Trajectory(top=topology, xyz=frame_coords))
-
-    # Count the maximum number of atoms in the box across all frames and get the coordinates and weights
-    for frame in frame_coords:
+    for idx, frame in enumerate(frame_coords):
       idx_inbox = super().query(topology, frame, focal_point)
-      coord_list.append(frame[idx_inbox] - focal_point + self.center)
-      weight_list.append(self.cached_weights[idx_inbox])
-      max_atom_nr = max(max_atom_nr, np.count_nonzero(idx_inbox))
-    printit(f"{self.__class__.__name__}: The maximum number of atoms in the box: {max_atom_nr}, averaged number {np.mean([len(i) for i in coord_list])}.")
-    
-    if max_atom_nr > MAX_ALLOWED_ATOMS:
-      printit(f"Warning: the maximum allowed atom slice is {MAX_ALLOWED_ATOMS} but the maximum atom number is {max_atom_nr}")
-    
-    # After processing each frames (Python list of weights and coordinates), build fixed sized numpy arrays for runner function
-    max_atom_nr = min(MAX_ALLOWED_ATOMS, max_atom_nr)
-    ret_coord = np.full((len(frame_coords), max_atom_nr, 3), 99999.0, dtype=np.float32)
-    ret_weight = np.full((len(frame_coords), max_atom_nr), 0.0, dtype=np.float32)
-    # NOTE: The weights array is flattened to a 1D array
-    ret_weight = np.full(len(frame_coords) * max_atom_nr, 0.0, dtype=np.float32)
-    for idx, (coord, weight) in enumerate(zip(coord_list, weight_list)):
-      therange = min(len(coord), max_atom_nr)
-      ret_coord[idx, :therange] = coord[:therange]
-      ret_weight[idx*max_atom_nr:idx*max_atom_nr+therange] = weight[:therange]
+      atomnr_inbox = np.count_nonzero(idx_inbox)
+      if atomnr_inbox > MAX_ALLOWED_ATOMS:
+        printit(f"{self.__class__.__name__} Warning: the maximum allowed atom slice is {MAX_ALLOWED_ATOMS} but the maximum atom number is {atomnr_inbox}")
+      atomnr_inbox = min(atomnr_inbox, MAX_ALLOWED_ATOMS)
+      coord_inbox = frame[idx_inbox] - focal_point + self.center
+      coords[idx, :atomnr_inbox] = coord_inbox[:atomnr_inbox]
+      weights[idx, :atomnr_inbox] = self.cached_weights[idx_inbox][:atomnr_inbox]
+      max_atom_nr = max(max_atom_nr, atomnr_inbox)
+
+    # Prepare the return arrays
+    ret_coord = np.array(coords[:, :max_atom_nr], dtype=np.float32)
+    ret_weight = np.array(weights[:, :max_atom_nr].flatten(), dtype=np.float32)
+    return ret_coord, ret_weight
+  
+  def run(self, frames, weights):
+    """
+    Run the dynamic feature algorithm
+    """
+    raise NotImplementedError("The run function should be implemented in the child class")
+  
+
+class DensityFlow(DynamicFeature):
+  """
+  Dynamic feature: Density flow,
+
+  Aggregation type: mean, std, sum
+
+  Weight type: mass, radius, residue_id, sidechainness, uniform, atomid
+  """
+  # agg = "mean", # weight_type="mass", 
+  def __init__(self, **kwargs):
+    super().__init__(**kwargs) 
+
+  def query(self, topology, frame_coords, focal_point):
+    ret_coord, ret_weight = super().query(topology, frame_coords, focal_point)
     return ret_coord, ret_weight
 
   def run(self, frames, weights):
@@ -1018,20 +830,16 @@ class DensityFlow(Feature):
     Take frames of coordinates and weights and return the a feature array with the same dimensions as self.dims
     """
     # Run the density flow algorithm
-    if (frames.shape[0] * frames.shape[1]) != len(weights): 
-      raise ValueError(f"The number of atoms in the frames is not divisible by the number of weights: {frames.shape[0] * frames.shape[1]} % {len(weights)}")
-    
-    frames = np.array(frames, dtype=np.float32)
-    weights = np.array(weights, dtype=np.float32)
+    assert frames.shape[0] * frames.shape[1] == len(weights), f"The production of frame_nr and atom_nr has to be equal to the number of weights: {frames.shape[0] * frames.shape[1]}/{len(weights)}"
     ret_arr = commands.voxelize_trajectory(frames, weights, self.dims, self.spacing, self.cutoff, self.sigma, self.agg)
     return ret_arr.reshape(self.dims)  
 
 
-class MarchingObservers(DensityFlow): 
+class MarchingObservers(DynamicFeature): 
   """
   Perform the marching observers algorithm to get the dynamic feature. 
 
-  Inherit from the DensityFlow class since there are common ways to query the coordinates and weights. 
+  Inherit from the DynamicFeature class since there are common ways to query the coordinates and weights. 
 
   Observation types: particle_count, particle_existance, mean_distance, radius_of_gyration
 
@@ -1040,13 +848,11 @@ class MarchingObservers(DensityFlow):
   Aggregation type: mean, std, sum
   
   """
-  def __init__(self, obs="particle_existance", 
-               agg="mean", weight_type="mass", 
-               cutoff=None, outfile=None, outkey=None, **kwargs): 
+  def __init__(self, obs="particle_existance", **kwargs): 
     # Just omit the sigma parameter while the inheritance. 
     # while initialization of the parent class, weight_type, cutoff, agg are set
-    super().__init__(agg=agg, weight_type=weight_type, cutoff=cutoff, outfile=outfile, outkey=outkey, **kwargs)
-    self.__obs_type = obs
+    super().__init__(**kwargs)
+    self.__obs_type = obs     # Directly pass to the CUDA voxelizer
 
   @property
   def obs(self):
@@ -1064,14 +870,6 @@ class MarchingObservers(DensityFlow):
   def obs(self, value):
     assert isinstance(value, str), "The observation type should be a string"
     self.__obs_type = value
-
-  def cache(self, trajectory): 
-    """
-    Notes
-    -----
-    Use the same method to cache the weights as the parent class
-    """
-    super().cache(trajectory)
 
   def query(self, topology, coordinates, focus):
     """
@@ -1100,17 +898,9 @@ class MarchingObservers(DensityFlow):
     ret_arr : np.array
       The feature array with the same dimensions as self.dims
     """
-    # Check the frame cooridnates and weights
-    if (frames.shape[0] * frames.shape[1]) == len(weights): 
-      pass 
-    elif frames.shape[1] == len(weights):
-      weights = np.tile(weights, frames.shape[0])
-    else:
-      raise ValueError(f"The number of atoms in the frames is not divisible by the number of weights: {frames.shape[0] * frames.shape[1]} % {len(weights)}")
-
     # TODO: correct the function name and the parameters. 
     # TODO: Since there is placeholder atoms to align the dimensions of the coordinates, remove them. 
-    ret_arr = commands.marching_observers( 
+    ret_arr = commands.marching_observers(
       frames, self.dims, 
       self.spacing, self.cutoff, 
       self.agg, self.obs
@@ -1120,10 +910,11 @@ class MarchingObservers(DensityFlow):
 
 class Label_RMSD(Feature): 
   def __init__(self, 
-               outkey=None, outfile=None, outshape=(None,), 
-               selection=None, selection_type=None, base_value=0, 
-               **kwargs): 
-    super().__init__(outkey=outkey, outfile=outfile, outshape = outshape, **kwargs) 
+    selection=None, selection_type=None, base_value=0, 
+    outshape=(None,), 
+    **kwargs
+  ): 
+    super().__init__(outshape = outshape, **kwargs) 
     self.selection = selection
     self.selection_type = selection_type   # "mask" or (list, tuple, np.ndarray) for atom indices
     self.base_value = float(base_value)
@@ -1158,16 +949,14 @@ class Label_RMSD(Feature):
     # correction factor is 0.1 * base_value * z_score
     final_value = self.base_value - self.base_value * 0.1 * z_score
     return final_value
-
-  def dump(self, result): 
-    #Dump the results to a file
-    utils.append_hdf_data(self.outfile, self.outkey, np.array([result], dtype=np.float32), dtype=np.float32, maxshape=(None,), chunks=True, compression="gzip", compression_opts=4)
     
+
 class Label_PCDT(Feature): 
   def __init__(self, 
-               outkey=None, outfile=None, outshape=(None,),
-               selection=None, selection_type=None, base_value=0, 
-               **kwargs): 
+    outkey=None, outfile=None, outshape=(None,),
+    selection=None, selection_type=None, base_value=0, 
+    **kwargs
+  ): 
     super().__init__(outkey=outkey, outfile=outfile, outshape = outshape, **kwargs) 
     self.selection = selection
     self.selection_type = selection_type   # "mask" or (list, tuple, np.ndarray) for atom indices
@@ -1203,10 +992,6 @@ class Label_PCDT(Feature):
     # Hence use penalty factor as 0.1 * base_value * (1 - cosine_sim)
     final_value = self.base_value - self.base_value * 0.1 * (1 - cosine_sim)
     return final_value
-
-  def dump(self, result): 
-    #Dump the results to a file
-    utils.append_hdf_data(self.outfile, self.outkey, np.array([result], dtype=np.float32), dtype=np.float32, maxshape=(None,), chunks=True, compression="gzip", compression_opts=4)
 
 
 class Label_ResType(Feature): 
@@ -1257,15 +1042,7 @@ class Label_ResType(Feature):
       retval = 0
     return retval
   
-  def dump(self, result): 
-    #Dump the results to a file
-    utils.append_hdf_data(self.outfile, self.outkey, np.array([result], dtype=np.float32), dtype=np.float32, maxshape=(None,), chunks=True, compression="gzip", compression_opts=4)
 
-
-
-# import siesta 
-import pytraj as pt
-import open3d as o3d
 
 def selection_to_mol(traj, frameidx, selection):
   atom_sel = np.asarray(selection)
@@ -1284,91 +1061,93 @@ def selection_to_mol(traj, frameidx, selection):
     return None
 
 
-def viewpoint_histogram_xyzr(xyzr_arr, viewpoint, bin_nr): 
-  # Generate the 
-  thearray = np.asarray(xyzr_arr, dtype=np.float32)
-  vertices, faces = siesta.xyzr_to_surf(thearray)  
-  c_vertices = np.mean(vertices, axis=0)
-  mesh = o3d.geometry.TriangleMesh()
-  mesh.vertices = o3d.utility.Vector3dVector(vertices)
-  mesh.triangles = o3d.utility.Vector3iVector(faces)
-  mesh.compute_vertex_normals()
-  mesh.compute_triangle_normals()
-
-  v_view = viewpoint - c_vertices
-  v_view = v_view / np.linalg.norm(v_view)
-  # Get the normal of each vertex
-  normals = np.array(mesh.vertex_normals)
-  # Get the cosine angle and split to bins 
-  cos_angle = np.dot(normals, v_view)
-  bins = np.linspace(-1, 1, bin_nr)
-  hist, _ = np.histogram(cos_angle, bins)
-  return hist / np.sum(hist)
-
-
-class Viewpoint_Vectorizer(Feature):
-  def __init__(self):
-    super().__init__(byres=False)
+class VectorizerViewpoint(Feature):
+  def __init__(self, 
+    write_block= False, write_segment = False,
+    **kwargs
+  ):
+    super().__init__(**kwargs)
     self.QUERIED_SEGMENTS = []
     self.SEGMENT_NUMBER = 6
     self.VIEW_BINNR = 10
+    self.viewpoint_mode = "far"
+    # Manually set the outshape to change the maxshape during dumping the feature hdf file
+    self.outshape = (self.SEGMENT_NUMBER, self.VIEW_BINNR)
+    self.write_block = write_block
+    self.write_segment = write_segment
   
   
   def hook(self, featurizer):
     super().hook(featurizer)
 
-  def cache(self, trajectory): 
-    super().cache(trajectory)
-
   def query(self, topology, frames, focus): 
-    # Query the molecular block at the focused point? 
-    # Also only needs residue-based segments
-    #### Previously query the coordinates and weights from the frames 
+    """
+    After query the molecular block at the focused point, perform segmentation and viewpoint calculation
+    """
+    if len(frames.shape) == 3: 
+      frames = frames[0]
     idx_inbox = super().query(topology, frames, focus)
+    segments = utils.index_partition(idx_inbox, self.SEGMENT_NUMBER)
 
-    from itertools import groupby
-    therange = np.arange(len(idx_inbox))
-    split_indices = [list(g) for k, g in groupby(idx_inbox)]
-    lens = [len(i) for i in split_indices]
-    slices =[np.s_[lens[i-1]:lens[i]] if i > 0 else np.s_[:lens[i]] for i in range(len(lens))]
-    arg_rank = np.argsort([np.count_nonzero(i) for i in split_indices])
-
-    ret_arr = []
-    # TODO : Check the segment number
-    for i in arg_rank[:self.SEGMENT_NUMBER]:
-      if arg_rank[i] > 0:
-        ret_arr.append(therange[slices[i]])
-
+    xyzr_ret = []
+    for seg in segments:
+      coords = frames[seg]
+      rs = [constants.ATOMICRADII[i] for i in self.atomic_numbers[seg]]
+      xyzr = np.full((len(coords), 4), 0.0, dtype=np.float32)
+      xyzr[:, :3] = coords
+      xyzr[:, 3] = rs
+      xyzr_ret.append(xyzr)
+    
     # Process the inbox status and return the segment
-    viewpoint = np.array([999, 0, 0], dtype=float)
+    if self.viewpoint_mode == "center":
+      center = self.center
+      viewpoints = np.tile(center, (self.SEGMENT_NUMBER, 1))
+    elif self.viewpoint_mode == "self": 
+      viewpoints = np.full((self.SEGMENT_NUMBER, 3), 0.0, dtype=np.float32)
+      for i in range(self.SEGMENT_NUMBER): 
+        print(segments[i], frames[segments[i]])
+        if len(frames[segments[i]]) == 0: 
+          viewpoints[i] = np.full(3, 999, dtype=np.float32)
+        else:
+          viewpoints[i] = np.mean(frames[segments[i]], axis=0)
+    elif self.viewpoint_mode == "far":
+      viewpoints = np.full((self.SEGMENT_NUMBER, 3), 999999.0, dtype=np.float32)
+    else:
+      raise ValueError("The viewpoint mode is not recognized")
+    
+    if self.write_block:
+      self.write_block_ply(xyzr_ret)
+    return xyzr_ret, viewpoints
 
-    return ret_arr, viewpoint, self.VIEW_BINNR
-
-  def run(self, segments, viewpoint, bin_nr): 
-    # Update the coordinates and weights
-    # Objective: Formulate the 1D feature array
-    #### Since voxelization is the main objective of the normal 3D feature, this only needs to return the 1D feature array
+  def run(self, xyzrs, viewpoints): 
+    """
+    Take XYZR arrays and viewpoints to calculate the viewpoint histogram
+    """
     ret_arr = np.full((self.SEGMENT_NUMBER, self.VIEW_BINNR), 0.0, dtype=float) 
     for seg_idx in range(self.SEGMENT_NUMBER): 
-      print(f"Processing the segment {seg_idx}")
-      # Put the xyzr array to the GPU code
-      viewpoint_feature = viewpoint_histogram_xyzr(segments[seg_idx], viewpoint, bin_nr)
-      ret_arr[seg_idx] = viewpoint_feature
+      if len(xyzrs[seg_idx]) > 0: 
+        viewpoint_feature = commands.viewpoint_histogram_xyzr(xyzrs[seg_idx], viewpoints[seg_idx], self.VIEW_BINNR, write_ply=self.write_segment)
+        ret_arr[seg_idx] = viewpoint_feature
     return ret_arr
 
-  def query_mol(self, selection):
-    sel_hash = utils.get_hash(selection)
-    frame_hash = utils.get_hash(self.active_frame.xyz.tobytes())
-    final_hash = sel_hash + frame_hash
+  def write_block_ply(self, xyzrs):
+    """
+    Write all segments in a molecular block to a ply file
 
-    if final_hash in self.QUERIED_MOLS:
-      return self.QUERIED_MOLS[final_hash]
-    else:
-      retmol = self.featurizer.selection_to_mol(selection)
-      self.QUERIED_MOLS[final_hash] = retmol
-    return retmol
-  
-
+    Notes
+    -----
+    This function is mainly for development purpose. Add this to the query method for each molecular block processing.
+    """
+    import open3d as o3d
+    result_mesh = o3d.geometry.TriangleMesh()
+    colors = utils.color_steps("inferno", steps=self.SEGMENT_NUMBER)
+    for seg_idx in range(self.SEGMENT_NUMBER): 
+      if len(xyzrs[seg_idx]) > 0: 
+        _, mesh = commands.viewpoint_histogram_xyzr(xyzrs[seg_idx], np.array([0,0,0]), self.VIEW_BINNR, return_mesh=True)
+        mesh.paint_uniform_color(colors[seg_idx])
+        result_mesh += mesh
+    o3d.io.write_triangle_mesh(f"block_{utils.get_timestamp()}.ply", result_mesh, write_ascii=True,   write_vertex_colors=True)
+        
 
 class RFFeature1D(Feature):
   def __init__(self, moiety_of_interest, cutoff=12):
@@ -1395,7 +1174,7 @@ class RFFeature1D(Feature):
       printit("Warning: The moiety of interest is not found in the topology")
       # Return a zero array if the moiety is not found
       return np.zeros(36)
-    if _verbose:
+    if config.verbose():
       printit(f"The moiety of interest contains {len(moi_indices)} atoms")
     # build a kd-tree for interaction query
     other_indices = np.asarray([i for i in np.arange(len(self.active_frame.xyz)) if i not in moi_indices])

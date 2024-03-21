@@ -5,7 +5,7 @@ import pytraj as pt
 import numpy as np
 
 from .. import utils
-from .. import printit, _verbose
+from .. import printit, config
 
 
 __all__ = [
@@ -38,7 +38,7 @@ class Trajectory(pt.Trajectory):
     frame_indices = kwarg.get("frame_indices", None)
     mask = kwarg.get("mask", None)
 
-    if _verbose:
+    if config.verbose():
       printit(f"{self.__class__.__name__}: Loading trajectory {traj_src} with topology {pdb_src}")
       printit(f"{self.__class__.__name__}: stride: {stride}; frame_indices: {frame_indices}; mask: {mask}")
 
@@ -88,7 +88,7 @@ class Trajectory(pt.Trajectory):
     self.atoms = None
     self.residues = None
     self.make_index()
-    self.cached = {}
+    # self.cached = {}
 
   def __getitem__(self, index):
     # Get the return from its parent pt.Trajectory;

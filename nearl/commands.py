@@ -1,5 +1,10 @@
-from . import all_actions, printit
+import os
+
 import numpy as np 
+import open3d as o3d
+
+import siesta 
+from . import all_actions, printit, utils
 
 __all__ = [
   "voxelize_trajectory",
@@ -134,33 +139,36 @@ def voxelize_trajectory(traj, weights, grid_dims, spacing, cutoff, sigma, type_a
   return ret_arr.reshape(grid_dims)
 
 
+def viewpoint_histogram_xyzr(xyzr_arr, viewpoint, bin_nr, write_ply=False, return_mesh=False): 
+  """
+  Generate the viewpoint histogram from a set of coordinates and radii (XYZR). 
+  
+  Wiewpoint is the position of the observer.
+  """
+  thearray = np.asarray(xyzr_arr, dtype=np.float32)
+  vertices, faces = siesta.xyzr_to_surf(thearray, grid_size=0.2) 
+  c_vertices = np.mean(vertices, axis=0)
+  mesh = o3d.geometry.TriangleMesh()
+  mesh.vertices = o3d.utility.Vector3dVector(vertices)
+  mesh.triangles = o3d.utility.Vector3iVector(faces)
+  mesh.compute_vertex_normals()
+  mesh.compute_triangle_normals()
 
-#   m.def("do_voxelize", &do_voxelize, 
-#     py::arg("coords"),
-#     py::arg("weights"),
-#     py::arg("grid_dims"),
-#     py::arg("spacing"),
-#     py::arg("cutoff"),
-#     py::arg("sigma"),
-#     "Voxelize a set of coordinates and weights"
-#   );
+  if write_ply: 
+    filename = os.path.join("/tmp/", f"segment_{utils.get_timestamp()}.ply")
+    printit(f"Writing the surface to {filename}")
+    o3d.io.write_triangle_mesh(filename, mesh, write_ascii=True)
 
-#   m.def("do_marching", &do_marching_observers, 
-#     py::arg("coords"),
-#     py::arg("dims"),
-#     py::arg("spacing"),
-#     py::arg("cutoff"),
-#     "Marching cubes algorithm to create a mesh from a 3D grid"
-#   );
+  v_view = viewpoint - c_vertices
+  v_view = v_view / np.linalg.norm(v_view)
+  # Get the normal of each vertex
+  normals = np.array(mesh.vertex_normals)
+  # Get the cosine angle and split to bins 
+  cos_angle = np.dot(normals, v_view)
+  bins = np.linspace(-1, 1, bin_nr+1)
+  hist, _ = np.histogram(cos_angle, bins, density=True)
+  if return_mesh:
+    return hist / np.sum(hist), mesh
+  else:
+    return hist / np.sum(hist)
 
-
-  # m.def("voxelize_traj", &do_traj_voxelize, 
-  #   py::arg("traj"),
-  #   py::arg("weights"),
-  #   py::arg("grid_dims"),
-  #   py::arg("spacing"),
-  #   py::arg("cutoff"),
-  #   py::arg("sigma"),
-  #   py::arg("type_agg"),
-  #   "Voxelize a trajectory"
-  # );
