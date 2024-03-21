@@ -55,7 +55,7 @@ class TrajectoryLoader:
     Update the loading options
     """
     for key, value in kwargs.items():
-      if key in self.kwargs:
+      if key in kwargs:
         self.__loading_options[key] = value
 
   def __str__(self):

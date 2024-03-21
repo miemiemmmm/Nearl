@@ -1,13 +1,11 @@
 import tempfile
 
 import numpy as np
-import pytraj as pt
-from rdkit import Chem
 import multiprocessing as mp
 from tqdm import tqdm
 
 from . import utils, constants
-from . import printit, _verbose, _debug
+from . import printit, config
 
 __all__ = [
   "Featurizer",
@@ -62,7 +60,7 @@ class Featurizer:
     self.TRAJLOADER = None
     self.TRAJECTORYNUMBER = 0
     
-    if _verbose:
+    if config.verbose():
       printit(f"Featurizer is initialized successfully with dimensions: {self.__dims} and lengths: {self.__lengths}")
 
   def __str__(self):
@@ -285,7 +283,6 @@ class Featurizer:
       raise ValueError(f"Unexpected focus format: {self.FOCALPOINTS_TYPE}")
 
   def main_loop(self, process_nr=20): 
-    pool = mp.Pool(process_nr)
     for tid in range(self.TRAJECTORYNUMBER):
       # Setup the trajectory and its related parameters such as slicing of the trajectory
       self.traj = self.TRAJLOADER[tid]
@@ -318,11 +315,14 @@ class Featurizer:
             feature_map.append((tid, bid, pid, fidx))
       printit(f"Tasks are ready for the trajectory {tid} with {len(tasks)} tasks")
       
+      results = [wrapper_runner(*task) for task in tqdm(tasks)]
       # Run the actions in the process pool
-      _tasks = [pool.apply_async(wrapper_runner, task) for task in tasks]
-      results = [task.get() for task in _tasks]
+      # _tasks = [pool.apply_async(wrapper_runner, task) for task in tasks]
+      # results = [task.get() for task in _tasks]
 
-      if _verbose or _debug:
+      printit("Tasks are finished, dumping the results to the feature space...")
+
+      if config.verbose() or config.debug():
         printit("Dumping the results to the feature space...")
         
       # Dump to file for each feature
@@ -330,12 +330,10 @@ class Featurizer:
         tid, bid, pid, fidx = feat_meta
         self.FEATURESPACE[fidx].dump(result)
 
-      if _verbose or _debug: 
+      if config.verbose() or config.debug():
         printit(f"Finished the trajectory {tid} with {len(tasks)} tasks")
       break
-    print("All trajectories and tasks are finished")
-    pool.close()
-    pool.join()
+    printit("All trajectories and tasks are finished")
 
   def loop_by_residue(self, process_nr=20, restype="single"): 
     for tid in range(self.TRAJECTORYNUMBER):
@@ -378,7 +376,7 @@ class Featurizer:
                 tasks.append([self.FEATURESPACE[fidx].run, queried])
                 feature_map.append((tid, bid, fidx, label))
 
-      print(f"Task set containing {len(tasks)} tasks are created for the trajectory {tid}; ")
+      printit(f"Task set containing {len(tasks)} tasks are created for the trajectory {tid}; ")
       
       ######################################################
       # TODO: Find a proper way to parallelize the CUDA function. 
@@ -395,16 +393,16 @@ class Featurizer:
       # with dask.config.set(scheduler='processes', num_workers=process_nr):
       #   results = dask.compute(*[dask.delayed(wrapper_runner)(func, args) for func, args in tasks])
       ######################################################
-        
+      printit(f"Tasks are finished, dumping the results to the feature space...")
 
       # Dump to file for each feature
       for feat_meta, result in zip(feature_map, results):
         tid, bid, fidx, label = feat_meta
         self.FEATURESPACE[fidx].dump(result)
-      if _verbose or _debug: 
+      if config.verbose() or config.debug():
         printit(f"Finished the trajectory {tid} with {len(tasks)} tasks")
       break
-    print("All trajectories and tasks are finished")
+    printit("All trajectories and tasks are finished")
 
 def wrapper_runner(func, args):
   """

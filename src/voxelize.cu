@@ -219,11 +219,16 @@ void voxelize_host(float *interpolated,
     coordi[0] = coord[atm_idx*3];
     coordi[1] = coord[atm_idx*3+1];
     coordi[2] = coord[atm_idx*3+2];
+
     if (coordi[0] == DEFAULT_COORD_PLACEHOLDER || coordi[1] == DEFAULT_COORD_PLACEHOLDER || coordi[2] == DEFAULT_COORD_PLACEHOLDER){
       // Skip the voxelization if the coordinate is the default value
       std::cout << "Skipping coordinate: " << coordi[0] << " " << coordi[1] << " " << coordi[2] << "; " << std::endl;
       continue;
+    } else if (weight[atm_idx] == 0.0f){
+      // Skip the voxelization if the weight is 0
+      continue;
     }
+
     cudaMemcpy(coordi_gpu, coordi, 3 * sizeof(float), cudaMemcpyHostToDevice);
     coordi_interp_kernel<<<grid_size, BLOCK_SIZE>>>(coordi_gpu, tmp_interp_gpu, dims_gpu, spacing, cutoff, sigma);
     cudaDeviceSynchronize();
@@ -233,9 +238,6 @@ void voxelize_host(float *interpolated,
     tmp_sum = sum(tmp_interp_cpu, gridpoint_nr);
     if (tmp_sum - 0 < 0.001) {
       /* The sum of the temporary array is used for normalization, skip if the sum is 0 */
-      // std::cerr << "Warning: The sum of the temporary array is 0; It might be due to CUDA error or the coordinate is out of the box; " << std::endl;
-      // std::cerr << "Coordinate: " << coordi[0] << " " << coordi[1] << " " << coordi[2] << "; ";
-      // std::cerr << "Boundary: " << dims[0]*spacing << " " << dims[1]*spacing << " " << dims[2]*spacing << std::endl;
       continue;
     } else {
       // Normalize the temporary array
@@ -253,11 +255,6 @@ void voxelize_host(float *interpolated,
   }
   for (int i = 0; i < atom_nr; ++i) {
     weight_sum += weight[i];
-  }
-  if (std::abs(final_sum_check - weight_sum) > 0.0001*weight_sum){
-    std::cerr << "Warning: The sum of the interpolated array is not equal to the sum of the weights: " << final_sum_check << "/" << weight_sum << std::endl;
-  } else if (final_sum_check - 0 < 0.0001*weight_sum) {
-    std::cerr << "Warning: The sum of the interpolated array is 0" << std::endl;
   }
 
   // Copy the interpolated array to the host and free the GPU memory
