@@ -14,67 +14,60 @@
 #include <unordered_map>
 
 
-/*
-  Template functions
- */ 
-
 template <typename T>
-T gaussian_map(T x, double mu = 0.0, double sigma = 1.0){
+T gaussian_map(T dist, double mu = 0.0, double sigma = 1.0){
   // Distance-based gaussian probability of x given mu and sigma
-  return std::exp(-0.5 * std::pow((x - mu) / sigma, 2)) / (sigma * std::sqrt(2 * M_PI));
+  return std::exp(-0.5 * std::pow((dist - mu) / sigma, 2)) / (sigma * std::sqrt(2 * M_PI));
 }
 
 
 template <typename T>
-T max(const T *x, const int n){
-  T _max = x[0];
-  for (int i = 1; i < n; ++i) {
-    if (x[i] > _max) {
-      _max = x[i];
+T max(const T *Arr, const int N){
+  T max_val = Arr[0];
+  for (int i = 1; i < N; ++i){
+    if (Arr[i] > max_val) {
+      max_val = Arr[i];
     }
   }
-  return _max;
+  return max_val;
 }
 
 
 template <typename T>
-T min(const T *x, const int n){
-  T _min = x[0];
-  for (int i = 1; i < n; ++i) {
-    if (x[i] < _min) {
-      _min = x[i];
+T min(const T *Arr, const int N){
+  T min_val = Arr[0];
+  for (int i = 1; i < N; ++i) {
+    if (Arr[i] < min_val) {
+      min_val = Arr[i];
     }
   }
-  return _min;
+  return min_val;
 }
 
 
 template <typename T>
-T sum(const T *x, const int n){
-  T _sum = 0;
-  for (int i = 0; i < n; ++i) {
-    _sum += x[i];
+T sum(const T *Arr, const int N){
+  T sum_val = 0;
+  for (int i = 0; i < N; ++i) {
+    sum_val += Arr[i];
   }
-  return _sum;
+  return sum_val;
 }
 
 
 template <typename T>
-T mean(const T *x, const int n){
-  T sum = 0;
-  for (int i = 0; i < n; ++i) {
-    sum += x[i];
-  }
-  return sum / n;
+T mean(const T *Arr, const int N){
+  T thesum = sum(Arr, N);
+  return thesum / N;
 }
 
 
 template <typename T>
 T standard_deviation(const T *x, const int n){
-  T _mean = mean(x, n);
+  T mean_val = mean(x, n);
   T sum = 0;
   for (int i = 0; i < n; ++i) {
-    sum += (x[i] - _mean) * (x[i] - _mean);
+    sum += (x[i] - mean_val) * (x[i] - mean_val);
   }
   return std::sqrt(sum / n);
 }
@@ -279,32 +272,48 @@ bool almost_equal(const T& a, const T& b) {
   }
 }
 
-// Small inline functions
-inline double array_entropy(const std::vector<int>& x){
-  /*
-    Get the entropy of a vector of integers (type has to be int !!!!)
-   */ 
-  // Use a hashmap to count occurrences of each unique element
-  if (x.size() == 1){return 0.0;}
+
+/**
+ * @brief Get the information entropy of a vector of integers
+ */ 
+inline double information_entropy(const std::vector<int>& Arr){
+  if (Arr.size() <= 1){ return 0.0; }
   std::unordered_map<int, int> counts;
-  for (const auto& xi : x){
+  for (const auto& xi : Arr){
     counts[xi]++;
   }
   // Calculate the probability of each unique element
-  double total = static_cast<double>(x.size());
-  std::vector<double> probs;
+  double entropy_val = 0.0;
   for (const auto& pair : counts){
-    probs.push_back(static_cast<double>(pair.second) / total);
+    double prob = static_cast<double>(pair.second) / Arr.size();
+    entropy_val -= prob * log2(prob + 1e-10);
   }
-  // Calculate entropy using the formula: -sum(p * log2(p))
-  double _entropy = 0.0;
-  // Add a small constant to avoid log2(0)
-  for (const auto& prob : probs){
-    _entropy -= prob * log2(prob + 1e-10);
-  }
-  return _entropy;
+  return entropy_val;
 }
 
+/**
+ * This is the same information entropy realization as the information_entropy_device 
+ * in the gpuutils.cuh
+ */
+template <typename T>
+double information_entropy(const T *Arr, const int N){
+  if (N <= 1){ return 0.0f; }
+  int *Arr_copy = new int[N];
+  for (int i = 0; i < N; i++){
+    Arr_copy[i] = static_cast<int>(Arr[i]*10);
+  }
+  std::unordered_map<int, int> counts;
+  for (int i = 0; i < N; i++){
+    counts[Arr_copy[i]]++;
+  }
+  double entropy_val = 0.0;
+  for (const auto& pair : counts){
+    double prob = static_cast<double>(pair.second) / N;
+    entropy_val -= prob * log2(prob + 1e-10);
+  }
+  delete[] Arr_copy;
+  return entropy_val;
+}
 
 
 // Used in ICP algorithm
@@ -320,8 +329,9 @@ inline std::vector<int> sample_points(int N, int A, int B, bool sort_values = tr
   std::mt19937 gen(rd());
   std::shuffle(values.begin(), values.end(), gen);
   values.resize(N);
-  if (sort_values)
+  if (sort_values){
     std::sort(values.begin(), values.end());
+  }
   return values;
 }
 

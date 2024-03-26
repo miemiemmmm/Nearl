@@ -25,6 +25,9 @@ __all__ = [
   "Backbone",
   "AtomType",
   "PartialCharge",
+  "Electronegativity",
+  "Hydrophobicity",
+
 
   # Dynamic features
   "DensityFlow",
@@ -48,6 +51,45 @@ __all__ = [
   This change has to take place in the featurizer object because the trajectories are registered into the featurizer. Add 
   the variable attribute to the featurizer object and use it in the re-organized feature.featurize() function. 
 """
+
+
+# Hardcoded maps in dynamic feature preparation
+SUPPORTED_FEATURES = {
+  "atomic_id": 1,       "residue_id": 2,  "atomic_number": 3, "hybridization": 4,
+
+  "mass": 11, "radius": 12, "electronegativity": 13, "hydrophobicity": 14,
+  "partial_charge": 15,
+
+  "heavy_atom": 21, "aromaticity": 22, "ring": 23, "hbond_donor": 24,
+  "hbond_acceptor": 25, "backboneness": 26, "sidechainness": 27,  "atom_type": 28
+}
+
+
+# Hardcoded maps in the C++ level code
+SUPPORTED_AGGREGATION = {
+  "mean": 1,
+  "standard_deviation": 2,
+  "median": 3,
+  "variance": 4,
+  "max": 5,
+  "min": 6,
+  "information_entropy": 7
+}
+
+
+# Hardcoded maps in the C++ level code
+SUPPORTED_OBSERVATION = {
+  "existence": 1,
+  "direct_count": 2,
+  "distinct_count": 3,
+  "mean_distance": 11,
+  "cumulative_weight": 12,
+  "density": 13,
+  "dispersion": 14,
+  "eccentricity": 15,
+  "radius_of_gyration": 16
+}
+
 
 def crop(points, upperbound, padding):
   """
@@ -81,12 +123,35 @@ def crop(points, upperbound, padding):
   return mask_inbox
 
 
+def selection_to_mol(traj, frameidx, selection):
+  atom_sel = np.asarray(selection)
+  try: 
+    rdmol = utils.traj_to_rdkit(traj, atom_sel, frameidx)
+    if rdmol is None:
+      with tempfile.NamedTemporaryFile(suffix=".pdb") as temp:
+        outmask = "@"+",".join((atom_sel+1).astype(str))
+        _traj = traj[outmask].copy_traj()
+        pt.write_traj(temp.name, _traj, frame_indices=[frameidx], overwrite=True)
+        with open(temp.name, "r") as tmp:
+          print(tmp.read())
+        rdmol = Chem.MolFromMol2File(temp.name, sanitize=False, removeHs=False)
+    return rdmol
+  except:
+    return None
+
+
 class Feature:
   """
   Base class for the feature generator
+
+  Attributes
+  ----------
+  dims : np.ndarray
+    The dimensions of the grid
+  spacing : float
+  
   """
   # The input and the output of the query, run and dump function should be chained together.
-  # The hook function should 
   #   Key methods
   # -----------
   # - hook: Hook the feature generator back to the feature convolutor and obtain necessary attributes from the featurizer
@@ -309,9 +374,6 @@ class Feature:
       printit(f"{self.__class__.__name__} Warning: The sum of the returned array is zero")
     elif np.isnan(ret_sum):
       printit(f"{self.__class__.__name__} Warning: The returned array has {np.isnan(ret).sum()} NaN values")
-    # Near the boundary, the coordinates might not sum up to the weights
-    # elif not np.isclose(ret_sum, np.sum(weights)):
-    #   printit(f"{self.__class__.__name__} Warning: The sum of the returned array {ret_sum} is not equal to the sum of the weights {np.sum(weights)}")
     return ret
 
   def dump(self, result):
@@ -326,7 +388,7 @@ class Feature:
     if ("outfile" in dir(self)) and ("outkey" in dir(self)) and (len(self.outfile) > 0):
       if self.outshape is not None or self._outshape != False: 
         # Explicitly set the shape of the output
-        utils.append_hdf_data(self.outfile, self.outkey, np.asarray([result], dtype=np.float32), dtype=np.float32, maxshape=(None, *self.outshape), chunks=True, compression="gzip", compression_opts=4)
+        utils.append_hdf_data(self.outfile, self.outkey, np.asarray([result], dtype=np.float32), dtype=np.float32, maxshape=self.outshape, chunks=True, compression="gzip", compression_opts=4)
       elif len(self.dims) == 3: 
         utils.append_hdf_data(self.outfile, self.outkey, np.asarray([result], dtype=np.float32), dtype=np.float32, maxshape=(None, *self.dims), chunks=True, compression="gzip", compression_opts=4)
 
@@ -559,6 +621,7 @@ class Hybridization(Feature):
     coord_inbox = coord_inbox - focal_point + self.center
     return coord_inbox, weights
 
+
 class Backbone(Feature):
   def __init__(self, reverse=False, **kwargs):
     super().__init__(**kwargs)
@@ -603,54 +666,111 @@ class AtomType(Feature):
 
 # /MieT5/BetaPose/nearl/data/charge_charmm36.json   # self.mode = "charmm36"
 # /MieT5/BetaPose/nearl/data/charge_ff14sb.json     # self.mode = "ff14sb"
-# self.charge_type = "eem" # self.charge_parm = "EEM_00_NEEMP_ccd2016_npa"
-# self.charge_type = "peoe" # self.charge_parm = "PEOE_00_original"
 class PartialCharge(Feature):
   """
   Auxiliary class for featurizer. Needs to be hooked to the featurizer after initialization.
   Atomic charge feature for the structure of interest;
+  The charges are calculated using the ChargeFW package
+
+  Parameters
+  ----------
+  charge_type : str, Using 'qeq' by default
+    The charge type. If 'manual' is used, the charge_parm should be set manually via an array of charge values of each atom
+  charge_parm : str, Using 'QEq_00_original' by default 
+    The charge parameter
+  force_compute : bool, Using False by default
+    The partial charge will be prioritized from the charges are already in the trajectory/topology. If True, the charge values will be recomputed anyway. 
+
+  Notes
+  -----
+  For more information about the charge types and parameters, please refer to the ChargeFW documentation with the url: 
+  https://github.com/sb-ncbr/ChargeFW2
   """
-  def __init__(self, charge_type="qeq", charge_parm="QEq_00_original", **kwargs):
+  def __init__(self, charge_type="qeq", charge_parm="QEq_00_original", force_compute=False, **kwargs):
     super().__init__(**kwargs)
     # The following types are supported by ChargeFW: 
-    [ "sqeqp",  "eem",  "abeem",  "sfkeem",  "qeq",
-      "smpqeq",  "eqeq",  "eqeqc",  "delre",  "peoe",
-      "mpeoe",  "gdac",  "sqe",  "sqeq0",  "mgc",
-      "kcm",  "denr",  "tsef",  "charge2",  "veem",
-      "formal"
-    ]
-
+    # [ "sqeqp",  "eem",  "abeem",  "sfkeem",  "qeq",
+    #   "smpqeq",  "eqeq",  "eqeqc",  "delre",  "peoe",
+    #   "mpeoe",  "gdac",  "sqe",  "sqeq0",  "mgc",
+    #   "kcm",  "denr",  "tsef",  "charge2",  "veem",
+    #   "formal"
+    # ]
     self.charge_type = charge_type
     self.charge_parm = charge_parm
+    self.force_compute = force_compute
 
   def cache(self, trajectory):
     super().cache(trajectory)
+    if np.abs(trajectory.top.charge).sum() > 0 and not self.force_compute:
+      # Inherit the charge values from the trajectory if the charges are already computed
+      self.charge_values = trajectory.top.charge
 
-    import chargefw2_python as cfw
-    charges = None
-    charge_values = None
-    with tempfile.NamedTemporaryFile(suffix=".pdb") as f:
-      pt.write_traj(f.name, trajectory, format="pdb", frame_indices=[0], overwrite=True)
-      try: 
-        mol = cfw.Molecules(f.name)
-        charges = cfw.calculate_charges(mol, self.charge_type, self.charge_parm)
-        # File name is the keyword of the returned charge values
+    elif self.charge_type == "manual": 
+      # If the charge type is manual, the charge values should be set manually
+      assert len(self.charge_parm) == trajectory.top.n_atoms, f"The number of charge values does not match the number of atoms in the trajectory"
+      self.charge_values = np.array(self.charge_parm, dtype=np.float32)
+
+    else: 
+      # Otherwise, compute the charges using the ChargeFW2
+      import chargefw2_python as cfw
+      charges = None
+      charge_values = None
+      mol = None
+      with tempfile.NamedTemporaryFile(suffix=".pdb") as f:
+        pt.write_traj(f.name, trajectory, format="pdb", frame_indices=[0], overwrite=True)
         filename = os.path.basename(f.name).split(".")[0]
-        if filename not in charges.keys():
-          raise ValueError(f"{self.__class__.__name__} The charges are not calculated for the file {filename}")
-        else: 
-          charge_values = np.array(charges[filename], dtype=np.float32)
-          if len(charge_values) != trajectory.n_atoms:
-            raise ValueError(f"{self.__class__.__name__} The number of charge values does not match the number of atoms in the trajectory")
-          else: 
-            self.charge_values = charge_values
-      except Exception as e: 
-        subprocess.call(["cp", f.name, "/tmp/chargefailed.pdb"])
-        printit(f"{self.__class__.__name__} Warning: Failed to calculate molecular charge because of the following error:\n {e}")
 
-    if charges is None or charge_values is None:
-      printit(f"{self.__class__.__name__} Warning: The charge values are not set", file=sys.stderr)
-      self.charge_values = np.zeros(trajectory.n_atoms)
+        # Step 1: Load the molecule
+        try: 
+          mol = cfw.Molecules(f.name)
+        except Exception as e: 
+          printit(f"{self.__class__.__name__} Warning: Failed to load the molecule because of the following error:\n{e}")
+        
+        # Step 2: Calculate the charges
+        try: 
+          charges = cfw.calculate_charges(mol, self.charge_type, self.charge_parm)
+          if filename not in charges.keys():
+            raise ValueError(f"{self.__class__.__name__}: The charges are not calculated for the file {filename}")
+          else: 
+            charge_values = np.array(charges[filename], dtype=np.float32)
+            if len(charge_values) != trajectory.n_atoms:
+              raise ValueError(f"{self.__class__.__name__}: The number of charge values does not match the number of atoms in the trajectory")
+            else: 
+              self.charge_values = charge_values
+        except Exception as e: 
+          # Step 3 (optional): If the default charge method fails, try alternative methods
+          subprocess.call(["cp", f.name, "/tmp/chargefailed.pdb"])
+          printit(f"{self.__class__.__name__} Warning: Default charge method {self.charge_type} failed due to the following error:\n{e}") 
+          for method, parmfile in cfw.get_suitable_methods(mol): 
+            if method == "formal":
+              continue
+            if len(parmfile) == 0:
+              parmfile = ""
+            else: 
+              parmfile = parmfile[0].split(".")[0]
+            if len(parmfile) > 0:
+              printit(f"{self.__class__.__name__}: Trying alternative charge methods {method} with {parmfile} parameter")
+            else: 
+              printit(f"{self.__class__.__name__}: Trying alternative charge methods {method} without parameter file")
+            try:
+              charges = cfw.calculate_charges(mol, method, parmfile)
+              if filename not in charges.keys():
+                continue
+              else:
+                charge_values = np.array(charges[filename], dtype=np.float32)
+                if len(charge_values) != trajectory.n_atoms:
+                  continue
+                else: 
+                  printit(f"{self.__class__.__name__}: Finished the charge computation with {method} method" + (" without parameter file" if len(parmfile) == 0 else " with parameter file"))
+                  self.charge_values = charge_values
+                  break
+            except Exception as e:
+              printit(f"{self.__class__.__name__} Warning: Failed to calculate molecular charge (Alternative charge types) because of the following error:\n {e}")
+              continue
+
+      if charges is None or charge_values is None:
+        printit(f"{self.__class__.__name__} Warning: The charge computation fails. Setting all charge values to 0. ", file=sys.stderr)
+        self.charge_values = np.zeros(trajectory.n_atoms)
 
   def query(self, topology, frame_coords, focal_point):
     if frame_coords.shape.__len__() == 3: 
@@ -681,7 +801,7 @@ class Electronegativity(Feature):
     return coord_inbox, weights
   
 
-class HydrophobicityFeature(Feature):
+class Hydrophobicity(Feature):
   def __int__(self):
     super().__init__()
 
@@ -699,26 +819,152 @@ class HydrophobicityFeature(Feature):
     coord_inbox = coord_inbox - focal_point + self.center
     return coord_inbox, weights
 
+
+def cache_properties(trajectory, property_type, **kwargs): 
+  """
+  Cache the required atomic properties for the trajectory. 
+  Re-implement the previously cached properties in the Feature classes
+
+  Direct count-based weights:
+    - atomic_id (int type) 
+    - residue_id (int type)
+
+  Atom properties-based weights:
+    - atomic_number (int type)
+    - hybridization (int type)
+
+    - mass (float type) 
+    - radius (float type)
+    - electronegativity (float type)
+    - hydrophobicity (float type)
+    - partial_charge (float type)
+    
+    - heavy_atom (boolean type)
+    - aromaticity (boolean type)
+    - ring (boolean type)
+    - hbond_donor (boolean type)
+    - hbond_acceptor (boolean type)
+    - sidechainness (boolean type)
+    - backboneness (boolean type)
+    - atom_type (boolean type)
+  """
+  
+  atoms = [i for i in trajectory.top.atoms]
+  atom_numbers = np.array([i.atomic_number for i in atoms], dtype=int)
+    
+  if property_type == 1:  
+    # atomic_id
+    cached_arr = np.array([i.index for i in atoms], dtype=np.float32)
+
+  elif property_type == 2:  
+    # residue_id
+    cached_arr = np.array([i.resid for i in atoms], dtype=np.float32)
+    
+  elif property_type == 3: 
+    # atomic_number
+    cached_arr = np.array([i.atomic_number for i in atoms], dtype=np.float32)
+
+  elif property_type == 4:
+    # Directly borrow the Hybridization feature class
+    tmp_feat = Hybridization()
+    tmp_feat.cache(trajectory)  
+    cached_arr = tmp_feat.atoms_hybridization
+
+  elif property_type == 11:
+    # Mass
+    cached_arr = np.array([constants.ATOMICMASS[i] for i in atom_numbers], dtype=np.float32)
+
+  elif property_type == 12:
+    # Radius
+    cached_arr = np.array([utils.VDWRADII[str(i)] for i in atom_numbers], dtype=np.float32)
+
+  elif property_type == 13:
+    # Electronegativity
+    cached_arr = np.array([constants.ELECNEG[i] for i in atom_numbers], dtype=np.float32)
+
+  elif property_type == 14:
+    # Hydrophobicity
+    elecnegs = np.array([constants.ELECNEG[i] for i in atom_numbers], dtype=np.float32)
+    cached_arr = np.abs(elecnegs - constants.ELECNEG[6])
+
+  elif property_type == 15:
+    # Partial charge
+    tmp_feat = PartialCharge()
+    tmp_feat.cache(trajectory)
+    cached_arr = tmp_feat.charge_values
+
+  elif property_type == 21:
+    # Heavy atom
+    cached_arr = np.full(len(atom_numbers), 0, dtype=np.float32)
+    cached_arr[np.where(atom_numbers > 1)] = 1
+
+  elif property_type == 22:
+    # Aromaticity
+    tmp_feat = Aromaticity()
+    tmp_feat.cache(trajectory)
+    cached_arr = tmp_feat.atoms_aromatic
+
+  elif property_type == 23:
+    # Ring
+    tmp_feat = Ring()
+    tmp_feat.cache(trajectory)
+    cached_arr = tmp_feat.atoms_in_ring
+
+  elif property_type == 24:
+    # HBondDonor
+    tmp_feat = HBondDonor()
+    tmp_feat.cache(trajectory)
+    cached_arr = tmp_feat.atoms_hbond_donor
+
+  elif property_type == 25:
+    # HBondAcceptor
+    tmp_feat = HBondAcceptor()
+    tmp_feat.cache(trajectory)
+    cached_arr = tmp_feat.atoms_hbond_acceptor
+
+  elif property_type == 26:
+    # backboneness 
+    backboneness = [1 if i.name in ["C", "O", "CA", "HA", "N", "HN"] else 0 for i in atoms]
+    cached_arr = np.array([1 if i == 0 else 0 for i in backboneness], dtype=np.float32)
+
+  elif property_type == 27:
+    # sidechainness
+    sidechainness = [0 if i.name in ["C", "O", "CA", "HA", "N", "HN"] else 1 for i in atoms]
+    cached_arr = np.array(sidechainness, dtype=np.float32)
+
+  elif property_type == 28:
+    # Needs the focus_element to be set in the kwargs
+    if "focus_element" not in kwargs.keys():
+      raise ValueError("The focus element should be set for the atom type")
+    focus_element = kwargs["focus_element"]
+    cached_arr = np.array([1 if i == focus_element else 0 for i in atom_numbers], dtype=np.float32)
+  
+  return np.asarray(cached_arr, dtype=np.float32)
+
+
+
 class DynamicFeature(Feature):
   def __init__(self, agg="mean", weight_type="mass", **kwargs):
     super().__init__(**kwargs)
     self.__agg_type = agg
     self.__weight_type = weight_type
+    # Need to manually handle the kwargs for specific features instances
+    self.feature_args = {} 
 
   @property
   def agg(self):
-    if self.__agg_type == "mean":
-      return 0
-    elif self.__agg_type == "median":
-      return 1
-    elif self.__agg_type == "std":
-      return 2
-    elif self.__agg_type == "variance":
-      return 3
-    elif self.__agg_type == "max":
-      return 4
-    elif self.__agg_type == "min":
-      return 5
+    """
+    Accepted aggregation functions for the dynamic feature: 
+    - mean 1 
+    - standard_deviation 2 
+    - median 3
+    - variance 4
+    - max 5
+    - min 6
+    - information_entropy 7
+    """
+    if self.__agg_type in SUPPORTED_AGGREGATION.keys():
+      return SUPPORTED_AGGREGATION[self.__agg_type]
     else:
       raise ValueError("The aggregation type is not recognized")
   @agg.setter
@@ -728,44 +974,48 @@ class DynamicFeature(Feature):
 
   @property
   def weight_type(self):
-    if self.__weight_type == "atomic_number":
-      return 0
-    elif self.__weight_type == "mass":
-      return 1
-    elif self.__weight_type == "radius":
-      return 2
-    elif self.__weight_type == "residue_id":
-      return 3
-    elif self.__weight_type == "sidechainness":
-      return 4
+    """
+    Check SUPPORTED_FEATURES for the available weight types. 
+
+    Notes
+    -----
+    Be cautious about the partial charge (which contains both positive and negative values). A lot of aggregation functions compute weighted average (e.g. weighted center). 
+    Make sure that the weight and aggregation function valid in physical sense. 
+    """
+    if self.__weight_type in SUPPORTED_FEATURES.keys():
+      return SUPPORTED_FEATURES[self.__weight_type]
     else:
-      raise ValueError("The weight type is not recognized")
+      raise ValueError(f"The weight type is not recognized {self.__weight_type}; Available types are {SUPPORTED_FEATURES.keys()}")
   @weight_type.setter
   def weight_type(self, value):
     assert isinstance(value, str), "The weight type should be a string"
     self.__weight_type = value
   
   def cache(self, trajectory): 
+    """
+    Take the required weight type (self.weight_type) and cache the weights for each atom in the trajectory
+    """
     super().cache(trajectory)   # Obtain the atomic number and residue IDs
-    cache = np.full((trajectory.n_atoms), 0.0, dtype=np.float32)
-    if self.weight_type == 0:
-      cache = np.array(self.atomic_numbers, dtype=np.float32)
-    elif self.weight_type == 1:
-      # Map the mass to atoms 
-      cache = np.array([constants.ATOMICMASS[i] for i in self.atomic_numbers], dtype=np.float32)
-    elif self.weight_type == 2:
-      # Map the radius to atoms
-      cache = np.array([utils.VDWRADII[str(i)] for i in self.atomic_numbers], dtype=np.float32)
-    elif self.weight_type == 3:
-      # Resiude ID
-      cache = np.array([i.resid for i in self.top.atoms], dtype=np.float32)
-    elif self.weight_type == 4:
-      # Sidechainness
-      cache = np.array([1 if i.name in ["C", "N", "O", "CA"] else 0 for i in self.top.atoms], dtype=np.float32)
-    else: 
-      # Uniformed weights
-      cache = np.full(len(cache), 1.0, dtype=np.float32)
-    self.cached_weights = cache
+    cache_properties(trajectory, self.weight_type)
+    # cache = np.full((trajectory.n_atoms), 0.0, dtype=np.float32)
+    # if self.weight_type == 0:
+    #   cache = np.array(self.atomic_numbers, dtype=np.float32)
+    # elif self.weight_type == 1:
+    #   # Map the mass to atoms 
+    #   cache = np.array([constants.ATOMICMASS[i] for i in self.atomic_numbers], dtype=np.float32)
+    # elif self.weight_type == 2:
+    #   # Map the radius to atoms
+    #   cache = np.array([utils.VDWRADII[str(i)] for i in self.atomic_numbers], dtype=np.float32)
+    # elif self.weight_type == 3:
+    #   # Resiude ID
+    #   cache = np.array([i.resid for i in self.top.atoms], dtype=np.float32)
+    # elif self.weight_type == 4:
+    #   # Sidechainness
+    #   cache = np.array([1 if i.name in ["C", "N", "O", "CA"] else 0 for i in self.top.atoms], dtype=np.float32)
+    # else: 
+    #   # Uniformed weights
+    #   cache = np.full(len(cache), 1.0, dtype=np.float32)
+    # self.cached_weights = cache
 
   def query(self, topology, frame_coords, focal_point):
     """
@@ -815,7 +1065,14 @@ class DensityFlow(DynamicFeature):
 
   Aggregation type: mean, std, sum
 
-  Weight type: mass, radius, residue_id, sidechainness, uniform, atomid
+  Weight type:
+    Direct count-based weights: 
+      uniform, atomid
+
+    Atom properties-based weights:
+      mass, radius, residue_id, sidechainness
+
+
   """
   # agg = "mean", # weight_type="mass", 
   def __init__(self, **kwargs):
@@ -835,17 +1092,40 @@ class DensityFlow(DynamicFeature):
     return ret_arr.reshape(self.dims)  
 
 
+
+
 class MarchingObservers(DynamicFeature): 
   """
   Perform the marching observers algorithm to get the dynamic feature. 
 
   Inherit from the DynamicFeature class since there are common ways to query the coordinates and weights. 
+  
 
-  Observation types: particle_count, particle_existance, mean_distance, radius_of_gyration
+  Observation types: 
+    Direct Count-based Observables
+      - existence 1
+      - direct_count 2
+      - distinct_count 3
+    
+    Weight-based Observables
+      - mean_distance 11
+      - cumulative_weight 12
+      - density  13
+      - dispersion  14
+      - eccentricity  15
+      - radius_of_gyration  16
 
-  Weight types: mass, radius, residue_id, sidechainness, uniform
+  Weight types: 
+    mass, radius, residue_id, sidechainness, uniform
 
-  Aggregation type: mean, std, sum
+  Aggregation type: 
+    - mean 1 
+    - standard_deviation 2 
+    - median 3
+    - variance 4
+    - max 5
+    - min 6
+    - information_entropy 7
   
   """
   def __init__(self, obs="particle_existance", **kwargs): 
@@ -853,17 +1133,12 @@ class MarchingObservers(DynamicFeature):
     # while initialization of the parent class, weight_type, cutoff, agg are set
     super().__init__(**kwargs)
     self.__obs_type = obs     # Directly pass to the CUDA voxelizer
+    
 
   @property
   def obs(self):
-    if self.__obs_type == "particle_count":
-      return 1
-    elif self.__obs_type == "particle_existance": 
-      return 2
-    elif self.__obs_type == "mean_distance":
-      return 3
-    elif self.__obs_type == "radius_of_gyration":
-      return 4
+    if self.__obs_type in SUPPORTED_OBSERVATION.keys():
+      return SUPPORTED_OBSERVATION[self.__obs_type]
     else:
       raise ValueError("The observation type is not recognized")
   @obs.setter
@@ -910,13 +1185,12 @@ class MarchingObservers(DynamicFeature):
 
 class Label_RMSD(Feature): 
   def __init__(self, 
-    selection=None, selection_type=None, base_value=0, 
+    selection=None, base_value=0, 
     outshape=(None,), 
     **kwargs
   ): 
     super().__init__(outshape = outshape, **kwargs) 
     self.selection = selection
-    self.selection_type = selection_type   # "mask" or (list, tuple, np.ndarray) for atom indices
     self.base_value = float(base_value)
 
   def cache(self, trajectory): 
@@ -932,7 +1206,6 @@ class Label_RMSD(Feature):
 
     self.cached_array = pt.rmsd_nofit(trajectory, mask=selected, ref=self.refframe)
     self.cached_array = np.minimum(self.cached_array, RMSD_CUTOFF)  # Set a cutoff RMSD for limiting the z-score
-    
 
   def query(self, topology, frames, focus): 
     # Query points near the area around the focused point
@@ -952,14 +1225,32 @@ class Label_RMSD(Feature):
     
 
 class Label_PCDT(Feature): 
+  """
+  Label the feature based on the cosine similarity between the PCDT of the focused point and the cached PCDT array.
+
+  Parameters
+  ----------
+  selection : str or list, tuple, np.ndarray
+    The selection of the atoms for the PCDT calculation
+  selection_type : str
+    The selection type of the atoms for the PCDT calculation
+  base_value : float
+    The base value of the feature
+  outshape : tuple
+    The output shape of the feature array
+
+  Notes
+  -----
+  
+  """
   def __init__(self, 
-    outkey=None, outfile=None, outshape=(None,),
     selection=None, selection_type=None, base_value=0, 
+    outshape=(None,),
     **kwargs
   ): 
-    super().__init__(outkey=outkey, outfile=outfile, outshape = outshape, **kwargs) 
+    super().__init__(outshape = outshape, **kwargs) 
     self.selection = selection
-    self.selection_type = selection_type   # "mask" or (list, tuple, np.ndarray) for atom indices
+    self.selection_type = selection_type
     self.selection_counterpart = None
     self.base_value = float(base_value)
 
@@ -974,18 +1265,27 @@ class Label_PCDT(Feature):
     RMSD_CUTOFF = 8
     self.refframe = trajectory[0]
     self.refframe.xyz[self.selection]
-    self.selection_counterpart = []
+    backbone_cb = trajectory.top.select("@C, @N, @CA, @O, @CB")
+    self.selection_counterpart = np.full(len(selected), 0, dtype=int)
+    # Use kdtree to select closest partners among backbone_cb
+    print(backbone_cb)
+    for i in range(len(selected)):
+      dist = np.linalg.norm(self.refframe.xyz[selected[i]] - self.refframe.xyz[backbone_cb], axis=1)
+      self.selection_counterpart[i] = backbone_cb[np.argmin(dist)]
+      print(f"partner of atom {selected[i]} is {self.selection_counterpart[i]}")
+    
 
-    self.cached_array = utils.compute_pcdt(trajectory, mask=selected, ref=self.refframe, return_info=False)
+    # def compute_pcdt(traj, mask1, mask2, use_mean=False, ref=None, return_info=False):
+    self.cached_array = utils.compute_pcdt(trajectory, selected, self.selection_counterpart, ref=self.refframe, return_info=False)
     self.cached_array = np.minimum(self.cached_array, RMSD_CUTOFF)  # Set a cutoff distance for limiting the z-score
 
   def query(self, topology, frames, focus):
     tmptraj = pt.Trajectory(xyz=frames, top=topology)
-    pdist_arr = utils.compute_pcdt(tmptraj, mask=self.selection, ref=self.refframe)
+    pdist_arr = utils.compute_pcdt(tmptraj, self.selection, self.selection_counterpart, ref=self.refframe, return_info=False)
     pdist_mean = np.mean(pdist_arr, axis=1)
     pdist_mean_cached = np.mean(self.cached_array, axis=1)
     cosine_sim = (np.dot(pdist_mean, pdist_mean_cached) / (np.linalg.norm(pdist_mean) * np.linalg.norm(pdist_mean_cached)))
-    return cosine_sim
+    return (cosine_sim,)
   
   def run(self, cosine_sim): 
     # Cosine similarity between 1 and -1
@@ -995,11 +1295,7 @@ class Label_PCDT(Feature):
 
 
 class Label_ResType(Feature): 
-  def __init__(self,
-    outkey=None, outfile=None, outshape=(None,),
-    restype="single", byres=True,
-    **kwargs
-  ): 
+  def __init__(self, restype="single", byres=True, outshape=(None,), **kwargs): 
     """
     Check the labeled single/dual residue labeling based on the residue type.
 
@@ -1007,7 +1303,7 @@ class Label_ResType(Feature):
     -----
     This is the special label-type feature that returns the label based on the residue type.
     """
-    super().__init__(outkey=outkey, outfile=outfile, outshape = outshape, byres=True, **kwargs)
+    super().__init__(outshape = outshape, byres=byres, **kwargs)
     self.restype = restype
   
   def query(self, topology, frames, focus):
@@ -1041,24 +1337,6 @@ class Label_ResType(Feature):
       printit(f"DEBUG: The residue type {resname} is not recognized, there might be some problem in the trajectory cropping")
       retval = 0
     return retval
-  
-
-
-def selection_to_mol(traj, frameidx, selection):
-  atom_sel = np.asarray(selection)
-  try: 
-    rdmol = utils.traj_to_rdkit(traj, atom_sel, frameidx)
-    if rdmol is None:
-      with tempfile.NamedTemporaryFile(suffix=".pdb") as temp:
-        outmask = "@"+",".join((atom_sel+1).astype(str))
-        _traj = traj[outmask].copy_traj()
-        pt.write_traj(temp.name, _traj, frame_indices=[frameidx], overwrite=True)
-        with open(temp.name, "r") as tmp:
-          print(tmp.read())
-        rdmol = Chem.MolFromMol2File(temp.name, sanitize=False, removeHs=False)
-    return rdmol
-  except:
-    return None
 
 
 class VectorizerViewpoint(Feature):

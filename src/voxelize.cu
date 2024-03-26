@@ -4,7 +4,7 @@
 #include "gpuutils.cuh"
 #include "cpuutils.h"
 
-#define DEFAULT_COORD_PLACEHOLDER 0.0f
+#define DEFAULT_COORD_PLACEHOLDER 99999.0f
 
 // TODO : Simplify this module. 
 
@@ -15,7 +15,6 @@ __global__ void sum_kernel(const float *array, float *result, int N) {
   }
 }
 
-
 __global__ void add_temparray_kernel(const float *temp_array, float *interpolated, const int grid_size){
   unsigned int task_index = blockIdx.x * blockDim.x + threadIdx.x;
   if (task_index < grid_size){
@@ -23,12 +22,15 @@ __global__ void add_temparray_kernel(const float *temp_array, float *interpolate
   }
 }
 
-// Host functions ???
-// TODO: Check the necessity of the following host functions
+
+/**
+ * 
+ * C++ wrapper of the CUDA kernel function sum_host
+ * Host functions ???
+ * TODO: Check the necessity of the following host functions
+ */
 float sum_host(std::vector<float> input_array) {
-  /*
-  C++ wrapper of the CUDA kernel function sum_host
-  */
+  
   int N = input_array.size();
   float *arr, *result;
   cudaMallocManaged(&arr, N * sizeof(float));
@@ -50,10 +52,11 @@ float sum_host(std::vector<float> input_array) {
 }
 
 
+/**
+ * C++ wrapper of the CUDA kernel function sum_host
+ */
 float sum_host(const float *input_array, int N) {
-  /*
-  C++ wrapper of the CUDA kernel function sum_host
-  */
+  
   float *arr, *result;
   cudaMallocManaged(&arr, N * sizeof(float));
   cudaMallocManaged(&result, sizeof(float));
@@ -139,63 +142,20 @@ __global__ void coordi_interp_kernel(const float *coord, float *interpolated, co
 }
 
 
-__global__ void g_grid_entropy(double* data1, double* data2, int* atominfo, double* gridpoints,
-  int atom_nr, int gridpoint_nr, int d, double cutoff_sq) {
-  /*
-    Compute the entropy of each grid by modifying the gridpoints[i];
-    data1: coordinates of the grid points
-    data2: coordinates of the atoms
-    atominfo: atom information
-    gridpoints: grid points to be calculated
-   */
-  int i = blockIdx.x * blockDim.x + threadIdx.x;
-  // Note there is limitation in the Max number of shared memory in CUDA; ~48KB, ~12K int, ~6K double
-  const int MAX_INFO_VALUE = 10000;
-  __shared__ int temp_atominfo[MAX_INFO_VALUE];
-
-  if (i < gridpoint_nr) {
-    // Compute the entropy of each grid by modifying the gridpoints[i];
-    double dist_sq;
-    bool skip;
-    for (int j = 0; j < atom_nr; j++){
-      dist_sq = 0.0;
-      skip = false;
-      for (int k = 0; k < d; k++){
-        double diff = data1[j*d + k] - data2[i*d + k];
-        if (abs(diff) > cutoff_sq) { skip = true; break; }
-        dist_sq += diff * diff;
-        if (dist_sq > cutoff_sq) { skip = true; break; }
-      }
-      if (!skip){
-        int idx = atominfo[j] % MAX_INFO_VALUE;
-        atomicAdd(&temp_atominfo[idx], 1);
-        printf("tid: %d - bid %d; atomic information: %d ; occurrences: %d; \n", threadIdx.x, blockIdx.x, idx, temp_atominfo[idx]);
-      }
-    }
-    double entropy_val = 0.0;
-    for (int tmp = 0; tmp < MAX_INFO_VALUE; ++tmp) {
-      if (temp_atominfo[tmp] != 0) {
-        double prob = temp_atominfo[tmp] / atom_nr;
-        entropy_val += prob * log(prob);
-      }
-    }
-    atomicAdd(&gridpoints[i], -entropy_val);
-  }
-}
-
-
-void voxelize_host(float *interpolated, 
+/**
+ * @brief Interpolate the atomic density to a grid using the Gaussian function
+ */
+void voxelize_host(
+  float *interpolated, 
   const float *coord, 
   const float *weight, 
   const int *dims, 
-  const int atom_nr, 
   const float spacing, 
+  const int atom_nr, 
   const float cutoff, 
   const float sigma
 ){
-  /*
-    Interpolate the atomic density to a grid using the Gaussian function
-   */
+  
   unsigned int gridpoint_nr = dims[0] * dims[1] * dims[2];
   int grid_size = (gridpoint_nr + BLOCK_SIZE - 1) / BLOCK_SIZE;
   float *tmp_interp_cpu = new float[gridpoint_nr];
@@ -266,14 +226,17 @@ void voxelize_host(float *interpolated,
 }
 
 
+/**
+ * @brief 
+ */
 void trajectory_voxelization_host(
   float *voxelize_dynamics, 
   const float *coord, 
   const float *weight, 
   const int *dims, 
+  const float spacing,
   const int frame_nr, 
   const int atom_nr, 
-  const float spacing,
   const float cutoff, 
   const float sigma,
   const int type_agg
@@ -303,7 +266,7 @@ void trajectory_voxelization_host(
       coordi[0] = coord[stride_per_frame + ai*3];
       coordi[1] = coord[stride_per_frame + ai*3 + 1];
       coordi[2] = coord[stride_per_frame + ai*3 + 2];
-      if (coordi[0] == DEFAULT_COORD_PLACEHOLDER || coordi[1] == DEFAULT_COORD_PLACEHOLDER || coordi[2] == DEFAULT_COORD_PLACEHOLDER){
+      if (coordi[0] == DEFAULT_COORD_PLACEHOLDER && coordi[1] == DEFAULT_COORD_PLACEHOLDER && coordi[2] == DEFAULT_COORD_PLACEHOLDER){
         // Skip the voxelization if the coordinate is the default value
         std::cout << "Skipping the default coordinate: " << coordi[0] << " " << coordi[1] << " " << coordi[2] << "; " << std::endl;
         continue;

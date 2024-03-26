@@ -1,10 +1,13 @@
+// Function for voxelization of atomic coordinates and weights
+
+
 void voxelize_host(
   float *interpolated, 
   const float *coord, 
   const float *weight, 
   const int *dims, 
-  const int atom_nr, 
   const float spacing, 
+  const int atom_nr, 
   const float cutoff, 
   const float sigma
 );
@@ -14,9 +17,9 @@ void trajectory_voxelization_host(
   const float *coord, 
   const float *weight, 
   const int *dims, 
+  const float spacing,
   const int frame_nr, 
   const int atom_nr, 
-  const float spacing,
   const float cutoff, 
   const float sigma,
   const int type_agg
