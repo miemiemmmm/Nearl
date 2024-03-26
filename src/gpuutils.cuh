@@ -10,74 +10,188 @@
 
 
 template <typename T>
-__device__ T max_device(const T *x, const int n){
-  T max = x[0];
-  for (int i = 1; i < n; i++){
-    if (x[i] > max){
-      max = x[i];
+__device__ T max_device(const T *Arr, const int N){
+  T max = Arr[0];
+  for (int i = 1; i < N; i++){
+    if (Arr[i] > max){
+      max = Arr[i];
     }
   }
   return max;
 }
 
+
 template <typename T>
-__device__ T min_device(const T *x, const int n){
-  T min = x[0];
-  for (int i = 1; i < n; i++){
-    if (x[i] < min){
-      min = x[i];
+__device__ T min_device(const T *Arr, const int N){
+  T min = Arr[0];
+  for (int i = 1; i < N; i++){
+    if (Arr[i] < min){
+      min = Arr[i];
     }
   }
   return min;
 }
 
+
 template <typename T>
-__device__ T sum_device(const T *x, const int n){
+__device__ T sum_device(const T *Arr, const int N){
   T sum = 0;
-  for (int i = 0; i < n; i++){
-    sum += x[i];
+  for (int i = 0; i < N; i++){
+    sum += Arr[i];
   }
   return sum;
 }
 
 
-// TODO test the template. 
 template <typename T>
-__device__ float mean_device(const T *x, const int n){
-  T thesum = sum_device(x, n);
-  float ret = static_cast<float>(sum_device(x, n)) / n;
+__device__ float mean_device(const T *Arr, const int N){
+  T thesum = sum_device(Arr, N);
+  float ret = static_cast<float>(sum_device(Arr, N)) / N;
   return ret;
 }
 
 
 template <typename T>
-__device__ float standard_deviation_device(const T *x, const int n){
-  float mean = mean_device(x, n);
+__device__ float standard_deviation_device(const T *Arr, const int N){
+  float mean = mean_device(Arr, N);
   T sum = 0;
-  for (int i = 0; i < n; i++){
-    sum += (x[i] - mean) * (x[i] - mean);
+  for (int i = 0; i < N; i++){
+    sum += (Arr[i] - mean) * (Arr[i] - mean);
   }
-  float ret = sqrtf(sum / n); 
+  float ret = sqrtf(sum / N); 
   return ret;
 }
 
+
+
 template <typename T>
-__device__ float variance_device(const T *x, const int n){
-  float mean = mean_device(x, n);
+__device__ float variance_device(const T *Arr, const int N){
+  float mean = mean_device(Arr, N);
   T sum = 0;
-  for (int i = 0; i < n; i++){
-    sum += (x[i] - mean) * (x[i] - mean);
+  for (int i = 0; i < N; i++){
+    sum += (Arr[i] - mean) * (Arr[i] - mean);
   }
-  return sum / n;
+  return sum / N;
 }
 
 
+/**
+ * @brief Calculates the information entropy of an array on the CUDA device.
+ * 
+ * This function estimates the information entropy by first creating a probability
+ * distribution of the elements in the input array. Each element is scaled and
+ * rounded to produce a discrete set of values. The implementation assumes a finite 
+ * set of possible values (up to 256 unique values) after the scaling and rounding process.
+ * 
+ * @tparam T Numerical data type of the array elements
+ * @param Arr Pointer to the input array of type T located in device memory
+ * @param N The number of elements in the input array
+ * @return The computed information entropy as a float
+ * 
+ * @note The function multiplies each array element by 10 and rounds it to
+ *       the nearest integer to simplify the value range. This is a heuristic
+ *       approach and might not be suitable for all types of data or applications.
+ * 
+ */
 template <typename T>
-__device__ float cosine_similarity(const T *vec1, const T *vec2, int dim){
+__device__ float information_entropy_device(const T *Arr, const int N){
+  if (N <= 1){return 0.0f;}
+  int met_values[256] = {0};
+  int met_counts[256] = {0};
+  float entropy_val = 0.0f;
+
+  for (int i = 0; i < N; i++){
+    // Trick to rounded any number to a int (1 digit)
+    int val = Arr[i] * 10; 
+    bool met = false;
+    for (int j = 0; j < 256; j++){
+      if (met_values[j] == val){
+        met = true;
+        met_counts[j] += 1;
+        break;
+      }
+    }
+    if (!met){
+      for (int j = 0; j < 256; j++){
+        if (met_values[j] == 0){
+          met_values[j] = val;
+          met_counts[j] = 1;
+          break;
+        }
+      }
+    }
+  }
+  // Calculate the result based on the probability distribution
+  for (int i = 0; i < 256; i++){
+    if (met_values[i] == 0){
+      break;
+    }
+    float prob = static_cast<float>(met_counts[i]) / N;
+    entropy_val -= prob * log2f(prob);
+  }
+  return entropy_val;
+}
+
+
+/**
+ * @brief Calculates the median value of an array on the CUDA device
+ * 
+ * This function firstly sorts the input array in ascending order via the bubble 
+ * sort algorithm. Then, it calculates the median value based on the number of
+ * elements in the array
+ * 
+ * @tparam T Numerical data type of the array elements
+ * @param Arr Pointer to the input array of type T located in device memory
+ * @param N The number of elements in the input array
+ * @return The computed median value as a float
+ * 
+ * @note Since this function modifies the input array in-place, make a copy of
+ * the array before calling this function if the original order of elements
+ * needs to be preserved.
+ * @note This function uses bubble sort for sorting, which has O(N^2) complexity
+ * and is not efficient for large arrays.
+ * 
+ */
+template <typename T>
+__device__ float median_device(T *Arr, const int N){
+  // Sort the array
+  for (int i = 0; i < N; i++){
+    for (int j = i + 1; j < N; j++){
+      if (Arr[i] > Arr[j]){
+        T temp = Arr[i];
+        Arr[i] = Arr[j];
+        Arr[j] = temp;
+      }
+    }
+  }
+  // Calculate the median
+  if (N % 2 == 0){
+    return (Arr[N / 2 - 1] + Arr[N / 2]) / 2;
+  } else {
+    return Arr[N / 2];
+  }
+}
+
+
+/**
+ * @brief Calculates the cosine similarity between two vectors on the CUDA device.
+ * 
+ * This function calculates the cosine similarity between two vectors of the same
+ * dimension. The cosine similarity is a measure of similarity between two non-zero
+ * vectors of an inner product space that measures the cosine of the angle between
+ * them. The cosine of 0 degrees is 1, and it is less than 1 for any other angle.
+ * 
+ * @tparam T Numerical data type of the vector elements
+ * @param vec1 Pointer to the first vector of type T located in device memory
+ * @param vec2 Pointer to the second vector of type T located in device memory
+ * @param N The number of elements in the input vectors
+ */
+template <typename T>
+__device__ float cosine_similarity(const T *vec1, const T *vec2, int N){
   float dot = 0;
   float norm1 = 0;
   float norm2 = 0;
-  for (int i = 0; i < dim; i++){
+  for (int i = 0; i < N; i++){
     dot += vec1[i] * vec2[i];
     norm1 += vec1[i] * vec1[i];
     norm2 += vec2[i] * vec2[i];
@@ -98,6 +212,24 @@ __device__ void centroid_device(const T *coord, T *centroid, const int point_nr,
   }
   for (int i = 0; i < dim; i++){
     centroid[i] /= point_nr;
+  }
+}
+
+
+template <typename T>
+__device__ void com_device(const T *coord, const T *mass, T *com, const int point_nr, const int dim){
+  for (int i = 0; i < dim; i++){
+    com[i] = 0;
+  }
+  T total_mass = 0;
+  for (int i = 0; i < point_nr; i++){
+    for (int j = 0; j < dim; j++){
+      com[j] += coord[i * dim + j] * mass[i];
+    }
+    total_mass += mass[i];
+  }
+  for (int i = 0; i < dim; i++){
+    com[i] /= total_mass;
   }
 }
 
@@ -123,7 +255,7 @@ __device__ double gaussian_map_nd_device(const T *x, const T *mu, const T *sigma
 }
 
 template <typename T>
-__device__ float distance(const T *coord1, const T *coord2, const int dim) {
+__device__ float distance_device(const T *coord1, const T *coord2, const int dim) {
   float sum = 0;
   for (int i = 0; i < dim; i++){
     sum += (coord1[i] - coord2[i]) * (coord1[i] - coord2[i]);
@@ -131,19 +263,13 @@ __device__ float distance(const T *coord1, const T *coord2, const int dim) {
   return sqrtf(sum);
 }
 
-
-
-// template <typename T>
-// __device__ float median_device(float *x, const int n);
-// TODO: Media is not very easy to parallelize.
-// __device__ float median_device(float *x, const int n) {
-//   thrust::sort(x, x + n);
-//   if (n % 2 == 0) {
-//     return (x[n / 2 - 1] + x[n / 2]) / 2;
-//   } else {
-//     return x[n / 2];
-//   }
-// }
-
+template <typename T>
+__device__ float square_distance_device(const T *coord1, const T *coord2) {
+  float sum = 0;
+  sum += (coord1[0] - coord2[0]) * (coord1[0] - coord2[0]);
+  sum += (coord1[1] - coord2[1]) * (coord1[1] - coord2[1]);
+  sum += (coord1[2] - coord2[2]) * (coord1[2] - coord2[2]);
+  return sum;
+}
 
 #endif

@@ -61,12 +61,13 @@ class TrajectoryLoader:
   def __str__(self):
     outstr = ""
     for i in self.__iter__(): 
-      outstr += i.traj.__str__().replace("\n", "\t")+"\n"
+      outstr += i.__str__()
+      # outstr += i.traj.__str__().replace("\n", "\t")+"\n"
     return outstr.strip("\n")
 
   def __iter__(self):
     options = self.loading_options
-    for i in range(len(self.trajs)): 
+    for i in range(len(self)): 
       yield self.OUTPUT_TYPE[i](*self.trajs[i], **options)
 
   def __len__(self):

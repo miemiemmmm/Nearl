@@ -11,6 +11,19 @@ __all__ = [
   "Featurizer",
 ]
 
+def wrapper_runner(func, args):
+  """
+  Take the feature.run methods and its input arguments for multiprocessing
+
+  Parameters
+  ----------
+  func: function
+    The function to be run
+  args: list
+    The arguments for the function
+  """
+  return func(*args)  
+
 
 class Featurizer:
   """
@@ -54,6 +67,7 @@ class Featurizer:
 
     # Component II: Focal point space 
     self.FOCALPOINTS = []
+    self.FOCALPOINTS_PROTOTYPE = None
     self.FOCALNUMBER = 0
 
     # Component III: Trajectory space
@@ -292,27 +306,36 @@ class Featurizer:
       for feat in self.FEATURESPACE:
         feat.cache(self.traj)
 
-      # Update the focus points for each bin as (self.SLICENUMBER, self.FOCALNUMBER, 3) array (run once for each trajectory)
-      self.parse_focus() 
-      print("Focal points shape: ", self.FOCALPOINTS.shape)
+      if self.FOCALNUMBER == 0 and self.FOCALPOINTS_PROTOTYPE is not None:
+        # Update the focus points for each bin as (self.SLICENUMBER, self.FOCALNUMBER, 3) array (run once for each trajectory)
+        self.parse_focus()  
+        print("Focal points shape: ", self.FOCALPOINTS.shape)
 
       tasks = []
       feature_map = []
       # Pool the actions for each trajectory
       for bid in range(self.SLICENUMBER): 
         frames = self.traj.xyz[self.FRAMESLICES[bid]]
+        if self.FOCALNUMBER > 0:
+          # After determineing each focus point, run the featurizer for each focus point
+          for pid in range(self.FOCALNUMBER):
+            # printit(f"Processing the focal point {pid} at the bin {bid}")
+            focal_point = self.FOCALPOINTS[bid, pid]
 
-        # After determineing each focus point, run the featurizer for each focus point
-        for pid in range(self.FOCALNUMBER):
-          # printit(f"Processing the focal point {pid} at the bin {bid}")
-          focal_point = self.FOCALPOINTS[bid, pid]
-
-          # Crop the trajectory and send the coordinates/trajectory to the featurizer
+            # Crop the trajectory and send the coordinates/trajectory to the featurizer
+            for fidx in range(self.FEATURENUMBER):
+              # Explicitly transfer the topology and frames to get the queried coordinates for the featurizer
+              queried = self.FEATURESPACE[fidx].query(self.top, frames, focal_point)
+              tasks.append([self.FEATURESPACE[fidx].run, queried])
+              feature_map.append((tid, bid, fidx))
+        else:
+          # Without registeration of focal points: Mainly for focal-point independent features
           for fidx in range(self.FEATURENUMBER):
             # Explicitly transfer the topology and frames to get the queried coordinates for the featurizer
-            queried = self.FEATURESPACE[fidx].query(self.top, frames, focal_point)
+            queried = self.FEATURESPACE[fidx].query(self.top, frames, [0, 0, 0])
             tasks.append([self.FEATURESPACE[fidx].run, queried])
-            feature_map.append((tid, bid, pid, fidx))
+            feature_map.append((tid, bid, fidx))
+
       printit(f"Tasks are ready for the trajectory {tid} with {len(tasks)} tasks")
       
       results = [wrapper_runner(*task) for task in tqdm(tasks)]
@@ -327,7 +350,7 @@ class Featurizer:
         
       # Dump to file for each feature
       for feat_meta, result in zip(feature_map, results):
-        tid, bid, pid, fidx = feat_meta
+        tid, bid, fidx = feat_meta
         self.FEATURESPACE[fidx].dump(result)
 
       if config.verbose() or config.debug():
@@ -403,17 +426,4 @@ class Featurizer:
         printit(f"Finished the trajectory {tid} with {len(tasks)} tasks")
       break
     printit("All trajectories and tasks are finished")
-
-def wrapper_runner(func, args):
-  """
-  Take the feature.run methods and its input arguments for multiprocessing
-
-  Parameters
-  ----------
-  func: function
-    The function to be run
-  args: list
-    The arguments for the function
-  """
-  return func(*args)  
 

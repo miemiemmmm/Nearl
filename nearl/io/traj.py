@@ -1,8 +1,8 @@
 import os, tempfile
 
 import h5py
-import pytraj as pt
 import numpy as np
+import pytraj as pt
 
 from .. import utils
 from .. import printit, config
@@ -32,6 +32,7 @@ class Trajectory(pt.Trajectory):
     --------
     >>> from nearl.io import Trajectory
     >>> traj = Trajectory("traj.nc", "top.pdb")
+    
     """
     # Set the keyword arguments for slicing/masking trajectory;
     stride = kwarg.get("stride", None)
@@ -219,30 +220,7 @@ class Trajectory(pt.Trajectory):
       mol = Chem.MolFromPDBFile(tmpfile.name, sanitize=False, removeHs=False)
       mol = utils.sanitize_bond(mol)
     return mol
-
-
-    # rdmol = utils.traj_to_rdkit(self, "*", )
-    # if rdmol is not None:
-    #   self.rdmol = rdmol
-    # else: 
-    #   self.rdmol = None    
-  ############################################
-  ############################################
-  # def cluster_pairwise(self, cluster_nr=10, **kwarg):
-  #   clusters = cluster.ClusterAgglomerative(pdist, cluster_nr)
-  #   cluster_rand = cluster.RandomPerCluster(clusters, number=1)
-  #   self.frames = cluster_rand
-  #   return self.frames
-
-  # def cluster(self, method="", **kwarg):
-  #   if len(method) == 0:
-  #     self.cluster_pairwise(**kwarg)
-  #   elif (method == "distance"):
-  #     pass
-  #   return self.frames
-
-
-
+  
 
 class MisatoTraj(Trajectory): 
   """
@@ -279,12 +257,17 @@ class MisatoTraj(Trajectory):
   """
   def __init__(self, pdbcode, misatodir, **kwarg): 
     # Needs dbfile and parm_folder;
-    topfile = f"{misatodir}/parameter_restart_files_MD/{pdbcode.lower()}/production.top.gz"
-    if not os.path.exists(topfile):
-      # print(f"Error: The topology file of PDB {pdbcode} is not found", file=sys.stderr)
-      raise FileNotFoundError(f"The topology file of PDB {pdbcode} is not found ({topfile})")
+    self.topfile = f"{misatodir}/parameter_restart_files_MD/{pdbcode.lower()}/production.top.gz"
+    if not os.path.exists(self.topfile):
+      raise FileNotFoundError(f"The topology file of PDB {pdbcode} is not found ({self.topfile})")
+    
+    self.trajfile = os.path.join(misatodir, f"MD.hdf5")
+    if not os.path.exists(self.trajfile):
+      raise FileNotFoundError(f"The trajectory file is not found ({self.trajfile})")
+    
+    self.pdbcode = str(pdbcode).upper()
 
-    top = pt.load_topology(topfile)
+    top = pt.load_topology(self.topfile)
     # ! IMPORTANT: Remove water and ions to align the coordinates with the topology
     res = set([i.name for i in top.residues])
     if "WAT" in res:
@@ -294,23 +277,23 @@ class MisatoTraj(Trajectory):
     if "Na+" in res:
       top.strip(":Na+")
 
-    with h5py.File(f"{misatodir}/MD.hdf5", "r") as hdf:
+    with h5py.File(self.trajfile, "r") as hdf:
       keys = hdf.keys()
       if pdbcode.upper() in keys:
         coord = hdf[f"/{pdbcode.upper()}/trajectory_coordinates"]
+        print(kwarg)
         # Parse frames (Only one from stride and frame_indices will take effect) and masks
-        if "stride" in kwarg.keys():
+        if "stride" in kwarg.keys() and kwarg["stride"] is not None:
           slice_frame = np.s_[::int(kwarg["stride"])]
-        elif "frame_indices" in kwarg.keys():
+        elif "frame_indices" in kwarg.keys() and kwarg["frame_indices"] is not None:
           slice_frame = np.s_[kwarg["frame_indices"]]
         else: 
           slice_frame = np.s_[:]
-        if "mask" in kwarg.keys():
+        if "mask" in kwarg.keys() and kwarg["mask"] is not None:
           slice_atom = np.s_[top.select(kwarg["mask"])]
           top = top[slice_atom]
         else: 
           slice_atom = np.s_[:]
-
         ret_traj = pt.Trajectory(xyz=coord[slice_frame, slice_atom, :], top=top)
       else:
         raise ValueError(f"Not found the key for PDB code {pdbcode.upper()} in the HDF5 trajectory file.")

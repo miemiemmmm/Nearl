@@ -76,22 +76,19 @@ python -c "from nearl import tests; tests.jax_2dcnn()"
 
 # Get started
 
---------
 ```
-import nearl as nl
-_trajfile, _topfile = nl.data.MINI_TRAJ
-_parms = nl.data.MINI_PARMS
-loader = nl.io.TrajectoryLoader(_trajfile, _topfile)
-feat = nl.features.Featurizer3D(_parms)
-feat.register_feature(nl.features.Mass())
+import nearl
+_trajfile, _topfile = nearl.data.MINI_TRAJ
+_parms = nearl.data.MINI_PARMS
+loader = nearl.io.TrajectoryLoader(_trajfile, _topfile)
+feat = nearl.features.Featurizer3D(_parms)
+feat.register_feature(nearl.features.Mass())
 ......
 ......
 ```
 
 
 # Trajectory loader
-
---------
 
 ### Load structures into trajectory container
 NEARL regards every 3D structure as trajectories rather than separate molecules. [pytraj](https://amber-md.github.io/pytraj/latest/index.html) is the backend for trajectory processing. <br>
@@ -156,18 +153,23 @@ View the example project featurizing a small subset of the [PDBbind](http://www.
 When defining a new feature, you need to inherit the base class Features and implement the feature function.
 ```
 from nearl.features import Features
-class YourFeature(Features): 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        # your own initialization
-    def feature(self, *args, **kwargs):
-        # your own feature
-        return feature_vector
+class MyFirstFeature(Features): 
+  def __init__(self, *args, **kwargs):
+    super().__init__(*args, **kwargs)
+    # your own initialization
+    
+  def cache(self, trajectory):
+    # your own feature
+    return feature_vector
+
+  def query(self, topology, frames, focual_point):
+    mask_inbox = super().query(topology, frames, focual_point)
+    # Implement your own feature
+    return feature_vector
 ```
 
 # Feature data deposition
 
---------
 ### NEARL supports the following features 
 - TEMPLATE_STRING
 ```
@@ -176,6 +178,7 @@ class YourFeature(Features):
 ```
 
 ### Draw the hdf structure
+
 - Since temporal features are 
 ```angular2html
 from nearl import hdf 
@@ -186,7 +189,6 @@ with hdf.hdf_operator(output_hdffile, "r") as h5file:
 
 # Model training
 
---------
 There are several pre-defined models in the [nearl.models](https://github.com/miemiemmmm/BetaPose/tree/main/BetaPose/models) using 
 [PyTorch](https://pytorch.org/) and [JAX](https://jax.readthedocs.io/en/latest/) framework.
 You could easily re-use these models or write your own model. <br>
