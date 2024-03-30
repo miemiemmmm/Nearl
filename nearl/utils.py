@@ -147,6 +147,10 @@ def compute_pcdt(traj, mask1, mask2, use_mean=False, ref=None, return_info=False
     return distarr
 
 
+def get_pdbcode(pdbcode): 
+  pdbcode = pdbcode.lower()
+  return constants.PDBCODE_SUPERCEDES.get(pdbcode, pdbcode)
+
 def fetch(code):
   from requests import post
   pdb = code.lower()

@@ -164,6 +164,16 @@ class Feature:
   # --------------
   # - dims: The dimensions of the grid
   # - spacing: The spacing of the grid
+  # Hookable to featurizer
+  # - sigma: The sigma of the Gaussian kernel
+  # - cutoff: The cutoff distance
+  # - outfile: The output file
+  # - outkey: The output key
+  # - padding: The padding of the box
+  # - byres: The boolean flag to get the residues within the bounding box
+  # Individual parameters
+  # - outshape: The shape of the output array
+  # - force_recache: The boolean flag to force recache the weights
   def __init__(self, 
     dims=None, spacing=None, 
     outfile=None, outkey=None,
@@ -175,8 +185,10 @@ class Feature:
     # Fundamental variables need setter callback 
     self.__dims = None
     self.__spacing = None
-    self.dims = dims
-    self.spacing = spacing
+    if dims is not None:
+      self.dims = dims
+    if spacing is not None:
+      self.spacing = spacing
     self.__center = None
     self.__lengths = None
 
@@ -187,14 +199,14 @@ class Feature:
     self._sigma = False if sigma is None else True
     self.outfile = outfile
     self._outfile = False if outfile is None else True
-    self.outkey = outkey
-    self._outkey = False if outkey is None else True
     self.padding = padding
     self._padding = False if padding == 0 else True
     self.byres = byres
     self._byres = False if byres is None else True
 
     # Simple variables, no need for setter callback and hook to featurizer
+    self.outkey = outkey    # Has to be specific to the feature
+    self._outkey = False if outkey is None else True
     self.outshape = outshape
     self._outshape = False if outshape is None else True
     self.force_recache = force_recache
@@ -222,7 +234,7 @@ class Feature:
       self.__dims = np.array([int(i) for i in value][:3])
     else:
       if config.verbose():
-        printit(f"Warning: The dims should be a number, list, tuple or a numpy array, not {type(value)}")
+        printit(f"{self.__class__.__name__} Warning: The dims should be a number, list, tuple or a numpy array, not {type(value)}")
       self.__dims = None
     if self.__spacing is not None:
       self.__center = np.array(self.__dims * self.spacing, dtype=np.float32) / 2
@@ -234,7 +246,7 @@ class Feature:
     """
     The spacing (resolution) of the 3D grid
     """
-    return self.__spacing
+    return self.__spacing 
   @spacing.setter
   def spacing(self, value):
     if isinstance(value, (int, float, np.int64, np.float64, np.int32, np.float32)):
@@ -276,15 +288,18 @@ class Feature:
     If the following attributes are not set manually, hook function will try to inherit them from the featurizer object: 
     sigma, cutoff, outfile, outkey, padding, byres
     """
+    print("Hooking features: ", featurizer.dims, featurizer.spacing)
     self.dims = featurizer.dims
     self.spacing = featurizer.spacing
     # TODO: Update this upon adding more variables to the feature
-    for key in ["outfile", "outkey", "cutoff", "sigma", "padding", "byres"]:
+    for key in constants.COMMON_FEATURE_PARMS:
       if getattr(self, f"_{key}") == False: 
         # Try to inherit the attributes from the featurizer if the attribute is not manually set
-        if key in dir(featurizer) and getattr(featurizer, key) is not None:
-          printit(f"{self.__class__.__name__}: Inheriting the sigma from the featurizer: {key} {getattr(featurizer, key)}")
-          setattr(self, key, getattr(featurizer, key))
+        if key in featurizer.FEATURE_PARMS.keys() and featurizer.FEATURE_PARMS[key] is not None:
+          keyval = featurizer.FEATURE_PARMS[key]
+          setattr(self, key, keyval)
+          printit(f"{self.__class__.__name__}: Inheriting the sigma from the featurizer: {key} {keyval}")
+          
 
   def cache(self, trajectory): 
     """
@@ -300,7 +315,7 @@ class Feature:
 
   def query(self, topology, frame_coords, focal_point):
     """
-    Base function to query the coordinates within the the bounding box near the focal point 
+    Base function to query the coordinates within the the bounding box near the focal point and translate the coordinates to the center of the box
 
     Parameters
     ----------
@@ -318,10 +333,9 @@ class Feature:
 
     Notes
     -----
-    In the child feature, after croping the coordinates near the focus, move the coordinates to the center of the box before sending to the runner function
+    The frame coordinates are explicitly tranlated to match the focued part to the center of the box. 
     """
-    if focal_point.shape.__len__() > 1: 
-      raise ValueError(f"The focal point should be a 1D array with length 3, not {focal_point.shape}")
+    assert focal_point.shape.__len__() == 1, f"The focal point should be a 1D array with length 3, rather than the given {focal_point.shape}"
     
     if (len(self.resids) != topology.n_atoms) or self.force_recache: 
       if config.verbose():
@@ -330,10 +344,18 @@ class Feature:
         self.cache(pt.Trajectory(xyz=np.array([frame_coords]), top=topology))
       else:
         self.cache(pt.Trajectory(xyz=frame_coords, top=topology))
+        
+    # In-place translation of the coordinates to the center of the box
+    frame_coords[:] = frame_coords - focal_point + self.center  
+    mask = crop(frame_coords, self.lengths, self.padding)
     
-    # Apply the padding to the box croppring
-    new_coords = frame_coords - focal_point + self.center 
-    mask = crop(new_coords, self.lengths, self.padding)
+    if np.count_nonzero(mask) == 0:
+      printit(f"{self.__class__.__name__} Warning: Found {np.count_nonzero(mask)} atoms in the bounding box near the focal point {np.round(focal_point,1)}")
+    elif config.verbose() or config.debug(): 
+      printit(f"{self.__class__.__name__}: Found {np.count_nonzero(mask)} atoms in the bounding box near the focal point {np.round(focal_point,1)}")
+
+    if config.verbose() and config.debug():
+      printit(f"{self.__class__.__name__}: Shape: {np.shape(frame_coords)}; Before translation: {np.mean(frame_coords, axis=0).round()}; After {np.mean(new_coords, axis=0).round()} ")
 
     # Get the boolean array of residues within the bounding box
     if self.byres:
@@ -394,6 +416,9 @@ class Feature:
 
 
 class AtomicNumber(Feature):
+  """
+  Weight type atomic number. 
+  """
   def __init__(self, **kwargs):
     super().__init__(**kwargs)
 
@@ -401,13 +426,24 @@ class AtomicNumber(Feature):
     super().cache(trajectory)
   
   def query(self, topology, frame_coords, focal_point): 
+    """
+    Query the atomic coordinates and weights within the bounding box
+    
+
+    Notes
+    -----
+    By default, a slice of frame coordinates is passed to the querier function (typically 3 dimension shaped by [frames_number, atom_number, 3])
+    However, for static feature, only one frame is needed. 
+    Hence, the querier function by default uses the first frame (frame_coords[0], the default bahavior is customizable by the user). 
+
+    The focused part of the coords needs to be translated to the center of the box before sending to the runner function.
+    """
     if frame_coords.shape.__len__() == 3: 
       frame_coords = frame_coords[0]
-    
     idx_inbox = super().query(topology, frame_coords, focal_point)
     coord_inbox = frame_coords[idx_inbox]
     weights = np.array([self.atomic_numbers[i] for i in self.atomic_numbers[idx_inbox]], dtype=np.float32)
-    coord_inbox = coord_inbox - focal_point + self.center
+    # coord_inbox = coord_inbox - focal_point + self.center
     return coord_inbox, weights
 
 
@@ -460,7 +496,7 @@ class Mass(Feature):
     idx_inbox = super().query(topology, frame_coords, focal_point)
     coord_inbox = frame_coords[idx_inbox]
     weights = np.array([self.mass[i] for i in self.atomic_numbers[idx_inbox]], dtype=np.float32)
-    coord_inbox = coord_inbox - focal_point + self.center
+    # coord_inbox = coord_inbox - focal_point + self.center
     return coord_inbox, weights
 
 
@@ -549,6 +585,35 @@ class Ring(Feature):
     coord_inbox = coord_inbox - focal_point + self.center
     return coord_inbox, weights
 
+
+class Selection(Feature):
+  def __init__(self, selection, selection_type, **kwargs):
+    super().__init__(**kwargs)
+    self.selection = selection
+    self.selection_type = selection_type
+
+  def cache(self, trajectory):
+    super().cache(trajectory)
+    selected = np.zeros(trajectory.n_atoms, dtype=np.float32)
+    if self.selection_type == "mask":
+      selected[self.selection] = 1
+    elif self.selection_type == "array":
+      if len(self.selection) != trajectory.n_atoms:
+        printit(f"{self.__class__.__name__} Warning: The number of atoms in structure does not match the number of aromaticity values")
+      selected = np.asarray(self.selection)
+    else:
+      printit(f"{self.__class__.__name__} Warning: The selection type is not recognized. Only 'mask' and 'array' are supported. ")
+    self.selection = selected
+
+  def query(self, topology, frame_coords, focal_point):
+    if frame_coords.shape.__len__() == 3: 
+      frame_coords = frame_coords[0]
+    idx_inbox = super().query(topology, frame_coords, focal_point)
+    coord_inbox = frame_coords[idx_inbox]
+    weights = self.selection[idx_inbox]
+    coord_inbox = coord_inbox - focal_point + self.center
+    return coord_inbox, weights
+  
 
 class HBondDonor(Feature):
   def __init__(self, **kwargs):
@@ -686,18 +751,15 @@ class PartialCharge(Feature):
   For more information about the charge types and parameters, please refer to the ChargeFW documentation with the url: 
   https://github.com/sb-ncbr/ChargeFW2
   """
-  def __init__(self, charge_type="qeq", charge_parm="QEq_00_original", force_compute=False, **kwargs):
+  # The following types are supported by ChargeFW: 
+  # [ "sqeqp",  "eem",  "abeem",  "sfkeem",  "qeq", "smpqeq",  "eqeq",  "eqeqc",  "delre",  "peoe", 
+  #   "mpeoe",  "gdac",  "sqe",  "sqeq0",  "mgc", "kcm",  "denr",  "tsef",  "charge2",  "veem", "formal" ]
+  def __init__(self, charge_type="qeq", charge_parm="QEq_00_original", force_compute=False, keep_sign="both", **kwargs):
     super().__init__(**kwargs)
-    # The following types are supported by ChargeFW: 
-    # [ "sqeqp",  "eem",  "abeem",  "sfkeem",  "qeq",
-    #   "smpqeq",  "eqeq",  "eqeqc",  "delre",  "peoe",
-    #   "mpeoe",  "gdac",  "sqe",  "sqeq0",  "mgc",
-    #   "kcm",  "denr",  "tsef",  "charge2",  "veem",
-    #   "formal"
-    # ]
     self.charge_type = charge_type
     self.charge_parm = charge_parm
     self.force_compute = force_compute
+    self.keep_sign = keep_sign
 
   def cache(self, trajectory):
     super().cache(trajectory)
@@ -709,6 +771,11 @@ class PartialCharge(Feature):
       # If the charge type is manual, the charge values should be set manually
       assert len(self.charge_parm) == trajectory.top.n_atoms, f"The number of charge values does not match the number of atoms in the trajectory"
       self.charge_values = np.array(self.charge_parm, dtype=np.float32)
+
+    elif self.charge_type == "function": 
+      # Use some precalculated charge values
+      self.charge_values = self.charge_parm(trajectory.identity)
+      assert len(self.charge_values) == trajectory.top.n_atoms, f"The number of charge values does not match the number of atoms in the trajectory"
 
     else: 
       # Otherwise, compute the charges using the ChargeFW2
@@ -771,15 +838,26 @@ class PartialCharge(Feature):
       if charges is None or charge_values is None:
         printit(f"{self.__class__.__name__} Warning: The charge computation fails. Setting all charge values to 0. ", file=sys.stderr)
         self.charge_values = np.zeros(trajectory.n_atoms)
+    
+    # Final check of the needed sign of the charge values
+    if self.keep_sign in ["positive", "p"]:
+      self.charge_values = np.maximum(self.charge_values, 0)
+    elif self.keep_sign in ["negative", "n"]:
+      self.charge_values = np.minimum(self.charge_values, 0)
+    elif self.keep_sign in ["both", "b"]:
+      pass
+    else: 
+      raise ValueError(f"{self.__class__.__name__} Warning: The keep_sign parameter should be either 'positive', 'negative' or 'both' rather than {self.keep_sign}")
+        
 
   def query(self, topology, frame_coords, focal_point):
     if frame_coords.shape.__len__() == 3: 
-      frame_coords = frame_coords[0]  
+      frame_coords = frame_coords[0]
     idx_inbox = super().query(topology, frame_coords, focal_point)
     coord_inbox = frame_coords[idx_inbox]
     weights = self.charge_values[idx_inbox] 
     # Translate the result coordinates to the center of the box
-    coord_inbox = coord_inbox - focal_point + self.center
+    # coord_inbox = coord_inbox - focal_point + self.center
     return coord_inbox, weights
 
 
@@ -996,26 +1074,7 @@ class DynamicFeature(Feature):
     Take the required weight type (self.weight_type) and cache the weights for each atom in the trajectory
     """
     super().cache(trajectory)   # Obtain the atomic number and residue IDs
-    cache_properties(trajectory, self.weight_type)
-    # cache = np.full((trajectory.n_atoms), 0.0, dtype=np.float32)
-    # if self.weight_type == 0:
-    #   cache = np.array(self.atomic_numbers, dtype=np.float32)
-    # elif self.weight_type == 1:
-    #   # Map the mass to atoms 
-    #   cache = np.array([constants.ATOMICMASS[i] for i in self.atomic_numbers], dtype=np.float32)
-    # elif self.weight_type == 2:
-    #   # Map the radius to atoms
-    #   cache = np.array([utils.VDWRADII[str(i)] for i in self.atomic_numbers], dtype=np.float32)
-    # elif self.weight_type == 3:
-    #   # Resiude ID
-    #   cache = np.array([i.resid for i in self.top.atoms], dtype=np.float32)
-    # elif self.weight_type == 4:
-    #   # Sidechainness
-    #   cache = np.array([1 if i.name in ["C", "N", "O", "CA"] else 0 for i in self.top.atoms], dtype=np.float32)
-    # else: 
-    #   # Uniformed weights
-    #   cache = np.full(len(cache), 1.0, dtype=np.float32)
-    # self.cached_weights = cache
+    self.cached_weights = cache_properties(trajectory, self.weight_type)
 
   def query(self, topology, frame_coords, focal_point):
     """
@@ -1036,16 +1095,23 @@ class DynamicFeature(Feature):
     coords = np.full((len(frame_coords), MAX_ALLOWED_ATOMS, 3), DEFAULT_COORD, dtype=np.float32)
     weights = np.full((len(frame_coords), MAX_ALLOWED_ATOMS), 0.0, dtype=np.float32)
     max_atom_nr = 0
+    zero_count = 0
     for idx, frame in enumerate(frame_coords):
+      # Operation on each frame (Frame is modified inplace)
       idx_inbox = super().query(topology, frame, focal_point)
+
       atomnr_inbox = np.count_nonzero(idx_inbox)
       if atomnr_inbox > MAX_ALLOWED_ATOMS:
-        printit(f"{self.__class__.__name__} Warning: the maximum allowed atom slice is {MAX_ALLOWED_ATOMS} but the maximum atom number is {atomnr_inbox}")
+        printit(f"{self.__class__.__name__} Warning: The maximum allowed atom slice is {MAX_ALLOWED_ATOMS} but the maximum atom number is {atomnr_inbox}")
+      zero_count += 1 if atomnr_inbox == 0 else 0
       atomnr_inbox = min(atomnr_inbox, MAX_ALLOWED_ATOMS)
-      coord_inbox = frame[idx_inbox] - focal_point + self.center
-      coords[idx, :atomnr_inbox] = coord_inbox[:atomnr_inbox]
+
+      coords[idx, :atomnr_inbox] = frame[idx_inbox][:atomnr_inbox]
       weights[idx, :atomnr_inbox] = self.cached_weights[idx_inbox][:atomnr_inbox]
       max_atom_nr = max(max_atom_nr, atomnr_inbox)
+    
+    if zero_count > 0:
+      printit(f"{self.__class__.__name__} Warning: {zero_count} out of {len(frame_coords)} frames has no atoms in the box. The coordinates will be padded with {DEFAULT_COORD} and 0.0 for the weights.")
 
     # Prepare the return arrays
     ret_coord = np.array(coords[:, :max_atom_nr], dtype=np.float32)
@@ -1140,7 +1206,7 @@ class MarchingObservers(DynamicFeature):
     if self.__obs_type in SUPPORTED_OBSERVATION.keys():
       return SUPPORTED_OBSERVATION[self.__obs_type]
     else:
-      raise ValueError("The observation type is not recognized")
+      raise ValueError(f"The observation type is not recognized {self.__obs_type}; Available types are {SUPPORTED_OBSERVATION.keys()}")
   @obs.setter
   def obs(self, value):
     assert isinstance(value, str), "The observation type should be a string"
@@ -1173,11 +1239,10 @@ class MarchingObservers(DynamicFeature):
     ret_arr : np.array
       The feature array with the same dimensions as self.dims
     """
-    # TODO: correct the function name and the parameters. 
-    # TODO: Since there is placeholder atoms to align the dimensions of the coordinates, remove them. 
     ret_arr = commands.marching_observers(
-      frames, self.dims, 
-      self.spacing, self.cutoff, 
+      frames, weights, 
+      self.dims, self.spacing, 
+      self.cutoff, 
       self.agg, self.obs
     ) 
     return ret_arr.reshape(self.dims)
@@ -1244,15 +1309,24 @@ class Label_PCDT(Feature):
   
   """
   def __init__(self, 
-    selection=None, selection_type=None, base_value=0, 
-    outshape=(None,),
+    selection=None, distance_cutoff = 8.0, 
+    outshape=(None,), 
     **kwargs
   ): 
     super().__init__(outshape = outshape, **kwargs) 
+    # Pairs of atoms for the PCDT calculation 
     self.selection = selection
-    self.selection_type = selection_type
     self.selection_counterpart = None
-    self.base_value = float(base_value)
+    self.distance_cutoff = distance_cutoff
+
+    # By default the lookup table should be a dictionary
+    self.base_value = None
+
+  def search_baseline(self, keyword):
+    """
+    User should implement the search_baseline method to search the baseline value based on the trajectory identity
+    """
+    raise NotImplementedError("The search_baseline class method should be implemented in the child class")
 
   def cache(self, trajectory): 
     # Cache the address of the trajectory for further query of the RMSD array based on focused points
@@ -1262,22 +1336,21 @@ class Label_PCDT(Feature):
       selected = np.array([int(i) for i in self.selection])
     else: 
       raise ValueError("The selection should be either a string or a list of atom indices")
-    RMSD_CUTOFF = 8
+
     self.refframe = trajectory[0]
-    self.refframe.xyz[self.selection]
-    backbone_cb = trajectory.top.select("@C, @N, @CA, @O, @CB")
+    self.refframe.xyz[selected]
     self.selection_counterpart = np.full(len(selected), 0, dtype=int)
-    # Use kdtree to select closest partners among backbone_cb
-    print(backbone_cb)
+    backbone_cb = trajectory.top.select("@C, @N, @CA, @O, @CB")
     for i in range(len(selected)):
       dist = np.linalg.norm(self.refframe.xyz[selected[i]] - self.refframe.xyz[backbone_cb], axis=1)
       self.selection_counterpart[i] = backbone_cb[np.argmin(dist)]
-      print(f"partner of atom {selected[i]} is {self.selection_counterpart[i]}")
-    
 
-    # def compute_pcdt(traj, mask1, mask2, use_mean=False, ref=None, return_info=False):
     self.cached_array = utils.compute_pcdt(trajectory, selected, self.selection_counterpart, ref=self.refframe, return_info=False)
-    self.cached_array = np.minimum(self.cached_array, RMSD_CUTOFF)  # Set a cutoff distance for limiting the z-score
+    # Set a cutoff distance for limiting outliers in the PCDT
+    self.cached_array = np.minimum(self.cached_array, self.distance_cutoff)  
+
+    # IMPORTANT: Retrieve the base value based on the trajectory identity
+    self.base_value = self.search_baseline(trajectory.identity)
 
   def query(self, topology, frames, focus):
     tmptraj = pt.Trajectory(xyz=frames, top=topology)
@@ -1288,8 +1361,12 @@ class Label_PCDT(Feature):
     return (cosine_sim,)
   
   def run(self, cosine_sim): 
-    # Cosine similarity between 1 and -1
-    # Hence use penalty factor as 0.1 * base_value * (1 - cosine_sim)
+    """
+    Use the penalty function: 
+      S = S0 - S0 * 0.1 * (1 - cosine_similarity)
+    """
+    if self.base_value is None:
+      raise ValueError("The base value is not set, please set the base value before running the feature")
     final_value = self.base_value - self.base_value * 0.1 * (1 - cosine_sim)
     return final_value
 

@@ -46,26 +46,30 @@ class Trajectory(pt.Trajectory):
     # NOTE: If both stride and frame_indices are given, stride will be respected;
     # NOTE: If none of stride or frame_indices are given, all frames will be loaded;
     if isinstance(traj_src, str) and isinstance(pdb_src, str):
-      # Initialize the trajectory object
+      # File name-based trajectory initialization
       tmptraj = pt.load(traj_src, pdb_src, stride=stride, frame_indices=frame_indices)
       timeinfo = tmptraj.time
       boxinfo = tmptraj._boxes
-    elif isinstance(traj_src, (pt.Trajectory, self.__class__)):
-      # Initialize the trajectory object
-      tmptraj = traj_src
-      timeinfo = tmptraj.time
-      boxinfo = tmptraj._boxes
-    elif (traj_src is None) and (pdb_src is None):
-      super().__init__()
-      return
+
     elif isinstance(traj_src, str) and (pdb_src is None):
-      # In the case that the trajectory is self-contained
+      # In the case that the trajectory is self-consistent e.g. PDB file
       tmptraj = pt.load(traj_src)
       timeinfo = tmptraj.time
       boxinfo = tmptraj._boxes
+
+    elif isinstance(traj_src, (pt.Trajectory, self.__class__)):
+      # Pytraj or self-based trajectory initialization
+      tmptraj = traj_src
+      timeinfo = tmptraj.time
+      boxinfo = tmptraj._boxes
+
+    elif (traj_src is None) and (pdb_src is None):
+      # Initialize an empty object
+      super().__init__() 
+      return
+    
     else:
-      printit(type(traj_src), type(pdb_src))
-      raise ValueError("Invalid input for traj_src and pdb_src")
+      raise ValueError(f"Invalid input for traj source ({type(traj_src)}) and pdb_src ({type(pdb_src)})")
 
     # NOTE: Adding mask in the first pt.load function causes lose of time information
     if mask is not None:
@@ -89,7 +93,6 @@ class Trajectory(pt.Trajectory):
     self.atoms = None
     self.residues = None
     self.make_index()
-    # self.cached = {}
 
   def __getitem__(self, index):
     # Get the return from its parent pt.Trajectory;
@@ -103,6 +106,8 @@ class Trajectory(pt.Trajectory):
       self._life_holder.make_index()
     return self._life_holder
   
+  def identity(self):
+    return self.traj_filename
 
   def copy_traj(self):
     xyzcopy = self.xyz.copy()
@@ -197,29 +202,6 @@ class Trajectory(pt.Trajectory):
     if len(outfile) > 0:
       newtraj = pt.Trajectory(xyz=thexyz, top=newtop)
       pt.save(outfile, newtraj, overwrite=True)
-
-  def compute_closest_pairs_distance(self, mask, **kwarg):
-    if "countermask" in kwarg.keys():
-      countermask = kwarg["countermask"]
-      pdist, pdist_info = utils.dist_caps(self, f"{mask}&!@H=", f"{countermask}&!@H=", use_mean=True)
-    else:
-      pdist, pdist_info = utils.dist_caps(self, f"{mask}&!@H=", f"{mask}<@6&!{mask}&@C,CA,CB,N,O",
-                                                 use_mean=True)
-    self.pdist = pdist
-    self.pdist_info = pdist_info
-    return pdist, pdist_info
-
-  def cache_rdkit(self, mask="", **kwarg):
-    """
-    Convert the trajectory to RDKit molecule object
-    """
-    
-    from rdkit import Chem
-    with tempfile.NamedTemporaryFile(suffix=".pdb") as tmpfile:
-      self.write_frame(0, outfile=tmpfile.name, mask=mask)
-      mol = Chem.MolFromPDBFile(tmpfile.name, sanitize=False, removeHs=False)
-      mol = utils.sanitize_bond(mol)
-    return mol
   
 
 class MisatoTraj(Trajectory): 
@@ -265,7 +247,8 @@ class MisatoTraj(Trajectory):
     if not os.path.exists(self.trajfile):
       raise FileNotFoundError(f"The trajectory file is not found ({self.trajfile})")
     
-    self.pdbcode = str(pdbcode).upper()
+    # NOTE: Get the PDB code in the standard format, lowercase and replace superceded PDB codes
+    self.pdbcode = pdbcode
 
     top = pt.load_topology(self.topfile)
     # ! IMPORTANT: Remove water and ions to align the coordinates with the topology
@@ -281,7 +264,6 @@ class MisatoTraj(Trajectory):
       keys = hdf.keys()
       if pdbcode.upper() in keys:
         coord = hdf[f"/{pdbcode.upper()}/trajectory_coordinates"]
-        print(kwarg)
         # Parse frames (Only one from stride and frame_indices will take effect) and masks
         if "stride" in kwarg.keys() and kwarg["stride"] is not None:
           slice_frame = np.s_[::int(kwarg["stride"])]
@@ -297,5 +279,17 @@ class MisatoTraj(Trajectory):
         ret_traj = pt.Trajectory(xyz=coord[slice_frame, slice_atom, :], top=top)
       else:
         raise ValueError(f"Not found the key for PDB code {pdbcode.upper()} in the HDF5 trajectory file.")
+
+    if kwarg.get("superpose", False): 
+      if kwarg.get("mask", None) is not None:
+        printit(f"{self.__class__.__name__}: Superpose the trajectory with mask {kwarg['mask']}")
+        pt.superpose(ret_traj, mask="@CA")
+      else:
+        printit(f"{self.__class__.__name__}: Superpose the trajectory with default mask @CA")
+        pt.superpose(ret_traj, mask="@CA")
     super().__init__(ret_traj)
+
+  @property
+  def identity(self):
+    return utils.get_pdbcode(self.pdbcode)
 
