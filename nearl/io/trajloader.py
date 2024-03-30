@@ -40,7 +40,7 @@ class TrajectoryLoader:
       self.OUTPUT_TYPE = []
 
     # Remember the user's configuration
-    self.__loading_options = {"stride": None, "frame_indices": None, "mask": None }
+    self.__loading_options = {"stride": None, "frame_indices": None, "mask": None, "superpose": False }
     self.loading_options = kwarg
 
   @property

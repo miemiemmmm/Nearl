@@ -122,7 +122,6 @@ py::array_t<float> do_traj_voxelize(
   const int gridpoint_nr = dims[0] * dims[1] * dims[2];
   const int frame_nr = buf_traj.shape[0];
   const int atom_nr = buf_traj.shape[1];
-
   
   // Check the validity of the input data before launching the kernel
   int supported_agg[AGGREGATION_COUNT] = SUPPORTED_AGGREGATIONS;

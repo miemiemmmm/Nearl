@@ -1,7 +1,6 @@
 import tempfile
 
 import numpy as np
-import multiprocessing as mp
 from tqdm import tqdm
 
 from . import utils, constants
@@ -29,31 +28,61 @@ class Featurizer:
   """
   Featurizer aims to automate the process of featurization of multiple Features for a batch of structures or trajectories
   """
-  def __init__(self, parms):
+  def __init__(self, parms={}, **kwargs):
     """
     Initialize the featurizer with the given parameters
     Parameters
     ----------
     parms: dict
       A dictionary of parameters for the featurizer
+
+    Notes
+    -----
+    Required parameters:
+    - dimensions: the dimensions of the 3D grid
+    - lengths: the lengths of the 3D grid (optinal)
+    - spacing: the spacing of the 3D grid (optinal)
+
     """
     # Check the essential parameters for the featurizer
-    self.parms = parms
-    parms_to_check = ["DIMENSIONS", "LENGTHS"]
-    for parm in parms_to_check:
-      if parm not in parms:
-        printit(f"Warning: Not found required parameter: {parm}. Please define the keyword <{parm}> in your parameter set. ")
-        return
+    assert "dimensions" in parms, "Please define the 'dimensions' in the parameter set"
+    assert ("lengths" in parms) or ("spacing" in parms), "Please define the 'lengths' or 'spacing' in the parameter set"
+
     # Basic parameters for the featurizer to communicate with cuda code
-    self.__dims = None
     self.__lengths = None
-    self.dims = parms.get("DIMENSIONS", 32)   # Set the dimensions of the 3D grid
-    self.lengths = parms.get("LENGTHS", 16)   # Set the lengths of the 3D grid
-    self.__spacing = np.mean(self.__lengths / self.__dims)
-    self.__boxcenter = np.array(self.dims/2, dtype=float)
-    self.__sigma = 1.0 
-    self.__cutoff = 4.0
-    self.__interval = 1 
+    self.dims = parms.get("dimensions", 32)   # Set the dimensions of the 3D grid
+    if "lengths" in parms:
+      self.lengths = parms.get("lengths", 16)   # Set the lengths of the 3D grid
+      self.__spacing = np.mean(self.__lengths / self.__dims)
+    elif "spacing" in parms:
+      self.__spacing = parms.get("spacing", 1.0)
+      self.__lengths = self.__dims * self.__spacing  # Directly assignment avoid the re-calculation of the spacing
+
+    print(self.spacing, self.lengths, self.dims)
+
+    self.time_window = int(parms.get("time_window", 1))   # The time window for the trajectory (default is 1), Simple integer.
+
+    # Get common feature parameters to hook the features
+    self.FEATURE_PARMS = {}
+    for key in constants.COMMON_FEATURE_PARMS:
+      if key in parms.keys():
+        self.FEATURE_PARMS[key] = parms[key]
+      elif key in kwargs.keys():
+        self.FEATURE_PARMS[key] = kwargs[key]
+      else: 
+        self.FEATURE_PARMS[key] = None
+
+    self.OTHER_PARMS = {}
+    for key in parms.keys():
+      if key not in constants.COMMON_FEATURE_PARMS:
+        self.OTHER_PARMS[key] = parms[key]
+      else:
+        continue
+    for key in kwargs.keys():
+      if key not in constants.COMMON_FEATURE_PARMS:
+        self.OTHER_PARMS[key] = kwargs[key]
+      else:
+        continue
 
     # Derivative parameters from trajectory 
     self._traj = None
@@ -75,7 +104,7 @@ class Featurizer:
     self.TRAJECTORYNUMBER = 0
     
     if config.verbose():
-      printit(f"Featurizer is initialized successfully with dimensions: {self.__dims} and lengths: {self.__lengths}")
+      printit(f"{self.__class__.__name__}: Featurizer is initialized successfully with dimensions: {self.__dims} and lengths: {self.__lengths}")
 
   def __str__(self):
     finalstr = f"Feature Number: {self.FEATURENUMBER}; \n"
@@ -101,7 +130,6 @@ class Featurizer:
       raise Exception("Unexpected data type, either be a number or a list of 3 integers")
     if self.__lengths is not None:
       self.__spacing = np.mean(self.__lengths / self.__dims)
-    self.__boxcenter = np.array(self.dims/2, dtype=float)
     
   # The most important attributes to determine the size of the 3D grid
   @property
@@ -121,36 +149,10 @@ class Featurizer:
       raise Exception("Unexpected data type, either be a number or a list of 3 floats")
     if self.__dims is not None:
       self.__spacing = np.mean(self.__lengths / self.__dims)
-    
-  # READ-ONLY because it is determined by the DIMENSIONS and LENGTHS
+
   @property
   def spacing(self):
-    return self.__spacing
-  @property
-  def boxcenter(self):
-    return self.__boxcenter
-
-  # Attributes important for computing of features (for CUDA part)
-  @property
-  def cutoff(self):
-    return self.__cutoff
-  @cutoff.setter
-  def cutoff(self, new_cutoff):
-    self.__cutoff = float(new_cutoff)
-
-  @property
-  def interval(self):
-    return self.__interval
-  @interval.setter
-  def interval(self, new_interval):
-    self.__interval = int(new_interval)
-
-  @property
-  def sigma(self):
-    return self.__sigma
-  @sigma.setter
-  def sigma(self, newsigma):
-    self.__sigma = float(newsigma)
+    return self.__spacing  
   
   @property
   def traj(self):
@@ -165,23 +167,16 @@ class Featurizer:
     """
     self._traj = the_traj
     self.FRAMENUMBER = the_traj.n_frames
-    self.SLICENUMBER = self.FRAMENUMBER // self.interval
-    if self.FRAMENUMBER % self.interval != 0:
-      printit("Warning: the number of frames is not divisible by the interval. The last few frames will be ignored.")
-    printit(f"Registered {self.SLICENUMBER} slices for the trajectory ({self.FRAMENUMBER}) with {self.interval} interval.")
-    frame_array = np.array([0] + np.cumsum([self.__interval] * self.SLICENUMBER).tolist())
+    self.SLICENUMBER = self.FRAMENUMBER // self.time_window
+    if self.FRAMENUMBER % self.time_window != 0:
+      printit(f"{self.__class__.__name__} Warning: the number of frames ({self.FRAMENUMBER}) is not divisible by the time window ({self.time_window}). The last few frames will be ignored.")
+    printit(f"{self.__class__.__name__}: Registered {self.SLICENUMBER} slices of frames with {self.time_window} as the time window (frames-per-slice).")
+    frame_array = np.array([0] + np.cumsum([self.time_window] * self.SLICENUMBER).tolist())
     self.FRAMESLICES = [np.s_[frame_array[i]:frame_array[i+1]] for i in range(self.SLICENUMBER)]
 
   @property
   def top(self):
     return self.traj.top
-
-  def update_box_length(self, length=None, scale_factor=1.0):
-    if length is not None:
-      self.__lengths = float(length)
-    else:
-      self.__lengths *= scale_factor
-    self.update_box()
 
   def register_feature(self, feature):
     """
@@ -219,7 +214,7 @@ class Featurizer:
     """
     self.TRAJLOADER = trajloader
     self.TRAJECTORYNUMBER = len(trajloader)
-    print(f"Registered {self.TRAJECTORYNUMBER} trajectories")
+    print(f"{self.__class__.__name__}: Registered {self.TRAJECTORYNUMBER} trajectories")
 
 
   def register_focus(self, focus, format):
@@ -236,7 +231,7 @@ class Featurizer:
     Notes
     -----
     Formats includes:
-    - "cog": provide a masked selection of atoms
+    - "mask": provide a selection of atoms (Amber's selection convention)
     - "absolute": provide a list of 3D coordinates
     - "index": provide a list of atom indexes (int)
 
@@ -244,22 +239,32 @@ class Featurizer:
 
     For each trajectory, the parse of focal points should be re-done to match the trajectory
     """
-    if format == "cog":
+    if format == "mask":
       self.FOCALPOINTS_PROTOTYPE = focus
-      self.FOCALPOINTS_TYPE = "cog"
+      self.FOCALPOINTS_TYPE = "mask"
       self.FOCALPOINTS = None
+
     elif format == "absolute":
       assert len(focus.shape) == 2, "The focus should be a 2D array"
       assert focus.shape[1] == 3, "The focus should be a 2D array with 3 columns"
       self.FOCALPOINTS_PROTOTYPE = focus
       self.FOCALPOINTS = focus
       self.FOCALPOINTS_TYPE = "absolute"
+
     elif format == "index":
       self.FOCALPOINTS_PROTOTYPE = focus
       self.FOCALPOINTS_TYPE = "index"
       self.FOCALPOINTS = None
+
+    elif format == "function": 
+      if not callable(focus):
+        raise ValueError("The focus should be a callable function when the format is 'function'")
+      self.FOCALPOINTS_PROTOTYPE = focus
+      self.FOCALPOINTS_TYPE = "function"
+      self.FOCALPOINTS = None
+
     else: 
-      raise ValueError(f"Unexpected focus format: {format}")
+      raise ValueError(f"Unexpected focus format: {format}. Please choose from 'mask', 'absolute', 'index', 'function'")
 
   def parse_focus(self): 
     """
@@ -271,26 +276,32 @@ class Featurizer:
     Prepare the focal points for each slice of the trajectory by slice_number * focus number 
 
     """
+    if self.FOCALPOINTS_TYPE == "function":
+      self.FOCALPOINTS = self.FOCALPOINTS_PROTOTYPE(self.traj)
+      assert self.FOCALPOINTS.shape.__len__() == 3, "The focal points should be a 3D array"
+      self.FOCALNUMBER = self.FOCALPOINTS.shape[1]
+      return 1
+
     # Parse the focus points to the correct format
     self.FOCALPOINTS = np.full((self.SLICENUMBER, len(self.FOCALPOINTS_PROTOTYPE), 3), 99999, dtype=np.float32)
     self.FOCALNUMBER = len(self.FOCALPOINTS_PROTOTYPE)
-    if self.FOCALPOINTS_TYPE == "cog":
+    if self.FOCALPOINTS_TYPE == "mask":
       # Get the center of geometry for the frames with self.interval
       for midx, mask in enumerate(self.FOCALPOINTS_PROTOTYPE): 
         selection = self.traj.top.select(mask)
         for fidx in range(self.SLICENUMBER):
-          frame = self.traj.xyz[fidx*self.interval]
+          frame = self.traj.xyz[fidx*self.time_window]
           self.FOCALPOINTS[fidx, midx] = np.mean(frame[selection], axis=0)
 
     elif self.FOCALPOINTS_TYPE == "index":
       for midx, mask in enumerate(self.FOCALPOINTS_PROTOTYPE): 
-        for idx, frame in enumerate(self.traj.xyz[::self.interval]):
+        for idx, frame in enumerate(self.traj.xyz[::self.time_window]):
           self.FOCALPOINTS[idx, midx] = np.mean(frame[mask], axis=0)
 
     elif self.FOCALPOINTS_TYPE == "absolute":
       for focusidx, focus in enumerate(self.FOCALPOINTS_PROTOTYPE): 
         assert len(focus) == 3, "The focus should be a 3D coordinate"
-        for idx, frame in enumerate(self.traj.xyz[::self.interval]):
+        for idx, frame in enumerate(self.traj.xyz[::self.time_window]):
           self.FOCALPOINTS[idx, focusidx] = focus
       
     else:
@@ -300,16 +311,20 @@ class Featurizer:
     for tid in range(self.TRAJECTORYNUMBER):
       # Setup the trajectory and its related parameters such as slicing of the trajectory
       self.traj = self.TRAJLOADER[tid]
-      printit(f"{self.__class__.__name__}: Start processing the trajectory {tid} with {self.SLICENUMBER} frames")
+      msg = f"Processing traj {tid} ({self.traj.identity}) with {self.SLICENUMBER} frame slices"
+      printit(f"{self.__class__.__name__}: {msg:=^80}")
 
       # Cache the weights for each atoms in the trajectory (run once for each trajectory)
       for feat in self.FEATURESPACE:
         feat.cache(self.traj)
 
-      if self.FOCALNUMBER == 0 and self.FOCALPOINTS_PROTOTYPE is not None:
-        # Update the focus points for each bin as (self.SLICENUMBER, self.FOCALNUMBER, 3) array (run once for each trajectory)
-        self.parse_focus()  
-        print("Focal points shape: ", self.FOCALPOINTS.shape)
+      if self.FOCALPOINTS_PROTOTYPE is not None:
+        # NOTE: Re-parse the focal points for each trajectory
+        # Expected output shape is (self.SLICENUMBER, self.FOCALNUMBER, 3) array 
+        if config.verbose() or config.debug():
+          printit(f"{self.__class__.__name__}: Re-parsing focal points for the trajectory {tid}")
+        self.parse_focus() 
+        
 
       tasks = []
       feature_map = []
@@ -319,44 +334,47 @@ class Featurizer:
         if self.FOCALNUMBER > 0:
           # After determineing each focus point, run the featurizer for each focus point
           for pid in range(self.FOCALNUMBER):
-            # printit(f"Processing the focal point {pid} at the bin {bid}")
             focal_point = self.FOCALPOINTS[bid, pid]
 
             # Crop the trajectory and send the coordinates/trajectory to the featurizer
             for fidx in range(self.FEATURENUMBER):
               # Explicitly transfer the topology and frames to get the queried coordinates for the featurizer
-              queried = self.FEATURESPACE[fidx].query(self.top, frames, focal_point)
+              # NOTE: pass a copy of frames to the querier function to avoid in-place modification of the frames 
+              # NOTE: Isolate the effect on the calculation of the next feature 
+              queried = self.FEATURESPACE[fidx].query(self.top, frames.copy(), focal_point)
               tasks.append([self.FEATURESPACE[fidx].run, queried])
               feature_map.append((tid, bid, fidx))
         else:
-          # Without registeration of focal points: Mainly for focal-point independent features
+          # Without registeration of focal points: focal-point independent features such as label-generation
           for fidx in range(self.FEATURENUMBER):
             # Explicitly transfer the topology and frames to get the queried coordinates for the featurizer
-            queried = self.FEATURESPACE[fidx].query(self.top, frames, [0, 0, 0])
+            queried = self.FEATURESPACE[fidx].query(self.top, frames.copy(), [0, 0, 0])
             tasks.append([self.FEATURESPACE[fidx].run, queried])
             feature_map.append((tid, bid, fidx))
 
-      printit(f"Tasks are ready for the trajectory {tid} with {len(tasks)} tasks")
+      printit(f"{self.__class__.__name__}: Tasks are ready for the trajectory {tid} with {len(tasks)} tasks")
       
-      results = [wrapper_runner(*task) for task in tqdm(tasks)]
+      if self.OTHER_PARMS.get("progressbar", False):
+        results = [wrapper_runner(*task) for task in tqdm(tasks)]
+      else:
+        results = [wrapper_runner(*task) for task in tasks]
       # Run the actions in the process pool
       # _tasks = [pool.apply_async(wrapper_runner, task) for task in tasks]
       # results = [task.get() for task in _tasks]
 
-      printit("Tasks are finished, dumping the results to the feature space...")
+      printit(f"{self.__class__.__name__}: Tasks are finished, dumping the results to the feature space...")
 
       if config.verbose() or config.debug():
-        printit("Dumping the results to the feature space...")
+        printit(f"{self.__class__.__name__}: Dumping the results to the feature space...")
         
       # Dump to file for each feature
       for feat_meta, result in zip(feature_map, results):
         tid, bid, fidx = feat_meta
         self.FEATURESPACE[fidx].dump(result)
 
-      if config.verbose() or config.debug():
-        printit(f"Finished the trajectory {tid} with {len(tasks)} tasks")
-      break
-    printit("All trajectories and tasks are finished")
+      msg = f"Finished the trajectory {tid} / {self.TRAJECTORYNUMBER} with {len(tasks)} tasks"
+      printit(f"{self.__class__.__name__}: {msg:^^80}\n")
+    printit(f"{self.__class__.__name__}: All trajectories and tasks are finished")
 
   def loop_by_residue(self, process_nr=20, restype="single"): 
     for tid in range(self.TRAJECTORYNUMBER):
@@ -382,7 +400,7 @@ class Featurizer:
               sliced_coord = frames[:, s_, :] 
               focal_point = np.mean(sliced_coord[0], axis=0)
               for fidx in range(self.FEATURENUMBER):
-                queried = self.FEATURESPACE[fidx].query(sliced_top, sliced_coord, focal_point)
+                queried = self.FEATURESPACE[fidx].query(sliced_top, sliced_coord.copy(), focal_point)
                 tasks.append([self.FEATURESPACE[fidx].run, queried])
                 feature_map.append((tid, bid, fidx, label))
 
@@ -395,15 +413,19 @@ class Featurizer:
               sliced_coord = frames[:, s_, :] 
               focal_point = np.mean(sliced_coord[0], axis=0)
               for fidx in range(self.FEATURENUMBER):
-                queried = self.FEATURESPACE[fidx].query(sliced_top, sliced_coord, focal_point)
+                queried = self.FEATURESPACE[fidx].query(sliced_top, sliced_coord.copy(), focal_point)
                 tasks.append([self.FEATURESPACE[fidx].run, queried])
                 feature_map.append((tid, bid, fidx, label))
 
-      printit(f"Task set containing {len(tasks)} tasks are created for the trajectory {tid}; ")
+      printit(f"{self.__class__.__name__}: Task set containing {len(tasks)} tasks are created for the trajectory {tid}; ")
       
       ######################################################
       # TODO: Find a proper way to parallelize the CUDA function. 
-      results = [wrapper_runner(*task) for task in tqdm(tasks)] 
+      if self.OTHER_PARMS.get("progressbar", False):
+        results = [wrapper_runner(*task) for task in tqdm(tasks)]
+      else:
+        results = [wrapper_runner(*task) for task in tasks]
+      # results = [wrapper_runner(*task) for task in tqdm(tasks)] 
       ######################################################
       # Run the actions in the process pool 
       # Not working
@@ -416,14 +438,13 @@ class Featurizer:
       # with dask.config.set(scheduler='processes', num_workers=process_nr):
       #   results = dask.compute(*[dask.delayed(wrapper_runner)(func, args) for func, args in tasks])
       ######################################################
-      printit(f"Tasks are finished, dumping the results to the feature space...")
+      printit(f"{self.__class__.__name__}: Tasks are finished, dumping the results to the feature space...")
 
       # Dump to file for each feature
       for feat_meta, result in zip(feature_map, results):
         tid, bid, fidx, label = feat_meta
         self.FEATURESPACE[fidx].dump(result)
       if config.verbose() or config.debug():
-        printit(f"Finished the trajectory {tid} with {len(tasks)} tasks")
-      break
-    printit("All trajectories and tasks are finished")
+        printit(f"{self.__class__.__name__}: Finished the trajectory {tid} with {len(tasks)} tasks")
+    printit("f{self.__class__.__name__}: All trajectories and tasks are finished")
 

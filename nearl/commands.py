@@ -59,7 +59,7 @@ def voxelize_coords(coords, weights, grid_dims, spacing, cutoff, sigma):
   return ret_arr.reshape(grid_dims)
 
 
-def marching_observers(coords, grid_dims, spacing, cutoff, type_obs, type_agg):
+def marching_observers(coords, weights, grid_dims, spacing, cutoff, type_obs, type_agg):
   """
   Marching observers algorithm to create a mesh from a slice of frames. The number of atoms in each frame should be the same. 
 
@@ -86,8 +86,10 @@ def marching_observers(coords, grid_dims, spacing, cutoff, type_obs, type_agg):
   """
   if coords.dtype != np.float32:
     coords = coords.astype(np.float32)
-  grid_dims = np.array(grid_dims, dtype=int)
-  ret_arr = all_actions.do_marching(coords, grid_dims, spacing, cutoff, type_obs, type_agg)
+  if weights.dtype != np.float32:
+    weights = weights.astype(np.float32)
+  grid_dims = np.asarray(grid_dims, dtype=int)
+  ret_arr = all_actions.do_marching(coords, weights, grid_dims, spacing, cutoff, type_obs, type_agg)
   return ret_arr.reshape(grid_dims)
 
 
