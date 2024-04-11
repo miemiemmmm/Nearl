@@ -58,8 +58,6 @@ class Featurizer:
       self.__spacing = parms.get("spacing", 1.0)
       self.__lengths = self.__dims * self.__spacing  # Directly assignment avoid the re-calculation of the spacing
 
-    print(self.spacing, self.lengths, self.dims)
-
     self.time_window = int(parms.get("time_window", 1))   # The time window for the trajectory (default is 1), Simple integer.
 
     # Get common feature parameters to hook the features
@@ -105,6 +103,11 @@ class Featurizer:
     
     if config.verbose():
       printit(f"{self.__class__.__name__}: Featurizer is initialized successfully with dimensions: {self.__dims} and lengths: {self.__lengths}")
+
+    if "outfile" in parms.keys():
+      # Dump the parm dict to that hdf file
+      tmpdict = {**parms, **kwargs}
+      utils.dump_dict(parms["outfile"], "featurizer_parms", tmpdict)
 
   def __str__(self):
     finalstr = f"Feature Number: {self.FEATURENUMBER}; \n"
@@ -197,11 +200,17 @@ class Featurizer:
 
     Parameters
     ----------
-    features: list_like
-      A list of feature objects
+    features: list_like or dict_like 
+      A list or dictionary like object of a set of features (nearl.features.Feature) 
     """
-    for feature in features:
-      self.register_feature(feature)
+    if isinstance(features, (list, tuple)):
+      for feature in features:
+        self.register_feature(feature)
+    elif isinstance(features, dict):
+      for _, feature in features.items():
+        if config.verbose() or config.debug():
+          printit(f"{self.__class__.__name__}: Registering the feature named: {_} from {feature.__class__.__name__} class")
+        self.register_feature(feature)
 
   def register_trajloader(self, trajloader):
     """
@@ -316,6 +325,8 @@ class Featurizer:
 
       # Cache the weights for each atoms in the trajectory (run once for each trajectory)
       for feat in self.FEATURESPACE:
+        if config.verbose(): 
+          printit(f"{self.__class__.__name__}: Caching the weights of feature {feat.__class__.__name__} for the trajectory {tid}")
         feat.cache(self.traj)
 
       if self.FOCALPOINTS_PROTOTYPE is not None:
@@ -372,7 +383,7 @@ class Featurizer:
         tid, bid, fidx = feat_meta
         self.FEATURESPACE[fidx].dump(result)
 
-      msg = f"Finished the trajectory {tid} / {self.TRAJECTORYNUMBER} with {len(tasks)} tasks"
+      msg = f"Finished the trajectory {tid+1} / {self.TRAJECTORYNUMBER} with {len(tasks)} tasks"
       printit(f"{self.__class__.__name__}: {msg:^^80}\n")
     printit(f"{self.__class__.__name__}: All trajectories and tasks are finished")
 

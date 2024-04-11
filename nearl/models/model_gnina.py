@@ -38,7 +38,7 @@ class GninaNetwork2017(nn.Module):
       flattened_size = int(torch.prod(torch.tensor(dummy_output.shape[1:])))
     
     # Define the fully connected layers for pose and affinity predictions
-    self.pose_output = nn.Linear(flattened_size, output_dimension)
+    # self.pose_output = nn.Linear(flattened_size, output_dimension)
     self.affinity_output = nn.Linear(flattened_size, 1)
   
   def forward(self, x):
@@ -47,11 +47,13 @@ class GninaNetwork2017(nn.Module):
     # Flatten the output for the fully connected layer
     x = x.view(x.size(0), -1)
     
-    # Pose and affinity predictions
-    pose_pred = F.softmax(self.pose_output(x), dim=1)
     affinity_pred = self.affinity_output(x)
+    return affinity_pred
+    # Pose and affinity predictions
+    # pose_pred = F.softmax(self.pose_output(x), dim=1)
+    # affinity_pred = self.affinity_output(x)
     
-    return pose_pred, affinity_pred
+    # return pose_pred, affinity_pred
 
 
 class GninaNetwork2017_FiveLayers(nn.Module):

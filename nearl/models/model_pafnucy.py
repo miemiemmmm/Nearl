@@ -38,12 +38,11 @@ class PafnucyNetwork(nn.Module):
                input_channel_number, 
                output_dimension, 
                box_dim, 
-               
-               conv_patch, 
-               pool_patch, 
-               conv_channels, 
-               dense_sizes, 
-               keep_prob=1.0):
+               conv_patch = 5, 
+               pool_patch = 2, 
+               conv_channels = [32, 64, 128],
+               dense_sizes = [1024, 512, 256],
+               keep_prob = 0.9 ):
     super(PafnucyNetwork, self).__init__()
 
     conv_layers = OrderedDict()

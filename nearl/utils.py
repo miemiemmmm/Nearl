@@ -7,7 +7,7 @@ from scipy.spatial import distance_matrix
 from itertools import groupby
 
 from . import constants
-from . import printit
+from . import printit, config
 
 
 def get_hash(theinput="", mode="md5"):
@@ -419,6 +419,45 @@ def append_hdf_data(hdffile, key, data, dtype, maxshape, **kwargs):
       dset[:] = data
 
 
+def update_hdf_data(hdffile, dataset_name:str, data:np.ndarray, hdf_slice, **kwargs):
+  """
+  Update the data of an existing HDF5 dataset with a slice of data
+
+  The slice has to be explicitly defined by a normal slice object or np.s_[], so that it modifies the data in place
+
+  Parameters
+  ----------
+  hdffile : 
+
+  """
+  if isinstance(hdffile, str):
+    with h5py.File(hdffile, "a") as hdf:
+      if dataset_name not in hdf.keys():
+        hdf.create_dataset(dataset_name, data=data, **kwargs)
+      else:
+        if hdf_slice.stop > hdf[dataset_name].shape[0]:
+          hdf[dataset_name].resize(hdf_slice.stop, axis=0)
+        hdf[dataset_name][hdf_slice] = data
+  elif isinstance(hdffile, h5py.File):
+    if dataset_name not in hdffile.keys():
+        hdffile.create_dataset(dataset_name, data=data, **kwargs)
+    else:
+      if hdf_slice.stop > hdffile[dataset_name].shape[0]: 
+        hdffile[dataset_name].resize(hdf_slice.stop, axis=0)
+      hdffile[dataset_name][hdf_slice] = data
+
+
+def dump_dict(outfile : str, groupname : str, dic : dict): 
+  with h5py.File(outfile, "a") as hdf: 
+    if groupname not in hdf.keys():
+      hdf.create_group(groupname)
+    else: 
+      del hdf[groupname]
+      hdf.create_group(groupname)
+    for key, val in dic.items():
+      hdf[groupname][key] = val
+
+
 def find_block_single(traj, key): 
   """
   Find the single-residue blocks in a trajectory based on the keyword (residue name)
@@ -540,3 +579,44 @@ def index_partition(input_seq, partition_nr):
   for c, i in enumerate(np.argsort(element_nrs)[::-1][:partition_nr]):
     ret_slices[c] = slices[i]
   return ret_slices 
+
+
+def check_filelist(training_set): 
+  with open(training_set, "r") as f:
+    pdbcodes = f.read().strip("\n").split("\n")
+  return pdbcodes
+
+
+# Available models:
+# Atom3D, DeepRank, Gnina2017, Gnina2017_, GninaDense, Gnina2018, KDeep, VoxNet, Pafnucy
+def get_model(name, in_channels, out_channels, box_size, **kwargs):
+  if name == "Atom3D":
+    import nearl.models.model_atom3d
+    return nearl.models.model_atom3d.Atom3DNetwork(in_channels, out_channels, box_size)
+  elif name == "DeepRank":
+    import nearl.models.model_deeprank
+    return nearl.models.model_deeprank.DeepRankNetwork(in_channels, out_channels, box_size)
+  elif name == "Gnina2017":
+    import nearl.models.model_gnina
+    return nearl.models.model_gnina.GninaNetwork2017(in_channels, out_channels, box_size)
+  elif name == "Gnina2017_":
+    import nearl.models.model_gnina
+    return nearl.models.model_gnina.GninaNetwork2017_(in_channels, out_channels, box_size)
+  elif name == "GninaDense":
+    import nearl.models.model_gnina
+    return nearl.models.model_gnina.GninaNetworkDense(in_channels, out_channels, box_size)
+  elif name == "Gnina2018":
+    import nearl.models.model_gnina
+    return nearl.models.model_gnina.GninaNetwork2018(in_channels, out_channels, box_size)
+  elif name == "KDeep":
+    import nearl.models.model_kdeep
+    return nearl.models.model_kdeep.KDeepNetwork(in_channels, out_channels, box_size)
+  elif name == "VoxNet":
+    import nearl.models.model_voxnet
+    return nearl.models.model_voxnet.VoxNet(in_channels, out_channels, box_size)
+  elif name == "Pafnucy":
+    import nearl.models.model_pafnucy
+    return nearl.models.model_pafnucy.PafnucyNetwork(in_channels, out_channels, box_size, **kwargs)
+  else:
+    raise ValueError(f"Model {name} not found")
+

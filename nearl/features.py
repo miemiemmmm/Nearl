@@ -19,6 +19,7 @@ __all__ = [
   "HeavyAtom",
   "Aromaticity",
   "Ring",
+  "Selection",
   "HBondDonor",
   "HBondAcceptor",
   "Hybridization",
@@ -34,9 +35,12 @@ __all__ = [
   "MarchingObservers",
 
   # Label-type features
-  "Label_RMSD",
-  "Label_PCDT",
-  "Label_ResType",
+  "LabelIdentity",
+  "LabelAffinity",
+  "LabelPCDT",
+  "LabelRMSD",
+  "LabelResType",
+  
 
   # Other features
   "VectorizerViewpoint", 
@@ -213,11 +217,10 @@ class Feature:
     self._force_recache = False if force_recache is False else True
 
   def __str__(self):
-    ret_str = "Feature: "
-    if self.dims is not None:
-      ret_str += "Dimensions: " + " ".join([str(i) for i in self.dims] + " ")
-    if self.spacing is not None:
-      ret_str += f"Spacing: {self.spacing} \n"
+    ret_str = f"{self.__class__.__name__}"
+    if config.verbose():
+      ret_str += f"<dims:{self.dims}|spacing:{self.spacing}>"
+      # ret_str += f"<> "
     return ret_str
 
   @property
@@ -345,17 +348,20 @@ class Feature:
       else:
         self.cache(pt.Trajectory(xyz=frame_coords, top=topology))
         
+    if config.verbose() and config.debug():
+      mean_before = np.mean(frame_coords, axis=0)
+
     # In-place translation of the coordinates to the center of the box
     frame_coords[:] = frame_coords - focal_point + self.center  
     mask = crop(frame_coords, self.lengths, self.padding)
     
     if np.count_nonzero(mask) == 0:
-      printit(f"{self.__class__.__name__} Warning: Found {np.count_nonzero(mask)} atoms in the bounding box near the focal point {np.round(focal_point,1)}")
+      printit(f"{self} Warning: Found {np.count_nonzero(mask)} atoms in the bounding box near the focal point {np.round(focal_point,1)}")
     elif config.verbose() or config.debug(): 
-      printit(f"{self.__class__.__name__}: Found {np.count_nonzero(mask)} atoms in the bounding box near the focal point {np.round(focal_point,1)}")
+      printit(f"{self}: Found {np.count_nonzero(mask)} atoms in the bounding box near the focal point {np.round(focal_point,1)}")
 
     if config.verbose() and config.debug():
-      printit(f"{self.__class__.__name__}: Shape: {np.shape(frame_coords)}; Before translation: {np.mean(frame_coords, axis=0).round()}; After {np.mean(new_coords, axis=0).round()} ")
+      printit(f"{self.__class__.__name__}: Shape: {np.shape(frame_coords)}; Before translation: {np.mean(frame_coords, axis=0).round()}; After {mean_before.round()} ")
 
     # Get the boolean array of residues within the bounding box
     if self.byres:
@@ -393,9 +399,9 @@ class Feature:
     # Check the sum of the absolute values of the returned array
     ret_sum = np.sum(np.abs(ret))
     if np.isclose(ret_sum, 0):
-      printit(f"{self.__class__.__name__} Warning: The sum of the returned array is zero")
+      printit(f"{self} Warning: The sum of the returned array is zero")
     elif np.isnan(ret_sum):
-      printit(f"{self.__class__.__name__} Warning: The returned array has {np.isnan(ret).sum()} NaN values")
+      printit(f"{self} Warning: The returned array has {np.isnan(ret).sum()} NaN values")
     return ret
 
   def dump(self, result):
@@ -443,7 +449,6 @@ class AtomicNumber(Feature):
     idx_inbox = super().query(topology, frame_coords, focal_point)
     coord_inbox = frame_coords[idx_inbox]
     weights = np.array([self.atomic_numbers[i] for i in self.atomic_numbers[idx_inbox]], dtype=np.float32)
-    # coord_inbox = coord_inbox - focal_point + self.center
     return coord_inbox, weights
 
 
@@ -496,7 +501,6 @@ class Mass(Feature):
     idx_inbox = super().query(topology, frame_coords, focal_point)
     coord_inbox = frame_coords[idx_inbox]
     weights = np.array([self.mass[i] for i in self.atomic_numbers[idx_inbox]], dtype=np.float32)
-    # coord_inbox = coord_inbox - focal_point + self.center
     return coord_inbox, weights
 
 
@@ -522,8 +526,6 @@ class HeavyAtom(Feature):
     idx_inbox = super().query(topology, frame_coords, focal_point)
     coord_inbox = frame_coords[idx_inbox]
     weights = self.heavy_atoms[idx_inbox]
-    # Translate the result coordinates to the center of the box
-    coord_inbox = coord_inbox - focal_point + self.center
     return coord_inbox, weights
 
 
@@ -552,7 +554,6 @@ class Aromaticity(Feature):
     idx_inbox = super().query(topology, frame_coords, focal_point)
     coord_inbox = frame_coords[idx_inbox]
     weights = self.atoms_aromatic[idx_inbox]
-    coord_inbox = coord_inbox - focal_point + self.center
     return coord_inbox, weights
 
 
@@ -582,25 +583,30 @@ class Ring(Feature):
     idx_inbox = super().query(topology, frame_coords, focal_point)
     coord_inbox = frame_coords[idx_inbox]
     weights = self.atoms_in_ring[idx_inbox]
-    coord_inbox = coord_inbox - focal_point + self.center
     return coord_inbox, weights
 
 
 class Selection(Feature):
   def __init__(self, selection, selection_type, **kwargs):
     super().__init__(**kwargs)
-    self.selection = selection
+    self.selection = None
     self.selection_type = selection_type
+    self.selection_prototype = selection
+
+  def __str__(self): 
+    return f"{self.__class__.__name__}({self.selection_type}:{self.selection_prototype})"
 
   def cache(self, trajectory):
     super().cache(trajectory)
     selected = np.zeros(trajectory.n_atoms, dtype=np.float32)
     if self.selection_type == "mask":
-      selected[self.selection] = 1
+      selected[trajectory.top.select(self.selection_prototype)] = 1
+
     elif self.selection_type == "array":
       if len(self.selection) != trajectory.n_atoms:
         printit(f"{self.__class__.__name__} Warning: The number of atoms in structure does not match the number of aromaticity values")
-      selected = np.asarray(self.selection)
+      selected[np.asarray(self.selection_prototype)] = 1
+
     else:
       printit(f"{self.__class__.__name__} Warning: The selection type is not recognized. Only 'mask' and 'array' are supported. ")
     self.selection = selected
@@ -611,7 +617,6 @@ class Selection(Feature):
     idx_inbox = super().query(topology, frame_coords, focal_point)
     coord_inbox = frame_coords[idx_inbox]
     weights = self.selection[idx_inbox]
-    coord_inbox = coord_inbox - focal_point + self.center
     return coord_inbox, weights
   
 
@@ -635,7 +640,6 @@ class HBondDonor(Feature):
     idx_inbox = super().query(topology, frame_coords, focal_point)
     coord_inbox = frame_coords[idx_inbox]
     weights = self.atoms_hbond_donor[idx_inbox]
-    coord_inbox = coord_inbox - focal_point + self.center
     return coord_inbox, weights
 
 
@@ -659,7 +663,6 @@ class HBondAcceptor(Feature):
     idx_inbox = super().query(topology, frame_coords, focal_point)
     coord_inbox = frame_coords[idx_inbox]
     weights = self.atoms_hbond_acceptor[idx_inbox]
-    coord_inbox = coord_inbox - focal_point + self.center
     return coord_inbox, weights
 
 
@@ -683,7 +686,6 @@ class Hybridization(Feature):
     idx_inbox = super().query(topology, frame_coords, focal_point)
     coord_inbox = frame_coords[idx_inbox]
     weights = self.atoms_hybridization[idx_inbox]
-    coord_inbox = coord_inbox - focal_point + self.center
     return coord_inbox, weights
 
 
@@ -706,26 +708,32 @@ class Backbone(Feature):
     idx_inbox = super().query(topology, frame_coords, focal_point)
     coord_inbox = frame_coords[idx_inbox]
     weights = self.backboneness[idx_inbox]
-    coord_inbox = coord_inbox - focal_point + self.center
     return coord_inbox, weights
   
 
 class AtomType(Feature):
   def __init__(self, focus_element, **kwargs):
     super().__init__(**kwargs)
-    self.focus_element = focus_element
+    self.focus_element = int(focus_element)
+
+  def __str__(self):
+    return f"{self.__class__.__name__} <focus:{constants.ATOMICNR2SYMBOL[self.focus_element]}>"
 
   def cache(self, trajectory):
     super().cache(trajectory)
-    self.atom_type = np.array([1 if i == self.focus_element else 0 for i in trajectory.top.atoms], dtype=np.float32)
+    self.atom_type = np.array([1 if i.atomic_number == self.focus_element else 0 for i in trajectory.top.atoms], dtype=np.float32)
 
   def query(self, topology, frame_coords, focal_point):
     if frame_coords.shape.__len__() == 3: 
       frame_coords = frame_coords[0]
+
     idx_inbox = super().query(topology, frame_coords, focal_point)
     coord_inbox = frame_coords[idx_inbox]
     weights = self.atom_type[idx_inbox]
-    coord_inbox = coord_inbox - focal_point + self.center
+
+    if np.sum(weights) == 0:
+      printit(f"{self} Warning: No atoms of the type {self.focus_element} found in the bounding box")
+    
     return coord_inbox, weights
 
 
@@ -759,12 +767,23 @@ class PartialCharge(Feature):
     self.charge_type = charge_type
     self.charge_parm = charge_parm
     self.force_compute = force_compute
-    self.keep_sign = keep_sign
+    if keep_sign in ["positive", "p"]:
+      self.keep_sign = "positive"
+    elif keep_sign in ["negative", "n"]:
+      self.keep_sign = "negative"
+    elif keep_sign in ["both", "b"]:
+      self.keep_sign = "both"
+    else:
+      raise ValueError(f"{self.__class__.__name__} Warning: The keep_sign parameter should be either 'positive', 'negative' or 'both' rather than {keep_sign}")
+
+  def __str__(self):
+    return f"{self.__class__.__name__} <type:{self.charge_type}|sign:{self.keep_sign}>"
 
   def cache(self, trajectory):
     super().cache(trajectory)
     if np.abs(trajectory.top.charge).sum() > 0 and not self.force_compute:
       # Inherit the charge values from the trajectory if the charges are already computed
+      self.charge_type = "topology"
       self.charge_values = trajectory.top.charge
 
     elif self.charge_type == "manual": 
@@ -856,8 +875,6 @@ class PartialCharge(Feature):
     idx_inbox = super().query(topology, frame_coords, focal_point)
     coord_inbox = frame_coords[idx_inbox]
     weights = self.charge_values[idx_inbox] 
-    # Translate the result coordinates to the center of the box
-    # coord_inbox = coord_inbox - focal_point + self.center
     return coord_inbox, weights
 
 
@@ -875,7 +892,6 @@ class Electronegativity(Feature):
     idx_inbox = super().query(topology, frame_coords, focal_point)
     coord_inbox = frame_coords[idx_inbox]
     weights = self.electronegativity[idx_inbox]
-    coord_inbox = coord_inbox - focal_point + self.center
     return coord_inbox, weights
   
 
@@ -894,10 +910,12 @@ class Hydrophobicity(Feature):
     idx_inbox = super().query(topology, frame_coords, focal_point)
     coord_inbox = frame_coords[idx_inbox]
     weights = self.hydrophobicity[idx_inbox]
-    coord_inbox = coord_inbox - focal_point + self.center
     return coord_inbox, weights
 
 
+###############################################################################
+# Label-Tyep Features
+###############################################################################
 def cache_properties(trajectory, property_type, **kwargs): 
   """
   Cache the required atomic properties for the trajectory. 
@@ -1020,14 +1038,21 @@ def cache_properties(trajectory, property_type, **kwargs):
   return np.asarray(cached_arr, dtype=np.float32)
 
 
-
 class DynamicFeature(Feature):
   def __init__(self, agg="mean", weight_type="mass", **kwargs):
     super().__init__(**kwargs)
-    self.__agg_type = agg
-    self.__weight_type = weight_type
+    self._agg_type = agg
+    self._weight_type = weight_type
     # Need to manually handle the kwargs for specific features instances
-    self.feature_args = {} 
+    self.feature_args = kwargs
+
+  def __str__(self):
+    ret = f"{self.__class__.__name__} <agg:{self.agg}|weight:{self.weight_type}"
+    for key, value in self.feature_args.items():
+      ret += f"|{key}:{value}"
+    ret += ">"
+    return ret
+    
 
   @property
   def agg(self):
@@ -1041,14 +1066,14 @@ class DynamicFeature(Feature):
     - min 6
     - information_entropy 7
     """
-    if self.__agg_type in SUPPORTED_AGGREGATION.keys():
-      return SUPPORTED_AGGREGATION[self.__agg_type]
+    if self._agg_type in SUPPORTED_AGGREGATION.keys():
+      return SUPPORTED_AGGREGATION[self._agg_type]
     else:
       raise ValueError("The aggregation type is not recognized")
   @agg.setter
   def agg(self, value):
     assert isinstance(value, str), "The aggregation type should be a string"
-    self.__agg_type = value
+    self._agg_type = value
 
   @property
   def weight_type(self):
@@ -1060,21 +1085,21 @@ class DynamicFeature(Feature):
     Be cautious about the partial charge (which contains both positive and negative values). A lot of aggregation functions compute weighted average (e.g. weighted center). 
     Make sure that the weight and aggregation function valid in physical sense. 
     """
-    if self.__weight_type in SUPPORTED_FEATURES.keys():
-      return SUPPORTED_FEATURES[self.__weight_type]
+    if self._weight_type in SUPPORTED_FEATURES.keys():
+      return SUPPORTED_FEATURES[self._weight_type]
     else:
-      raise ValueError(f"The weight type is not recognized {self.__weight_type}; Available types are {SUPPORTED_FEATURES.keys()}")
+      raise ValueError(f"The weight type is not recognized {self._weight_type}; Available types are {SUPPORTED_FEATURES.keys()}")
   @weight_type.setter
   def weight_type(self, value):
     assert isinstance(value, str), "The weight type should be a string"
-    self.__weight_type = value
+    self._weight_type = value
   
   def cache(self, trajectory): 
     """
     Take the required weight type (self.weight_type) and cache the weights for each atom in the trajectory
     """
     super().cache(trajectory)   # Obtain the atomic number and residue IDs
-    self.cached_weights = cache_properties(trajectory, self.weight_type)
+    self.cached_weights = cache_properties(trajectory, self.weight_type, **self.feature_args)
 
   def query(self, topology, frame_coords, focal_point):
     """
@@ -1158,14 +1183,11 @@ class DensityFlow(DynamicFeature):
     return ret_arr.reshape(self.dims)  
 
 
-
-
 class MarchingObservers(DynamicFeature): 
   """
   Perform the marching observers algorithm to get the dynamic feature. 
 
   Inherit from the DynamicFeature class since there are common ways to query the coordinates and weights. 
-  
 
   Observation types: 
     Direct Count-based Observables
@@ -1198,19 +1220,20 @@ class MarchingObservers(DynamicFeature):
     # Just omit the sigma parameter while the inheritance. 
     # while initialization of the parent class, weight_type, cutoff, agg are set
     super().__init__(**kwargs)
-    self.__obs_type = obs     # Directly pass to the CUDA voxelizer
+    self._obs_type = obs     # Directly pass to the CUDA voxelizer
     
-
+  def __str__(self): 
+    return f"{self.__class__.__name__} <obs:{self._obs_type}|type:{self._weight_type}|agg:{self._agg_type}>"
   @property
   def obs(self):
-    if self.__obs_type in SUPPORTED_OBSERVATION.keys():
-      return SUPPORTED_OBSERVATION[self.__obs_type]
+    if self._obs_type in SUPPORTED_OBSERVATION.keys():
+      return SUPPORTED_OBSERVATION[self._obs_type]
     else:
-      raise ValueError(f"The observation type is not recognized {self.__obs_type}; Available types are {SUPPORTED_OBSERVATION.keys()}")
+      raise ValueError(f"The observation type is not recognized {self._obs_type}; Available types are {SUPPORTED_OBSERVATION.keys()}")
   @obs.setter
   def obs(self, value):
     assert isinstance(value, str), "The observation type should be a string"
-    self.__obs_type = value
+    self._obs_type = value
 
   def query(self, topology, coordinates, focus):
     """
@@ -1248,7 +1271,77 @@ class MarchingObservers(DynamicFeature):
     return ret_arr.reshape(self.dims)
 
 
-class Label_RMSD(Feature): 
+###############################################################################
+# Label-Tyep Features
+###############################################################################
+class LabelIdentity(Feature):
+  def __init__(self, **kwargs):
+    super().__init__(**kwargs)
+
+  def cache(self, trajectory):
+    """
+    Cache the trajectory identity for the feature. 
+
+    Notes
+    -----
+    In MisatoTraj type, the identity is the pdbcode
+
+    In Normal Trajectory type, the identity is the filename
+    """
+    super().cache(trajectory)
+    self.identity = trajectory.identity
+
+  def query(self, *args):
+    return self.identity
+
+
+class LabelAffinity(Feature):
+  """
+  Read the PDBBind table and return the affinity values according to the pdbcode (identity from the trajectory) 
+  """
+  def __init__(self, baseline_map, **kwargs):
+    """
+    Since there is no explicit annotation for the ligand part, we use a ligand indices map to 
+    extract the ligand part of the protein.
+    """
+    import pandas as pd
+    super().__init__(outshape=(None,), **kwargs)
+    self.baseline_table = pd.read_csv(baseline_map, header=0, delimiter=",")
+    self.base_value = None
+
+  def search_baseline(self, pdbcode):
+    pdbcode = utils.get_pdbcode(pdbcode)
+    if pdbcode.lower() in self.baseline_table["pdbcode"].values:
+      return self.baseline_table.loc[self.baseline_table["pdbcode"] == pdbcode.lower()]["pK"].values[0]
+    else:
+      raise ValueError(f"Cannot find the baseline value for {pdbcode}")
+  
+  def cache(self, trajectory):
+    """
+    Loop up the baseline values from a table and cache the pairwise closest distances. 
+
+    Trajectory specific value. 
+
+    Notes
+    -----
+    In this type, the super.cache() is not needed.
+    """
+    # IMPORTANT: Retrieve the base value based on the trajectory identity
+    self.base_value = self.search_baseline(trajectory.identity)
+    if config.verbose():
+      printit(f"{self.__class__.__name__}: Base value is {self.base_value}")
+
+  def query(self, *args):
+    """
+    No frame slice specific query is needed.
+    """
+    return (None, )
+
+  def run(self, *args):
+    return self.base_value
+
+
+class LabelRMSD(LabelAffinity): 
   def __init__(self, 
     selection=None, base_value=0, 
     outshape=(None,), 
@@ -1278,8 +1371,8 @@ class Label_RMSD(Feature):
     # Only need the topology and the frames. 
     tmptraj = pt.Trajectory(xyz=frames, top=topology)
     rmsd_arr = pt.rmsd_nofit(tmptraj, mask=self.selection, ref=self.refframe)
-    z_score = (np.mean(rmsd_arr) - np.mean(self.cached_array)) / np.std(self.cached_array)   
-    return z_score
+    raise NotImplementedError("The query function should be implemented in the child class")
+    # return z_score
 
   def run(self, z_score): 
     # Greater than 0 meaning RMSD is larger than the average and should apply a penalty
@@ -1287,9 +1380,9 @@ class Label_RMSD(Feature):
     # correction factor is 0.1 * base_value * z_score
     final_value = self.base_value - self.base_value * 0.1 * z_score
     return final_value
-    
 
-class Label_PCDT(Feature): 
+
+class LabelPCDT(LabelAffinity): 
   """
   Label the feature based on the cosine similarity between the PCDT of the focused point and the cached PCDT array.
 
@@ -1309,69 +1402,77 @@ class Label_PCDT(Feature):
   
   """
   def __init__(self, 
-    selection=None, distance_cutoff = 8.0, 
-    outshape=(None,), 
+    selection=None, distance_cutoff = None, 
     **kwargs
   ): 
-    super().__init__(outshape = outshape, **kwargs) 
+    # Initialize the self.base_value in the parent class
+    super().__init__(**kwargs) 
     # Pairs of atoms for the PCDT calculation 
-    self.selection = selection
-    self.selection_counterpart = None
+    self.selection_prototype = selection
+    self.selected = None
+    self.selected_counterpart = None
+
+    self.refframe = None
+    self.cached_array = None
     self.distance_cutoff = distance_cutoff
 
-    # By default the lookup table should be a dictionary
-    self.base_value = None
-
-  def search_baseline(self, keyword):
-    """
-    User should implement the search_baseline method to search the baseline value based on the trajectory identity
-    """
-    raise NotImplementedError("The search_baseline class method should be implemented in the child class")
-
   def cache(self, trajectory): 
-    # Cache the address of the trajectory for further query of the RMSD array based on focused points
-    if isinstance(self.selection, str):
-      selected = trajectory.top.select(self.selection)
-    elif isinstance(self.selection, (list, tuple, np.ndarray)):
-      selected = np.array([int(i) for i in self.selection])
+    # IMPORTANT: Retrieve the base value based on the trajectory identity (self.base_value) in the parent class
+    super().cache(trajectory)
+
+    # Parse the selection and the counterpart selection
+    if isinstance(self.selection_prototype, str):
+      selected = trajectory.top.select(self.selection_prototype)
+    elif isinstance(self.selection_prototype, (list, tuple, np.ndarray)):
+      selected = np.array([int(i) for i in self.selection_prototype])
     else: 
       raise ValueError("The selection should be either a string or a list of atom indices")
 
+    # IMPORTANT: Set the global reference frame for the trajectory
+    # This allows a fixed pair of atoms for the PCDT calculation
     self.refframe = trajectory[0]
-    self.refframe.xyz[selected]
-    self.selection_counterpart = np.full(len(selected), 0, dtype=int)
+    self.selected = selected
+    self.selected_counterpart = np.full(len(selected), 0, dtype=int)
     backbone_cb = trajectory.top.select("@C, @N, @CA, @O, @CB")
     for i in range(len(selected)):
       dist = np.linalg.norm(self.refframe.xyz[selected[i]] - self.refframe.xyz[backbone_cb], axis=1)
-      self.selection_counterpart[i] = backbone_cb[np.argmin(dist)]
+      self.selected_counterpart[i] = backbone_cb[np.argmin(dist)]
 
-    self.cached_array = utils.compute_pcdt(trajectory, selected, self.selection_counterpart, ref=self.refframe, return_info=False)
+    self.cached_array = utils.compute_pcdt(trajectory, self.selected, self.selected_counterpart, ref=self.refframe, return_info=False)
+
     # Set a cutoff distance for limiting outliers in the PCDT
-    self.cached_array = np.minimum(self.cached_array, self.distance_cutoff)  
+    if self.distance_cutoff is not None:
+      self.cached_array = np.minimum(self.cached_array, self.distance_cutoff)  
 
-    # IMPORTANT: Retrieve the base value based on the trajectory identity
-    self.base_value = self.search_baseline(trajectory.identity)
+  def penalty(self, pcdt_arr):
+    """
+    Compare the PCDT array with the cached PCDT array and return the penalty value
+    """
+    assert pcdt_arr.shape[0] == self.cached_array.shape[0], "The number of rows should be the same"
+    z_score = np.abs(np.mean(pcdt_arr, axis=1) - np.mean(self.cached_array, axis=1)) / np.std(self.cached_array, axis=1)
+    return np.mean(z_score)
 
   def query(self, topology, frames, focus):
     tmptraj = pt.Trajectory(xyz=frames, top=topology)
-    pdist_arr = utils.compute_pcdt(tmptraj, self.selection, self.selection_counterpart, ref=self.refframe, return_info=False)
-    pdist_mean = np.mean(pdist_arr, axis=1)
-    pdist_mean_cached = np.mean(self.cached_array, axis=1)
-    cosine_sim = (np.dot(pdist_mean, pdist_mean_cached) / (np.linalg.norm(pdist_mean) * np.linalg.norm(pdist_mean_cached)))
-    return (cosine_sim,)
+    pdist_arr = utils.compute_pcdt(tmptraj, self.selected, self.selected_counterpart, ref=self.refframe, return_info=False)
+    if self.distance_cutoff is not None:
+      pdist_arr = np.minimum(pdist_arr, self.distance_cutoff)
+    penalty = self.penalty(pdist_arr)
+    return (penalty, )
   
-  def run(self, cosine_sim): 
+  def run(self, penalty): 
     """
-    Use the penalty function: 
-      S = S0 - S0 * 0.1 * (1 - cosine_similarity)
+    Compute the penalty based on the queried value: 
+
+    S_{i} = S_{0} * (1 - 0.1 * penalty)
     """
-    if self.base_value is None:
-      raise ValueError("The base value is not set, please set the base value before running the feature")
-    final_value = self.base_value - self.base_value * 0.1 * (1 - cosine_sim)
+    assert self.base_value  is not None, "The base value is not set, please set the base value before running the feature"
+    assert self.cached_array is not None, "The cached array is not set, please set the cached array before running the feature"
+    final_value = self.base_value * (1 - 0.1 * penalty)
     return final_value
 
 
-class Label_ResType(Feature): 
+class LabelResType(Feature): 
   def __init__(self, restype="single", byres=True, outshape=(None,), **kwargs): 
     """
     Check the labeled single/dual residue labeling based on the residue type.

@@ -1,43 +1,24 @@
 import time, json, os, argparse
 import numpy as np
 import pandas as pd
+from collections import OrderedDict
 
 import nearl 
 import nearl.data
-from nearl.io.traj import MisatoTraj, Trajectory
+from nearl.io.traj import MisatoTraj
+
 
 # Define the way to generation labels for the misato trajectories
-
-
-class MisatoLabels(nearl.features.Label_PCDT):
-  def __init__(self, baseline_map, **kwargs):
-    """
-    Since there is no explicit annotation for the ligand part, we use a ligand indices map to 
-    extract the ligand part of the protein.
-    """
-    super().__init__(outshape=(None,), **kwargs)
-    self.baseline_table = pd.read_csv(baseline_map, header=0, delimiter=",")
-
-  def search_baseline(self, pdbcode):
-    pdbcode = nearl.utils.get_pdbcode(pdbcode)
-    if pdbcode.lower() in self.baseline_table["pdbcode"].values:
-      return self.baseline_table.loc[self.baseline_table["pdbcode"] == pdbcode.lower()]["pK"].values[0]
-    else:
-      raise ValueError(f"Cannot find the baseline value for {pdbcode}")
-  
-  def cache(self, traj):
-    """
-    Loop up the baseline values from a table and cache the pairwise closest distances. 
-    """
-    super().cache(traj)
-    nearl.printit(f"{self.__class__.__name__}: Base value is {self.base_value}")
-
 
 def parser(): 
   parser = argparse.ArgumentParser(description="Featurize the misato trajectories")
   parser.add_argument("--task_nr", type=int, default=1, help="The task number to run")
   parser.add_argument("--task_index", type=int, default=0, help="The task index to run")
-  return parser.parse_args()
+  parser.add_argument("--output_dir", type=str, default="",help="The output directory")
+  args = parser.parse_args()
+  if not os.path.exists(args.output_dir):
+    raise FileNotFoundError(f"Output directory {args.output_dir} does not exist")
+  return args
 
 def get_trajlist(training_set, misatodir): 
   with open(training_set, "r") as f:
@@ -64,8 +45,11 @@ if __name__ == "__main__":
   # Load trajectories 
   misatodir = "/Matter/misato_database/"
   training_set = "/MieT5/BetaPose/data/misato_train.txt"
-  outputfile = f"/Matter/nearl_training_data/test_jobs/testoutput{task_index}.h5"
+  # training_set = "/MieT5/BetaPose/data/misato_test.txt"
+  outputfile = os.path.join(os.path.abspath(args["output_dir"]), f"MisatoOutput{task_index}.h5") 
 
+  print(f"Input file: {training_set}, Output file: {outputfile}; Task {task_index} of {task_nr}")
+  
   # Initialize featurizer object and register necessary components
   FEATURIZER_PARMS = {
     "dimensions": 32, 
@@ -73,20 +57,19 @@ if __name__ == "__main__":
     "time_window": 10, 
 
     # For default setting inference of registered features
-    "sigma": 2.0, 
-    "cutoff": 2.0, 
+    "sigma": 1.5, 
+    "cutoff": 2.55, 
     "outfile": outputfile, 
 
     # Other options
     "progressbar": False, 
   }
 
-
   trajlists = get_trajlist(training_set, misatodir)
   trajlists = np.array_split(trajlists, args.get("task_nr"))[args.get("task_index")]
   print(f"# Total number of trajectories {trajlists.__len__()}")
 
-  # trajlists = trajlists[247:248]
+  # trajlists = trajlists[:10]   # TODO: Remove this line for production run
   loader = nearl.io.TrajectoryLoader(trajlists, trajtype=MisatoTraj, superpose=True)
   print(f"Performing the featurization on {len(loader)} trajectories")
 
@@ -94,45 +77,99 @@ if __name__ == "__main__":
 
   feat.register_trajloader(loader)
   feat.register_focus([":MOL"], "mask")
-  # feat.register_focus(manual_focal_parser, "function")
 
   #############################################################################
-  # Initialize required features
-  feat_mass = nearl.features.Mass(outkey="mass")
-
-  # Using the default charge from the trajectory topology 
-  feat_pcp = nearl.features.PartialCharge(outkey="partial_charge_positive", keep_sign="p")
-  feat_pcn = nearl.features.PartialCharge(outkey="partial_charge_negative", keep_sign="n")
-
+  #############################################################################
+  #############################################################################
 
   # !!! Change the keyword to different names to avoid conflict
-  feat_mo1 = nearl.features.MarchingObservers(
-    weight_type="mass", obs="distinct_count", 
+  features = OrderedDict()
+
+  # Use the default charge from the trajectory topology 
+  features["feat_atomicnumber"] = nearl.features.AtomicNumber( outkey="atomic_number" )
+  features["feat_mass"] = nearl.features.Mass( outkey="mass" )
+  features["aromaticity"] = nearl.features.Aromaticity( outkey="aromaticity" )
+  features["feat_pp"] = nearl.features.PartialCharge( outkey="partial_charge_positive", keep_sign="p" )
+  features["feat_pn"] = nearl.features.PartialCharge( outkey="partial_charge_negative", keep_sign="n" )
+  # features["feat_backbone"] = nearl.features.Backbone( outkey="backboness" )
+  # features["feat_sidechain"] = nearl.features.Backbone( outkey="sidechain", reverse=True )
+  # features["feat_donor"] = nearl.features.HBondDonor( outkey="hbond_donor" )
+  # features["feat_acceptor"] = nearl.features.HBondAcceptor( outkey="hbond_acceptor" )
+  # features["feat_heavyatom"] = nearl.features.HeavyAtom( outkey="heavy_atom" )
+  # features["feat_ring"] = nearl.features.Ring( outkey="ring" )
+  # features["feat_electronegativity"] = nearl.features.Electronegativity( outkey="electronegativity" )
+         
+  # # Atom types 
+  features["feat_type_H"] = nearl.features.AtomType( focus_element=1, outkey="atomtype_hydrogen" )
+  features["feat_type_C"] = nearl.features.AtomType( focus_element=6, outkey="atomtype_carbon" )
+  features["feat_type_N"] = nearl.features.AtomType( focus_element=7, outkey="atomtype_nitrogen" )
+  features["feat_type_O"] = nearl.features.AtomType( focus_element=8, outkey="atomtype_oxygen" )
+  features["feat_type_S"] = nearl.features.AtomType( focus_element=16, outkey="atomtype_sulfur" )
+
+  features["feat_dyn1"] = nearl.features.MarchingObservers(
+    weight_type="atomic_number", obs="distinct_count", 
     agg = "mean", 
-    outkey="mass_distinct_count"
+    outkey="obs_distinct_atomic_number"
   )
 
-  feat_mo2 = nearl.features.MarchingObservers(
+  features["feat_dyn2"] = nearl.features.MarchingObservers(
+    weight_type="residue_id", obs="distinct_count", 
+    agg = "mean", 
+    outkey="obs_distinct_resid"
+  )
+
+  features["feat_dyn3"] = nearl.features.MarchingObservers(
     weight_type="mass", obs="density", 
     agg = "mean", 
-    outkey="mass_density"
+    outkey="obs_density_mass"
   )
 
-  feat_mo3 = nearl.features.MarchingObservers(
-    weight_type="mass", obs="existence", 
-    agg = "standard_deviation", 
-    outkey="mass_density"
+  # features["feat_dyn4"] = nearl.features.DensityFlow(
+  #   weight_type="mass", agg="mean",
+  #   outkey="df_mass"
+  # )
+  # features["feat_dyn5"] = nearl.features.DensityFlow(
+  #   weight_type="atomic_number", agg="mean",
+  #   outkey="df_atomic_number"
+  # )
+
+  # features["feat_dyn6"] = nearl.features.DensityFlow(
+  #   weight_type="partial_charge", agg="mean", 
+  #   keep_sign="p", 
+  #   outkey="df_positive_charge"
+  # )
+
+  # features["feat_dyn7"] = nearl.features.DensityFlow(
+  #   weight_type="partial_charge", agg="mean", 
+  #   keep_sign="n", 
+  #   outkey="df_negative_charge"
+  # )
+
+  features["feat_sel_lig"] = nearl.features.Selection(
+    selection=":MOL", 
+    selection_type="mask",
+    outkey = "ligand_annotation"
   )
 
-  feat_label = MisatoLabels(
+  features["feat_prot"] = nearl.features.Selection(
+    selection="!:MOL", 
+    selection_type="mask",
+    outkey = "protein_annotation"
+  )
+
+  # No label
+  features["pk_original"] = nearl.features.LabelAffinity(
+    baseline_map=nearl.data.GENERAL_SET, 
+    outkey="pk_original"
+  )
+
+  features["label"] = nearl.features.LabelPCDT(
     selection=":MOL", 
     baseline_map=nearl.data.GENERAL_SET, 
     outkey="label"
   )
 
-
-  # feat.register_features([mass_feat, pc_feat, marchingobs_feat, label_feat])
-  feat.register_features([feat_mass, feat_pcp, feat_pcn, feat_mo1, feat_mo2, feat_mo3,  feat_label])
+  feat.register_features(features)
   
   feat.main_loop(20)
 

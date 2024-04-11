@@ -4,12 +4,54 @@ import torch
 import numpy as np 
 import multiprocessing as mp
 
+from .. import utils
 from .. import config, printit
+
+
+# Flip by batch with 5 dimensions (batch, channel, x, y, z)
+FLIP_DICT_BATCH_LEVEL_TORCH = {
+  0: [],
+  1: [2],         # Flip along the X-axis, skipping the batch and channel dimensions
+  2: [3],         # Flip along the Y-axis
+  3: [4],         # Flip along the Z-axis
+  4: [2, 3],
+  5: [2, 4],
+  6: [3, 4],
+  7: [2, 3, 4]
+}
+
+
+FLIP_DICT_GRID_LEVEL = {
+  0: [],         # No flip
+  1: [0],        # Flip along the X-axis
+  2: [1],        # Flip along the Y-axis
+  3: [2],        # Flip along the Z-axis
+  4: [0, 1],     # Flip along the X and Y axes
+  5: [0, 2],     # Flip along the X and Z axes
+  6: [1, 2],     # Flip along the Y and Z axes
+  7: [0, 1, 2],  # Flip along the X, Y, and Z axes
+}
+
+
+def rand_flip_axis(level):
+  rand_flip = int(np.random.random()*1000) % 8
+  if level == "batch":
+    flip = FLIP_DICT_BATCH_LEVEL_TORCH[rand_flip]
+  else:
+    flip = FLIP_DICT_GRID_LEVEL[rand_flip]
+  return flip
+
+
+def rand_translate(factor=1):
+  rand_trans = np.random.randint(low=-1*factor, high=1*factor + 1, size=3)
+  return rand_trans
+
 
 def readdata(input_file, keyword, theslice):
   with h5py.File(input_file, "r") as h5file:
     ret_data = h5file[keyword][theslice]
   return ret_data
+
 
 def split_array(input_array, batch_size): 
   # For the N-1 batches, the size is uniformed and only variable for the last batch
@@ -22,7 +64,62 @@ def split_array(input_array, batch_size):
       return [input_array[-final_batch_size:]]
     else:
       return np.array_split(input_array[:-final_batch_size], bin_nr-1) + [input_array[-final_batch_size:]]
+
+
+def data_augment(batch_array, translation_factor=2, add_noise=False): 
+  """
+  Batch data are in the shape of (batch:0, channel:1, x:2, y:3, z:4)
+
+  Data augmentation includes:
+  1. Flip along the axes
+  2. Rotate along the axes
+  3. Translate along the axes
+  4. Add noise to the data
+  """
+  # Flip the data
+  flip_axes = rand_flip_axis("batch")
+  for axis in flip_axes:
+    batch_array = batch_array.flip(dims=(axis,))
+
+  # Rotate the data
+  for axis in range(3): 
+    do_rotation = np.random.choice([0, 1])
+    if do_rotation:
+      k = np.random.choice([1, 2, 3])
+      if axis == 0: 
+        batch_array = torch.rot90(batch_array, k, [axis+1, axis+2])
+      elif axis == 1:
+        batch_array = torch.rot90(batch_array, k, [axis, axis+2])
+      else:
+        batch_array = torch.rot90(batch_array, k, [axis, axis+1])
+  
+  trans = rand_translate(factor=translation_factor)
+  # Handling translation edge effects by filling the 'new' space with zeros
+  for i, shift in enumerate(trans):
+    if shift != 0:
+      batch_array = torch.roll(batch_array, shifts=shift, dims=(i+2))
+      if shift > 0 and i == 0:
+        batch_array[:, :, :shift, :, :] = 0
+      elif shift < 0 and i == 0:
+        batch_array[:, :, shift:, :, :] = 0
+      elif shift > 0 and i == 1:
+        batch_array[:, :, :, :shift, :] = 0
+      elif shift < 0 and i == 1:
+        batch_array[:, :, :, shift:, :] = 0
+      elif shift > 0 and i == 2:
+        batch_array[:, :, :, :, :shift] = 0
+      elif shift < 0 and i == 2:
+        batch_array[:, :, :, :, shift:] = 0
     
+  if config.verbose():
+    printit(f"Flipped axes: {flip_axes}, Translation: {trans}")
+
+  # Apply a gaussian noise to the array
+  if add_noise:
+    batch_array += torch.randn_like(batch_array) * torch.max(batch_array) * 0.1
+  return batch_array
+
+
 class Dataset: 
   def __init__(self, files, grid_dim, label_key="label", feature_keys=[], benchmark = False): 
     self.size = np.array([grid_dim, grid_dim, grid_dim], dtype=int)
@@ -94,10 +191,9 @@ class Dataset:
     return tasks
   
 
-  def mini_batches(self, batch_nr=None, batch_size=None, shuffle=True, process_nr=24, **kwargs):
+  def mini_batches(self, batch_nr=None, batch_size=None, shuffle=True, process_nr=24, augment=False, augment_translation=0, augment_add_noise=False, **kwargs):
     """
     """
-    
     indices = np.arange(self.total_entries)
     if shuffle:
       np.random.shuffle(indices)
@@ -136,6 +232,9 @@ class Dataset:
         sps = len(batch)/(time.perf_counter()-st)
         time_remaining = (len(batches) - batch_idx) * (time.perf_counter() - st)
         printit(f"Batch {batch_idx:4d} ({batch_size} entries): MPS: {mps:8.2f}; SPS: {int(sps):6d}; Time left: {time_remaining:8.2f} seconds")
+
+      # if augment: 
+      #   data = data_augment(data, translation_factor=augment_translation, add_noise=augment_add_noise)
       st = time.perf_counter()
       yield data, label
 
