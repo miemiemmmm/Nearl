@@ -1,4 +1,4 @@
-import os
+import os, sys
 from time import perf_counter
 from datetime import datetime
 from inspect import stack as __call_stack
@@ -12,6 +12,7 @@ CONFIG = {
   "verbose" : False, 
   "usegpu": True, 
   "debug" : False, 
+  "reportdatetime": False
 }
 
 class config:
@@ -30,6 +31,9 @@ class config:
   @staticmethod
   def clear():
     return CONFIG.get("clear", True)
+  @staticmethod
+  def reportdatetime():
+    return CONFIG.get("reportdatetime", False)
 
 # "SEGMENT_LIMIT" : 6,
 # "VIEWPOINT_STANDPOINT": "self",
@@ -51,30 +55,55 @@ def update_config(dict_to_update:dict={}, **kwargs):
     else:
       raise KeyError(f"Key {key} is not in the configuration file")
 
-if config.debug() or config.verbose():
-  def logit(function):
-    def add_log_info(*arg, **kwarg):
-      info_message = " ".join((str(i) for i in arg))
-      # create log message with timestamp and function call stack for debugging purpose
-      timestamp = datetime.now().strftime('%y-%m-%dT%H:%M:%S')
-      function_stack = [i.function for i in __call_stack()[1:-1]]
-      log_message = f"{timestamp:15s}: {'->'.join(function_stack)} said: " + info_message
-      function(log_message, **kwarg)   # execute the decorated function
-    return add_log_info
-else: 
-  _start_time = perf_counter()
-  def logit(function):
-    def add_log_info(*arg, **kwarg):
-      info_message = " ".join((str(i) for i in arg))
-      timestamp = perf_counter() - _start_time
-      log_message = f"Running {timestamp:8.2f}: " + info_message
-      function(log_message, **kwarg)   # execute the decorated function
-    return add_log_info
+_start_time = perf_counter()
 
+def loginfo_runtime():
+  """
+  Simply adding a timestamp to the log message
+  """
+  timestamp = perf_counter() - _start_time
+  log_message = f"Running {timestamp:8.2f}: " 
+  return log_message
 
-@logit
+def loginfo_datetime():
+  """
+  Simply adding a timestamp to the log message
+  """
+  timestamp = datetime.now().strftime('%y-%m-%dT%H:%M:%S')
+  log_message = f"{timestamp}: " 
+  return log_message
+
+def loginfo_debug():
+  """
+  Report the calling stack of a function
+  """
+  timestamp = datetime.now().strftime('%y-%m-%dT%H:%M:%S')
+  thestack = __call_stack()[::-1][1:-2]
+  function_stack = [i.function for i in thestack]
+  log_message = f"{timestamp:15s}: {'>'.join(function_stack)}: " 
+  return log_message
+
 def printit(*arg, **kwarg):
-  __builtinprint(*arg, **kwarg)
+  if config.debug():
+    log_msg = loginfo_debug()
+  elif config.verbose() or config.reportdatetime(): 
+    log_msg = loginfo_datetime()
+  else: 
+    log_msg = loginfo_runtime()
+  
+  printed = log_msg + " ".join((str(i) for i in arg))
+  if "Warning" in arg[0]:
+    if sys.stdout.isatty(): 
+      __builtinprint(f"\033[93m{printed}\033[0m", file=sys.stderr, **kwarg)
+    else:
+      __builtinprint(printed, file=sys.stderr, **kwarg)
+  elif "Error" in arg[0]:
+    if sys.stdout.isatty():
+      __builtinprint(f"\033[91m{printed}\033[0m", file=sys.stderr, **kwarg)
+    else: 
+      __builtinprint(printed, file=sys.stderr, **kwarg)
+  else: 
+    __builtinprint(printed, **kwarg)
   with open(os.path.join(os.path.abspath(config.tempfolder()), "nearl.log"), "a") as log_file:
     print(*arg, file=log_file)
 

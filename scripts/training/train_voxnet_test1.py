@@ -6,9 +6,12 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-import feater
-import feater.dataloader
-from feater.models.voxnet import VoxNet
+# import feater
+# import feater.dataloader
+# from feater.models.voxnet import VoxNet
+import nearl
+from nearl import dataloader
+
 
 def parse_args(): 
   parser = argparse.ArgumentParser(description="Train VoxNet")
@@ -37,9 +40,9 @@ def parse_args():
 
   args = parser.parse_args()
   if not os.path.exists(args.training_data):
-    raise FileNotFoundError(f"The file {args.training_data} does not exist")
+    raise FileNotFoundError(f"The training data file {args.training_data} does not exist")
   if not os.path.exists(args.test_data):
-    raise FileNotFoundError(f"The file {args.test_data} does not exist")
+    raise FileNotFoundError(f"The test data file {args.test_data} does not exist")
   if not os.path.exists(args.output_folder):
     os.makedirs(args.output_folder)
 
@@ -70,8 +73,8 @@ def perform_training(training_settings: dict):
   # Load the data.
   # NOTE: In Voxel based training, the bottleneck is the SSD data reading.
   # NOTE: Putting the dataset to SSD will significantly speed up the training.
-  training_data = feater.dataloader.VoxelDataset(trainingfiles)
-  test_data = feater.dataloader.VoxelDataset(testfiles)
+  training_data = dataloader.Dataset(trainingfiles)
+  test_data = dataloader.Dataset(testfiles)
 
   classifier = VoxNet(n_classes=training_settings["class_nr"])
   if training_settings["pretrained"] and len(training_settings["pretrained"]) > 0:
@@ -130,7 +133,7 @@ def perform_training(training_settings: dict):
       correct = np.count_nonzero(pred == label)
       accuracy = correct / float(label.shape[0])
       feater.utils.update_hdf_by_slice(hdffile, "accuracy", np.array([accuracy], dtype=np.float64), np.s_[epoch:epoch+1], dtype=np.float64, maxshape=(None, ))
-    # Evaluate the performance in the training set
+      # Evaluate the performance in the training set
       
     
     if training_settings["dataset"] == "single":
@@ -145,6 +148,7 @@ if __name__ == "__main__":
   _SETTINGS = json.dumps(SETTINGS, indent=2)
   print("Settings of this training:")
   print(_SETTINGS)
+  
 
   with open(os.path.join(SETTINGS["output_folder"], "settings.json"), "w") as f:
     f.write(_SETTINGS)
