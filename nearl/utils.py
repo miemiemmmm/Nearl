@@ -146,6 +146,18 @@ def compute_pcdt(traj, mask1, mask2, use_mean=False, ref=None, return_info=False
   else:
     return distarr
 
+def plot_pcdt(array):
+  import matplotlib.pyplot as plt
+  fig, ax = plt.subplots(1)
+  c = ax.pcolormesh(array, cmap="inferno")
+  # Add color bar to the plot 
+  fig.colorbar(c, ax=ax)
+  
+  ax.set_title("PCDT")
+  ax.set_xlabel("Time")
+  ax.set_ylabel("Atomic index")
+  plt.show()
+  return fig, ax
 
 def get_pdbcode(pdbcode): 
   pdbcode = pdbcode.lower()
@@ -268,7 +280,6 @@ def mscv(arr):
   mean = np.array(arr).mean(axis=1)
   mscv = (std/mean).mean()
   return min(mscv, 1)
-
 
 def filter_points_within_bounding_box(thearr, grid_center, grid_length, return_coord=False):
   """

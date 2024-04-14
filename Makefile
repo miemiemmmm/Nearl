@@ -9,3 +9,9 @@ test:
 		python -c "import nearl; print(nearl.__version__)";
 		python -c "from nearl import tests; ";
 
+compilepdf: 
+		echo "sudo docker run --rm \
+		--volume ${PWD}:/data \
+		--user $(id -u):$(id -g) \
+		--env JOURNAL=joss \
+		openjournals/inara";

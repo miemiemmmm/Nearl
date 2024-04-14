@@ -184,6 +184,7 @@ class Feature:
     cutoff=None, sigma=None,
     padding=0, byres=None, 
     outshape=None, force_recache=False,
+    selection=None,
     **kwargs
   ):
     # Fundamental variables need setter callback 
@@ -215,6 +216,8 @@ class Feature:
     self._outshape = False if outshape is None else True
     self.force_recache = force_recache
     self._force_recache = False if force_recache is False else True
+    self.selection = selection
+    self.selected = None
 
   def __str__(self):
     ret_str = f"{self.__class__.__name__}"
@@ -315,6 +318,23 @@ class Feature:
     atoms = [i for i in trajectory.top.atoms]
     self.resids = np.array([i.resid for i in atoms], dtype=int)
     self.atomic_numbers = np.array([i.atomic_number for i in atoms], dtype=int)
+    if self.selection == None:
+      # If the selection is not set, select all the atoms
+      self.selected = np.full(len(self.atomic_numbers), True, dtype=bool)
+    elif isinstance(self.selection, str):
+      # If the selection is a string, select the atoms based on the selection string
+      selected = trajectory.top.select(self.selection)
+      self.selected = np.full(len(self.atomic_numbers), False, dtype=bool)
+      self.selected[selected] = True
+      printit(f"{self}: Selected {np.count_nonzero(self.selected)} atoms based on the selection string")
+    elif isinstance(self.selection, (list, tuple, np.ndarray)):
+      if len(self.selection) != len(self.atomic_numbers):
+        printit(f"{self.__class__.__name__} Warning: The number of atoms in structure does not match the number of aromaticity values")
+      selected = np.asarray(self.selection)
+      self.selected = np.full(len(self.atomic_numbers), False, dtype=bool)
+      self.selected[selected] = True
+      printit(f"{self}: Selected {np.count_nonzero(self.selected)} atoms based on the selection string")
+
 
   def query(self, topology, frame_coords, focal_point):
     """
@@ -371,6 +391,8 @@ class Feature:
         final_mask[np.where(self.resids == res)] = True
     else: 
       final_mask = mask
+    if self.selection != None:
+      final_mask = final_mask * self.selected
     return final_mask
 
   def run(self, coords, weights):
@@ -397,11 +419,12 @@ class Feature:
     ret = commands.voxelize_coords(coords, weights, self.dims, self.spacing, self.cutoff, self.sigma)
 
     # Check the sum of the absolute values of the returned array
-    ret_sum = np.sum(np.abs(ret))
-    if np.isclose(ret_sum, 0):
-      printit(f"{self} Warning: The sum of the returned array is zero")
-    elif np.isnan(ret_sum):
-      printit(f"{self} Warning: The returned array has {np.isnan(ret).sum()} NaN values")
+    if config.verbose() or config.debug():
+      ret_sum = np.sum(np.abs(ret))
+      if np.isclose(ret_sum, 0):
+        printit(f"{self} Warning: The sum of the returned array is zero")
+      elif np.isnan(ret_sum):
+        printit(f"{self} Warning: The returned array has {np.isnan(ret).sum()} NaN values")
     return ret
 
   def dump(self, result):
@@ -587,36 +610,21 @@ class Ring(Feature):
 
 
 class Selection(Feature):
-  def __init__(self, selection, selection_type, **kwargs):
+  def __init__(self, default_value=1, **kwargs):
+    if "selection" not in kwargs.keys():
+      raise ValueError(f"{self.__class__.__name__}: The selection parameter should be set")
     super().__init__(**kwargs)
-    self.selection = None
-    self.selection_type = selection_type
-    self.selection_prototype = selection
+    self.default_value = default_value
 
   def __str__(self): 
-    return f"{self.__class__.__name__}({self.selection_type}:{self.selection_prototype})"
-
-  def cache(self, trajectory):
-    super().cache(trajectory)
-    selected = np.zeros(trajectory.n_atoms, dtype=np.float32)
-    if self.selection_type == "mask":
-      selected[trajectory.top.select(self.selection_prototype)] = 1
-
-    elif self.selection_type == "array":
-      if len(self.selection) != trajectory.n_atoms:
-        printit(f"{self.__class__.__name__} Warning: The number of atoms in structure does not match the number of aromaticity values")
-      selected[np.asarray(self.selection_prototype)] = 1
-
-    else:
-      printit(f"{self.__class__.__name__} Warning: The selection type is not recognized. Only 'mask' and 'array' are supported. ")
-    self.selection = selected
+    return f"{self.__class__.__name__}({self.selection}:{self.default_value})"
 
   def query(self, topology, frame_coords, focal_point):
     if frame_coords.shape.__len__() == 3: 
       frame_coords = frame_coords[0]
     idx_inbox = super().query(topology, frame_coords, focal_point)
     coord_inbox = frame_coords[idx_inbox]
-    weights = self.selection[idx_inbox]
+    weights = np.full(len(coord_inbox), self.default_value, dtype=np.float32)
     return coord_inbox, weights
   
 
@@ -1163,9 +1171,7 @@ class DensityFlow(DynamicFeature):
     Atom properties-based weights:
       mass, radius, residue_id, sidechainness
 
-
   """
-  # agg = "mean", # weight_type="mass", 
   def __init__(self, **kwargs):
     super().__init__(**kwargs) 
 
@@ -1179,7 +1185,12 @@ class DensityFlow(DynamicFeature):
     """
     # Run the density flow algorithm
     assert frames.shape[0] * frames.shape[1] == len(weights), f"The production of frame_nr and atom_nr has to be equal to the number of weights: {frames.shape[0] * frames.shape[1]}/{len(weights)}"
+    
     ret_arr = commands.voxelize_trajectory(frames, weights, self.dims, self.spacing, self.cutoff, self.sigma, self.agg)
+
+    # print(frames.shape, weights.shape)
+    # atom_nr = frames.shape[1]
+    # printit(f"{self}: Expected feature sum {np.sum(weights[:atom_nr])} and the actual sum {np.sum(ret_arr)}")
     return ret_arr.reshape(self.dims)  
 
 
@@ -1266,7 +1277,7 @@ class MarchingObservers(DynamicFeature):
       frames, weights, 
       self.dims, self.spacing, 
       self.cutoff, 
-      self.agg, self.obs
+      self.obs, self.agg
     ) 
     return ret_arr.reshape(self.dims)
 
@@ -1335,34 +1346,43 @@ class LabelAffinity(Feature):
     """
     No frame slice specific query is needed.
     """
-    return (None, )
+    return (self.base_value, )
 
-  def run(self, *args):
-    return self.base_value
+  def run(self, affinity_val):
+    return affinity_val
+
+class LabelStepingAffinity(LabelAffinity):
+  """
+  Convert the base class affinity value to a steping function. Could convert the regression problem to a classification problem. 
+  """
+  def __init__(self, **kwargs):
+    super().__init__(**kwargs)
+
+  def query(self, *args):
+    assert not (self.base_value is None), "The base value should be set before the query"
+      
+    final_label = self.base_value // 2
+    final_label = min(final_label, 5)
+    return (final_label, )
 
 
 class LabelRMSD(LabelAffinity): 
   def __init__(self, 
-    selection=None, base_value=0, 
+    base_value=0, 
     outshape=(None,), 
     **kwargs
   ): 
+    if "selection" not in kwargs.keys():
+      raise ValueError("The selection should be set for the RMSD label feature")
     super().__init__(outshape = outshape, **kwargs) 
-    self.selection = selection
     self.base_value = float(base_value)
 
   def cache(self, trajectory): 
     # Cache the address of the trajectory for further query of the RMSD array based on focused points
-    if isinstance(self.selection, str):
-      selected = trajectory.top.select(self.selection)
-    elif isinstance(self.selection, (list, tuple, np.ndarray)):
-      selected = np.array([int(i) for i in self.selection])
-    else: 
-      raise ValueError("The selection should be either a string or a list of atom indices")
-    RMSD_CUTOFF = 8
-    self.refframe = trajectory[0]
-
-    self.cached_array = pt.rmsd_nofit(trajectory, mask=selected, ref=self.refframe)
+    super().cache(trajectory)
+    RMSD_CUTOFF = 8 
+    self.refframe = trajectory[0] 
+    self.cached_array = pt.rmsd_nofit(trajectory, mask=self.selection, ref=self.refframe) 
     self.cached_array = np.minimum(self.cached_array, RMSD_CUTOFF)  # Set a cutoff RMSD for limiting the z-score
 
   def query(self, topology, frames, focus): 
@@ -1371,15 +1391,10 @@ class LabelRMSD(LabelAffinity):
     # Only need the topology and the frames. 
     tmptraj = pt.Trajectory(xyz=frames, top=topology)
     rmsd_arr = pt.rmsd_nofit(tmptraj, mask=self.selection, ref=self.refframe)
-    raise NotImplementedError("The query function should be implemented in the child class")
-    # return z_score
-
-  def run(self, z_score): 
-    # Greater than 0 meaning RMSD is larger than the average and should apply a penalty
-    # Less than 0 meaning RMSD is smaller than the average and should apply a reward
-    # correction factor is 0.1 * base_value * z_score
-    final_value = self.base_value - self.base_value * 0.1 * z_score
-    return final_value
+    # refcoord = self.refframe.xyz[self.selected]
+    rmsd = np.mean(rmsd_arr)
+    result = self.base_value * (1 - 0.1 * (rmsd / 8.0) )
+    return (result, )
 
 
 class LabelPCDT(LabelAffinity): 
@@ -1402,7 +1417,7 @@ class LabelPCDT(LabelAffinity):
   
   """
   def __init__(self, 
-    selection=None, distance_cutoff = None, 
+    selection=None, search_cutoff = None, 
     **kwargs
   ): 
     # Initialize the self.base_value in the parent class
@@ -1414,9 +1429,12 @@ class LabelPCDT(LabelAffinity):
 
     self.refframe = None
     self.cached_array = None
-    self.distance_cutoff = distance_cutoff
+    self.search_cutoff = search_cutoff
 
   def cache(self, trajectory): 
+    """
+    Cache the Pairwise Closest DisTance (PCDT) array for the conformation-based penalty calculation
+    """
     # IMPORTANT: Retrieve the base value based on the trajectory identity (self.base_value) in the parent class
     super().cache(trajectory)
 
@@ -1441,35 +1459,42 @@ class LabelPCDT(LabelAffinity):
     self.cached_array = utils.compute_pcdt(trajectory, self.selected, self.selected_counterpart, ref=self.refframe, return_info=False)
 
     # Set a cutoff distance for limiting outliers in the PCDT
-    if self.distance_cutoff is not None:
-      self.cached_array = np.minimum(self.cached_array, self.distance_cutoff)  
-
-  def penalty(self, pcdt_arr):
-    """
-    Compare the PCDT array with the cached PCDT array and return the penalty value
-    """
-    assert pcdt_arr.shape[0] == self.cached_array.shape[0], "The number of rows should be the same"
-    z_score = np.abs(np.mean(pcdt_arr, axis=1) - np.mean(self.cached_array, axis=1)) / np.std(self.cached_array, axis=1)
-    return np.mean(z_score)
+    if self.search_cutoff is not None:
+      self.cached_array = np.minimum(self.cached_array, self.search_cutoff)  
 
   def query(self, topology, frames, focus):
+    """
+    Compute the PCDT of the frame slice and return the final value based on the cached PCDT array
+    """
     tmptraj = pt.Trajectory(xyz=frames, top=topology)
     pdist_arr = utils.compute_pcdt(tmptraj, self.selected, self.selected_counterpart, ref=self.refframe, return_info=False)
-    if self.distance_cutoff is not None:
-      pdist_arr = np.minimum(pdist_arr, self.distance_cutoff)
-    penalty = self.penalty(pdist_arr)
-    return (penalty, )
-  
-  def run(self, penalty): 
-    """
-    Compute the penalty based on the queried value: 
+    if self.search_cutoff is not None:
+      pdist_arr = np.minimum(pdist_arr, self.search_cutoff)
+    
+    # Per atom Z-score calculation
+    mean_0 = np.mean(self.cached_array, axis=1)
+    mean_1 = np.mean(pdist_arr, axis=1)
+    std_0 = np.std(self.cached_array, axis=1)
 
-    S_{i} = S_{0} * (1 - 0.1 * penalty)
-    """
-    assert self.base_value  is not None, "The base value is not set, please set the base value before running the feature"
-    assert self.cached_array is not None, "The cached array is not set, please set the cached array before running the feature"
-    final_value = self.base_value * (1 - 0.1 * penalty)
-    return final_value
+    # Avoid the potential division by zero
+    if np.any(std_0 == 0):
+      # printit(f"DEBUG: The standard deviation of the cached PCDT array is zero for some atoms")
+      if self.search_cutoff is not None:
+        std_0[std_0 == 0] = self.search_cutoff
+      else: 
+        std_0[std_0 == 0] = 6.0
+    
+    # Z-score makes the feature too noisy
+    z_scores = (mean_0 - mean_1) / std_0
+    z_score = np.mean(z_scores)
+    penalty = abs(np.mean(z_score))
+    # try with cosine similarity
+    # penalty = 1 - max(np.dot(mean_0, mean_1) / ((np.linalg.norm(mean_0) * np.linalg.norm(mean_1))), 0)
+    # result = penalty
+    # print("====>>>>", penalty)
+    result = self.base_value * (1 - 0.1 * penalty)
+
+    return (result, )
 
 
 class LabelResType(Feature): 
@@ -1605,45 +1630,82 @@ class VectorizerViewpoint(Feature):
     o3d.io.write_triangle_mesh(f"block_{utils.get_timestamp()}.ply", result_mesh, write_ascii=True,   write_vertex_colors=True)
         
 
-class RFFeature1D(Feature):
-  def __init__(self, moiety_of_interest, cutoff=12):
-    super().__init__()
-    self.moi = moiety_of_interest
-    # For the 4*9 (36) features
-    # Rows (protein)   : C, N, O, S
-    # Columns (ligand) : C, N, O, F, P, S, Cl, Br, I
-    self.cutoff = cutoff
+class RFFeatures(Feature):
+  """
+  The RFScore features for the protein-ligand interaction.
+  For the 4*9 (36) features
+  Rows (protein)   : C, N, O, S
+  Columns (ligand) : C, N, O, F, P, S, Cl, Br, I
+  """
+  def __init__(self, search_cutoff=12, **kwargs):
+    if "selection" not in kwargs.keys():
+      raise ValueError("The selection should be set for the RFFeatures ")
+    # NOTE: Hardcoded for the RFScore algorithm and correct dump of the feature array
+    super().__init__(outshape=(None, 36, ), **kwargs)
+    self.search_cutoff = search_cutoff
     self.pro_atom_idx = {6: 0, 7: 1, 8: 2, 16: 3}
     self.lig_atom_idx = {6: 0, 7: 1, 8: 2, 9: 3, 15: 4, 16: 5, 17: 6, 35: 7, 53: 8}
 
-  def featurize(self):
+  def cache(self, trajectory):
     """
-    The features for the RFScore algorithm
-    Nine atom types are considered: C, N, O, F, P, S, Cl, Br, I
-    Output contains 36 features because of the lack of F, P, Cl, Br and I atoms in the PDBbind protein structures
-    Return:
-      rf_arr: (36, 1) array
+    Find the selection and its counterpart. 
     """
-    atoms = np.asarray([i.atomic_number for i in self.top.atoms])
-    moi_indices = self.top.select(self.moi)     # The indices of the moiety of interest
-    if len(moi_indices) == 0:
-      printit("Warning: The moiety of interest is not found in the topology")
-      # Return a zero array if the moiety is not found
-      return np.zeros(36)
-    if config.verbose():
-      printit(f"The moiety of interest contains {len(moi_indices)} atoms")
-    # build a kd-tree for interaction query
-    other_indices = np.asarray([i for i in np.arange(len(self.active_frame.xyz)) if i not in moi_indices])
-    kd_tree = KDTree(self.active_frame.xyz[other_indices])
-    rf_arr = np.zeros((4, 9))
-    for i, idx in enumerate(moi_indices):
-      atom_number = atoms[idx]
-      atom_coord = self.active_frame.xyz[idx]
-      soft_idxs = kd_tree.query_ball_point(atom_coord, self.cutoff)
-      hard_idxs = other_indices[soft_idxs]
-      for idx_prot in hard_idxs:
-        atom_number_prot = atoms[idx_prot]
-        if atom_number in self.lig_atom_idx and atom_number_prot in self.pro_atom_idx:
-          rf_arr[self.pro_atom_idx[atom_number_prot], self.lig_atom_idx[atom_number]] += 1
-    return rf_arr.reshape(-1)
+    super().cache(trajectory)
+    if trajectory.top.select(self.selection).__len__() == 0:
+      raise ValueError(f"The moiety of interest {self.selection} is not found in the topology")
+    
+    selected = trajectory.top.select(self.selection)
+    counter_part = []
+    for atom in trajectory.top.atoms: 
+      if (atom.atomic_number in self.pro_atom_idx.keys()) and (atom.index not in selected):
+        counter_part.append(atom.index)
+    self.counter_part = np.array(counter_part, dtype=int)
+    self.selected = np.array(selected, dtype=int)
+
+  def query(self, topology, frames, focus):
+    """
+    Generate the features for the RFScore algorithm. This method requires the selection and its counterpart during cacheing. 
+    
+    Parameters
+    ----------
+    topology: traj-like
+    frames: np.ndarray
+    focus: np.ndarray
+
+    Returns
+    -------
+    ret_arr: np.ndarray shaped (36, )
+
+    Notes
+    -----
+    Nine atom types are considered: C, N, O, F, P, S, Cl, Br, I in the ligand part, and four atom types are considered in the protein part: C, N, O, S. Hence the output array contains explicitly 36 features. 
+    """
+    if len(frames.shape) == 3:
+      frames = frames[0]
+
+    rf_arr = np.full((4, 9), 0.0, dtype=np.float32)
+    kd_tree = KDTree(frames[self.counter_part])
+    processed_atoms = []
+    for idx in self.selected: 
+      atomic_nr_sel = self.atomic_numbers[idx]
+      coord_sel = frames[idx]
+      soft_idxs = kd_tree.query_ball_point(coord_sel, self.search_cutoff)
+      hard_idxs = self.counter_part[soft_idxs]
+      for idx_prot in hard_idxs: 
+        if idx_prot not in processed_atoms:  # NOTE: Make sure each atom is processed only once
+          processed_atoms.append(idx_prot)
+          atomic_nr_prot = self.atomic_numbers[idx_prot]
+          if atomic_nr_sel in self.lig_atom_idx.keys() and atomic_nr_prot in self.pro_atom_idx.keys():
+            rf_arr[self.pro_atom_idx[atomic_nr_prot], self.lig_atom_idx[atomic_nr_sel]] += 1
+        else: 
+          continue
+    ret_arr = rf_arr.reshape(-1)
+    return (ret_arr, )
+
+  def run(self, ret_arr):
+    """
+    Just pass the feature array to the next dump function
+    """
+    return ret_arr
+  
 

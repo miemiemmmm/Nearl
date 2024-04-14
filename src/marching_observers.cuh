@@ -4,7 +4,7 @@
 #define OBSERVABLE_COUNT 9
 #define SUPPORTED_OBSERVABLES {1, 2, 3, 11, 12, 13, 14, 15, 16}
 #define AGGREGATION_COUNT 7
-#define SUPPORTED_AGGREGATIONS {0, 1, 2, 3, 4, 5, 6}
+#define SUPPORTED_AGGREGATIONS {1, 2, 3, 4, 5, 6, 7}
 
 // Direct Count-based Observables
 // existence_device  1

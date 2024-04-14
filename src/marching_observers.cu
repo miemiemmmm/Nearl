@@ -409,14 +409,15 @@ __global__ void moving_observer_global(
   const int frame_number, const int atomnr, 
   const float cutoff, const int type_observable, const int type_aggregation
 ){ 
-  int index = threadIdx.x + blockIdx.x * blockDim.x;
-  if (index < dims[0]*dims[1]*dims[2]){
+  unsigned int index = blockIdx.x * blockDim.x + threadIdx.x;
+  unsigned int grid_size = dims[0] * dims[1] * dims[2];
+  if (index < grid_size){
     float series[MAX_FRAME_NUMBER]; 
 
     // Get the coordinate of the grid point 
     float coord[3] = {
-      static_cast<float>(index / (dims[0] * dims[1])) * spacing,
-      static_cast<float>((index / dims[0]) % dims[1]) * spacing,
+      static_cast<float>(index / dims[0] / dims[1]) * spacing,
+      static_cast<float>(index / dims[0] % dims[1]) * spacing,
       static_cast<float>(index % dims[0]) * spacing
     }; 
     
@@ -428,6 +429,7 @@ __global__ void moving_observer_global(
       weight_offset = i * atomnr;
       // Calculate the observable in the frame
       if (type_observable == 1 or type_observable == 2){
+        // Hard-coded for the direct count-based observables 
         ret_framei = observe_device(coord, coord_frames + coord_offset, atomnr, cutoff, type_observable);
       } else {
         ret_framei = observe_device(coord, coord_frames + coord_offset, weight_frames + weight_offset, atomnr, cutoff, type_observable);
@@ -495,8 +497,12 @@ void marching_observer_host(
   // TODO: Find a better way to normalize the return
   // IMPORTANT: NEED normalization since the high-diversity of observables and aggregation methods
   float sum_return = 0.0;
-  for (int i = 0; i < observer_number; i++){ sum_return += grid_return[i]; }
-  for (int i = 0; i < observer_number; i++){ grid_return[i] = grid_return[i] * atom_per_frame / sum_return; }
+  for (int i = 0; i < observer_number; i++){ 
+    sum_return += grid_return[i]; 
+  }
+  for (int i = 0; i < observer_number; i++){
+    grid_return[i] = grid_return[i] * atom_per_frame / sum_return; 
+  }
 
   cudaFree(ret_arr);
   cudaFree(coord_device);
