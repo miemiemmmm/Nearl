@@ -79,13 +79,19 @@ py::array_t<float> do_marching_observers(
   if (buf_coord.ndim != 3){ throw py::value_error("Error: The input array must have 3 dimensions: (frame_nr, atom_nr, 3)"); }
   int supported_mode[OBSERVABLE_COUNT] = SUPPORTED_OBSERVABLES;
   for (int i= 0; i < OBSERVABLE_COUNT; i++){
-    if (type_obs == supported_mode[i]){ break; } 
-    else if (i == OBSERVABLE_COUNT - 1){ throw py::value_error("The observable type is not supported"); }
+    if (type_obs == supported_mode[i]){ 
+      break; 
+    } else if (i == OBSERVABLE_COUNT - 1){ 
+      throw py::value_error("The observable type is not supported"); 
+    }
   }
   int supported_agg[AGGREGATION_COUNT] = SUPPORTED_AGGREGATIONS;
   for (int i = 0; i < AGGREGATION_COUNT; i++){
-    if (type_agg == supported_agg[i]){ break; }
-    else if (i == AGGREGATION_COUNT - 1){ throw py::value_error("The aggregation type is not supported"); }
+    if (type_agg == supported_agg[i]){ 
+      break; 
+    } else if (i == AGGREGATION_COUNT - 1){ 
+      throw py::value_error("The aggregation type is not supported"); 
+    }
   }
   if (frame_nr > MAX_FRAME_NUMBER){ throw py::value_error("The number of frames " + std::to_string(frame_nr) + " exceeds the maximum number of frames allowed " + std::to_string(MAX_FRAME_NUMBER) + " frames."); }
 
@@ -126,8 +132,11 @@ py::array_t<float> do_traj_voxelize(
   // Check the validity of the input data before launching the kernel
   int supported_agg[AGGREGATION_COUNT] = SUPPORTED_AGGREGATIONS;
   for (int i = 0; i < AGGREGATION_COUNT; i++){
-    if (type_agg == supported_agg[i]){ break; }
-    else if (i == AGGREGATION_COUNT - 1){ throw py::value_error("The aggregation type is not supported"); }
+    if (type_agg == supported_agg[i]){ 
+      break; 
+    } else if (i == AGGREGATION_COUNT - 1){ 
+      throw py::value_error("The aggregation type is not supported"); 
+    }
   }
 
   // Initialize the return array, and launch the computation kernel

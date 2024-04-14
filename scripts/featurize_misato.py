@@ -106,19 +106,26 @@ if __name__ == "__main__":
   features["feat_type_O"] = nearl.features.AtomType( focus_element=8, outkey="atomtype_oxygen" )
   features["feat_type_S"] = nearl.features.AtomType( focus_element=16, outkey="atomtype_sulfur" )
 
-  features["feat_dyn1"] = nearl.features.MarchingObservers(
+  features["feat_dyn1.0.0"] = nearl.features.MarchingObservers(
     weight_type="atomic_number", obs="distinct_count", 
     agg = "mean", 
+    selection=":MOL&!@H=",
+    outkey="obs_distinct_atomic_number"
+  )
+  features["feat_dyn1.0.1"] = nearl.features.MarchingObservers(
+    weight_type="atomic_number", obs="distinct_count", 
+    agg = "standard_deviation", 
+    selection=":MOL<:5&!@H=",
     outkey="obs_distinct_atomic_number"
   )
 
-  features["feat_dyn2"] = nearl.features.MarchingObservers(
+  features["feat_dyn1.1.0"] = nearl.features.MarchingObservers(
     weight_type="residue_id", obs="distinct_count", 
     agg = "mean", 
     outkey="obs_distinct_resid"
   )
 
-  features["feat_dyn3"] = nearl.features.MarchingObservers(
+  features["feat_dyn1.1.1"] = nearl.features.MarchingObservers(
     weight_type="mass", obs="density", 
     agg = "mean", 
     outkey="obs_density_mass"
@@ -128,6 +135,7 @@ if __name__ == "__main__":
   #   weight_type="mass", agg="mean",
   #   outkey="df_mass"
   # )
+  
   # features["feat_dyn5"] = nearl.features.DensityFlow(
   #   weight_type="atomic_number", agg="mean",
   #   outkey="df_atomic_number"

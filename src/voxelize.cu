@@ -137,6 +137,9 @@ __global__ void coordi_interp_kernel(const float *coord, float *interpolated, co
     // Process the interpolated array with the task_index (Should not be race conditions)
     if (dist_square < cutoff * cutoff){
       interpolated[task_index] = gaussian_map_device(sqrt(dist_square), 0.0f, sigma);
+    } else {
+      // Set to 0 to avoid reuse of the previous value
+      interpolated[task_index] = 0.0f;
     }
   }
 }
@@ -172,7 +175,9 @@ void voxelize_host(
   cudaMallocManaged(&dims_gpu, 3 * sizeof(int));
   cudaMemcpy(dims_gpu, dims, 3 * sizeof(int), cudaMemcpyHostToDevice);
 
-  for (int i = 0; i < gridpoint_nr; ++i) { interpolated[i] = 0.0f; }
+  for (int i = 0; i < gridpoint_nr; ++i) { 
+    interpolated[i] = 0.0f; 
+  }
 
   for (int atm_idx = 0; atm_idx < atom_nr; ++atm_idx) {
     // Copy the coordinates of the atom to the GPU and do interpolation on this atom
@@ -229,12 +234,13 @@ void voxelize_host(
 /**
  * @brief 
  */
+
 void trajectory_voxelization_host(
   float *voxelize_dynamics, 
   const float *coord, 
   const float *weight, 
   const int *dims, 
-  const float spacing,
+  const float spacing, 
   const int frame_nr, 
   const int atom_nr, 
   const float cutoff, 
@@ -268,7 +274,7 @@ void trajectory_voxelization_host(
       coordi[2] = coord[stride_per_frame + ai*3 + 2];
       if (coordi[0] == DEFAULT_COORD_PLACEHOLDER && coordi[1] == DEFAULT_COORD_PLACEHOLDER && coordi[2] == DEFAULT_COORD_PLACEHOLDER){
         // Skip the voxelization if the coordinate is the default value
-        std::cout << "Skipping the default coordinate: " << coordi[0] << " " << coordi[1] << " " << coordi[2] << "; " << std::endl;
+        // std::cout << "Skipping the default coordinate: " << coordi[0] << " " << coordi[1] << " " << coordi[2] << "; " << std::endl;
         continue;
       }
 
