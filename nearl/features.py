@@ -1,6 +1,7 @@
 import sys, tempfile, os
 import subprocess, json
 
+import h5py
 import numpy as np
 import pytraj as pt
 from rdkit import Chem
@@ -123,12 +124,12 @@ def crop(points, upperbound, padding):
   z_state_0 = points[:, 2] < upperbound[2] + padding
   z_state_1 = points[:, 2] > 0 - padding
   # All states
-  mask_inbox = np.asarray(x_state_0 * x_state_1 * y_state_0 * y_state_1 * z_state_0 * z_state_1, dtype=bool)
+  mask_inbox = np.array(x_state_0 * x_state_1 * y_state_0 * y_state_1 * z_state_0 * z_state_1, dtype=bool)
   return mask_inbox
 
 
 def selection_to_mol(traj, frameidx, selection):
-  atom_sel = np.asarray(selection)
+  atom_sel = np.array(selection)
   try: 
     rdmol = utils.traj_to_rdkit(traj, atom_sel, frameidx)
     if rdmol is None:
@@ -330,7 +331,7 @@ class Feature:
     elif isinstance(self.selection, (list, tuple, np.ndarray)):
       if len(self.selection) != len(self.atomic_numbers):
         printit(f"{self.__class__.__name__} Warning: The number of atoms in structure does not match the number of aromaticity values")
-      selected = np.asarray(self.selection)
+      selected = np.array(self.selection)
       self.selected = np.full(len(self.atomic_numbers), False, dtype=bool)
       self.selected[selected] = True
       printit(f"{self}: Selected {np.count_nonzero(self.selected)} atoms based on the selection string")
@@ -439,9 +440,9 @@ class Feature:
     if ("outfile" in dir(self)) and ("outkey" in dir(self)) and (len(self.outfile) > 0):
       if self.outshape is not None or self._outshape != False: 
         # Explicitly set the shape of the output
-        utils.append_hdf_data(self.outfile, self.outkey, np.asarray([result], dtype=np.float32), dtype=np.float32, maxshape=self.outshape, chunks=True, compression="gzip", compression_opts=4)
+        utils.append_hdf_data(self.outfile, self.outkey, np.array([result], dtype=np.float32), dtype=np.float32, maxshape=self.outshape, chunks=True, compression="gzip", compression_opts=4)
       elif len(self.dims) == 3: 
-        utils.append_hdf_data(self.outfile, self.outkey, np.asarray([result], dtype=np.float32), dtype=np.float32, maxshape=(None, *self.dims), chunks=True, compression="gzip", compression_opts=4)
+        utils.append_hdf_data(self.outfile, self.outkey, np.array([result], dtype=np.float32), dtype=np.float32, maxshape=(None, *self.dims), chunks=True, compression="gzip", compression_opts=4)
 
 
 class AtomicNumber(Feature):
@@ -567,9 +568,9 @@ class Aromaticity(Feature):
     if len(atoms_aromatic) != trajectory.n_atoms:
       printit(f"{self.__class__.__name__} Warning: The number of atoms in PDB does not match the number of aromaticity values")
     if self.reverse: 
-      self.atoms_aromatic = np.asarray([1 if i == 0 else 0 for i in atoms_aromatic], dtype=np.float32)
+      self.atoms_aromatic = np.array([1 if i == 0 else 0 for i in atoms_aromatic], dtype=np.float32)
     else: 
-      self.atoms_aromatic = np.asarray(atoms_aromatic, dtype=np.float32)
+      self.atoms_aromatic = np.array(atoms_aromatic, dtype=np.float32)
 
   def query(self, topology, frame_coords, focal_point):
     if frame_coords.shape.__len__() == 3: 
@@ -596,9 +597,9 @@ class Ring(Feature):
       printit(f"{self.__class__.__name__} Warning: The number of atoms in PDB does not match the number of aromaticity values")
 
     if self.reverse: 
-      self.atoms_in_ring = np.asarray([1 if i == 0 else 0 for i in atoms_in_ring], dtype=np.float32)
+      self.atoms_in_ring = np.array([1 if i == 0 else 0 for i in atoms_in_ring], dtype=np.float32)
     else: 
-      self.atoms_in_ring = np.asarray(atoms_in_ring, dtype=np.float32)
+      self.atoms_in_ring = np.array(atoms_in_ring, dtype=np.float32)
   
   def query(self, topology, frame_coords, focal_point): 
     if frame_coords.shape.__len__() == 3: 
@@ -640,7 +641,7 @@ class HBondDonor(Feature):
 
     if len(atoms_hbond_donor) != trajectory.n_atoms:
       printit(f"{self.__class__.__name__} Warning: The number of atoms in PDB does not match the number of aromaticity values")
-    self.atoms_hbond_donor = np.asarray(atoms_hbond_donor, dtype=np.float32)
+    self.atoms_hbond_donor = np.array(atoms_hbond_donor, dtype=np.float32)
   
   def query(self, topology, frame_coords, focal_point):
     if frame_coords.shape.__len__() == 3: 
@@ -663,7 +664,7 @@ class HBondAcceptor(Feature):
 
     if len(atoms_hbond_acceptor) != trajectory.n_atoms:
       printit(f"{self.__class__.__name__} Warning: The number of atoms in PDB does not match the number of aromaticity values")
-    self.atoms_hbond_acceptor = np.asarray(atoms_hbond_acceptor, dtype=np.float32)
+    self.atoms_hbond_acceptor = np.array(atoms_hbond_acceptor, dtype=np.float32)
 
   def query(self, topology, frame_coords, focal_point):
     if frame_coords.shape.__len__() == 3: 
@@ -686,7 +687,7 @@ class Hybridization(Feature):
 
     if len(atoms_hybridization) != trajectory.n_atoms:
       printit(f"{self.__class__.__name__} Warning: The number of atoms in PDB does not match the number of aromaticity values")
-    self.atoms_hybridization = np.asarray(atoms_hybridization, dtype=np.float32)
+    self.atoms_hybridization = np.array(atoms_hybridization, dtype=np.float32)
 
   def query(self, topology, frame_coords, focal_point):
     if frame_coords.shape.__len__() == 3: 
@@ -1043,7 +1044,7 @@ def cache_properties(trajectory, property_type, **kwargs):
     focus_element = kwargs["focus_element"]
     cached_arr = np.array([1 if i == focus_element else 0 for i in atom_numbers], dtype=np.float32)
   
-  return np.asarray(cached_arr, dtype=np.float32)
+  return np.array(cached_arr, dtype=np.float32)
 
 
 class DynamicFeature(Feature):
@@ -1351,7 +1352,7 @@ class LabelAffinity(Feature):
   def run(self, affinity_val):
     return affinity_val
 
-class LabelStepingAffinity(LabelAffinity):
+class LabelStepping(LabelAffinity):
   """
   Convert the base class affinity value to a steping function. Could convert the regression problem to a classification problem. 
   """
@@ -1540,6 +1541,38 @@ class LabelResType(Feature):
       printit(f"DEBUG: The residue type {resname} is not recognized, there might be some problem in the trajectory cropping")
       retval = 0
     return retval
+
+
+class Coords(Feature):
+  """
+  A test feature type to store the 
+  """
+  def __init__(self, **kwargs): 
+    super().__init__(outshape=(None,4), **kwargs)
+
+  def query(self, topology, frames, focus):
+    if frames.shape.__len__() == 3: 
+      frames = frames[0]
+    idx_inbox = super().query(topology, frames, focus)
+    nr_atom = np.count_nonzero(idx_inbox)
+    ret = np.full((nr_atom, 4), 0.0, dtype=np.float32)
+    ret[:, :3] = frames[idx_inbox]
+    ret[:, 3] = self.atomic_numbers[idx_inbox]
+    return (ret,)
+  
+  def run(self, arr):
+    return arr
+  
+  def dump(self, result): 
+    with h5py.File(self.outfile, "r") as f:
+      if self.outkey in f.keys():
+        start_idx = f[self.outkey].shape[0]
+      else:
+        start_idx = 0
+      end_idx = start_idx + result.shape[0]
+    utils.append_hdf_data(self.outfile, f"{self.outkey}_", np.array([[start_idx, end_idx]], dtype=int), dtype=int, maxshape=(None,2), chunks=True, compression="gzip", compression_opts=4)
+    utils.append_hdf_data(self.outfile, self.outkey, np.array(result, dtype=np.float32), dtype=np.float32, maxshape=self.outshape, chunks=True, compression="gzip", compression_opts=4)
+
 
 
 class VectorizerViewpoint(Feature):

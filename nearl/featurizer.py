@@ -1,10 +1,12 @@
-import tempfile
+import tempfile, time
 
 import numpy as np
 from tqdm import tqdm
 
 from . import utils, constants
 from . import printit, config
+
+from memory_profiler import profile
 
 __all__ = [
   "Featurizer",
@@ -316,12 +318,14 @@ class Featurizer:
     else:
       raise ValueError(f"Unexpected focus format: {self.FOCALPOINTS_TYPE}")
 
+  # @profile
   def main_loop(self, process_nr=20): 
     for tid in range(self.TRAJECTORYNUMBER):
       # Setup the trajectory and its related parameters such as slicing of the trajectory
       self.traj = self.TRAJLOADER[tid]
       msg = f"Processing traj {tid} ({self.traj.identity}) with {self.SLICENUMBER} frame slices"
       printit(f"{self.__class__.__name__}: {msg:=^80}")
+      st = time.perf_counter()
 
       # Cache the weights for each atoms in the trajectory (run once for each trajectory)
       for feat in self.FEATURESPACE:
@@ -383,7 +387,7 @@ class Featurizer:
         tid, bid, fidx = feat_meta
         self.FEATURESPACE[fidx].dump(result)
 
-      msg = f"Finished the trajectory {tid+1} / {self.TRAJECTORYNUMBER} with {len(tasks)} tasks"
+      msg = f"Finished the trajectory {tid+1} / {self.TRAJECTORYNUMBER} with {len(tasks)} tasks in {time.perf_counter() - st:.2f} seconds"
       printit(f"{self.__class__.__name__}: {msg:^^80}\n")
     printit(f"{self.__class__.__name__}: All trajectories and tasks are finished")
 
