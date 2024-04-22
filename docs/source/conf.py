@@ -13,6 +13,7 @@
 # import sphinx.ext.autodoc, sphinx.ext.viewcode
 import os
 import sys
+# import maisie_sphinx_theme
 sys.path.insert(0, os.path.abspath('.'))
 # sys.path.insert(0, os.path.abspath('../nearl'))
 # sys.path.insert(0, os.path.abspath('../src'))
@@ -33,7 +34,12 @@ author = 'Yang Zhang'
 extensions = [
   "sphinx.ext.autodoc",
   "sphinx.ext.viewcode",
+  'sphinx.ext.intersphinx',
+  # 'sphinx.ext.linkcheck',
+  "sphinx_design",
   "numpydoc"
+  # "myst_parser",
+  # "maisie_sphinx_theme",
 ]
 
 autodoc_member_order = 'bysource'
@@ -60,7 +66,9 @@ exclude_patterns = []
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
 #
-html_theme = 'alabaster'
+html_theme = 'sphinx_rtd_theme'
+# html_theme = "maisie_sphinx_theme"
+# html_theme_path = maisie_sphinx_theme.html_theme_path()
 
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,

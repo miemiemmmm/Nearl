@@ -154,6 +154,27 @@ class Feature:
   dims : np.ndarray
     The dimensions of the grid
   spacing : float
+    The spacing of the grid
+
+  Methods
+  -------
+  hook(featurizer)
+    Hook the feature generator back to the feature convolutor and obtain necessary attributes from the featurizer
+  cache(trajectory)
+    Cache the needed weights for each atom in the trajectory for further Feature.query function
+  query(topology, frame_coords, focal_point)
+    Query the atoms and weights within the bounding box
+  run(coords, weights)
+    By default use voxelize_coords to voxelize the coordinates and weights
+  dump(result)
+    Dump the result feature to an HDF5 file, Feature.outfile and Feature.outkey should be set in its child class (Either via __init__ or hook function)
+
+  Notes
+  -----
+  The input and the output of the query, run and dump function should be chained together.
+  
+
+  
   
   """
   # The input and the output of the query, run and dump function should be chained together.

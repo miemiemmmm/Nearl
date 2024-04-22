@@ -1,4 +1,7 @@
 # NEARL
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+![Python](https://img.shields.io/badge/python-3.9-blue.svg)
+
 [NEARL](https://github.com/miemiemmmm/BetaPose)(Nanoscale Environment Assessment and Resonance Landscapes) is a 3D structural 
 data generation framework to featurize bio-molecules specifically focus on their 3D coordinate and protein dynamics 
 to make users benefit from the recent development in machine learning algorithms. <br>
@@ -9,6 +12,7 @@ to make users benefit from the recent development in machine learning algorithms
 - Pipeline for featurizing the trajectory container
 
 
+<!-- 
 ## NEARL
 * [Installation](#Installation)
 * [Get started](#Get-started)
@@ -16,19 +20,42 @@ to make users benefit from the recent development in machine learning algorithms
 * [Featurizer](#Featurizer)
 * [Feature deposition](#Feature-deposition)
 * [Model training](#Model-training)
-* [License](#License)
+* [License](#License) 
+-->
 
 
-# Installation
+Installation
+------------
+NEARL supports only the Linux platform for the time being. It is recommended to install via PyPI: 
+CUDA acceleration is used for grid-based operations. NVCC is required to compile the CUDA code. 
 
---------
+```bash 
+pip install nearl
+``` 
 
-### Clone the repository
+or install via the source code: 
+
 ```
-git clone https://github.com/miemiemmmm/NEARL.git
-cd NEARL
+git clone https://github.com/miemiemmmm/Nearl.git
+cd Nearl
+pip install .
+
+
 ```
 
+Validate installation
+---------------------
+
+Activate the new NEARL environment and run the following commands to test the installation: <br>
+```bash
+# To test the featurizer: 
+python -c "from nearl import tests; tests.vectorize()"
+# To test some simple models:
+# python -c "from nearl import tests; tests.jax_2dcnn()"  
+```
+
+
+<!-- 
 ### Manage your python environment
 [Mamba](https://mamba.readthedocs.io/en/latest/) is a Python package manager implemented in C++ and aims to provide all 
 the functionality of [Conda](https://docs.conda.io/en/latest/) but with higher speed. 
@@ -50,28 +77,11 @@ Load the mamba environment and create a new environment named NEARL <br>
 ```
 bash scripts/create_env_mamba.sh NEARL jax
 micromamba activate NEARL
-```
+``` 
+-->
 
 
-### Install NEARL
-NEARL supports only the Linux platform for the time being. It is recommended to install via PyPI: <br>
-```pip install nearl``` <br>
-By defaults, it uses [OpenMP](https://www.openmp.org/) when doing feature density interpolation, there are some 
-key components accelerated by [OpenACC](https://www.openacc.org/). To install the GPU version, [Nvidia HPC SDK](https://developer.nvidia.com/hpc-sdk)
-is required. <br>
-Use the following command to install the GPU version: <br>
-```base
-pip install .
-```
 
-### Test the installation
-Activate the new NEARL environment and run the following commands to test the installation: <br>
-```bash
-# To test the featurizer: 
-python -c "from nearl import tests; tests.vectorize()"
-# To test some simple models:
-python -c "from nearl import tests; tests.jax_2dcnn()"  
-```
 
 # Get started
 
@@ -85,6 +95,25 @@ feat.register_feature(nearl.features.Mass())
 ......
 ......
 ```
+
+Documentation
+-------------
+
+The detailed documentation is available at [ReadTheDocs](https://nearl.readthedocs.io/en/latest/). 
+
+
+<!-- 
+Citation
+--------
+If you find this repository useful in your research, please consider citing the following <a href="">paper</a>. 
+```bibtex
+``` 
+-->
+
+
+<!-- License
+------- -->
+
 
 
 # Trajectory loader
@@ -116,139 +145,17 @@ traj_loader = TrajectoryLoader([(i,) for i in traj_list], trajtype=Trajectory)
 ```
 
 
-# Featurizer
-
-
-### Load trajectories to a container and register to a featurizer
-```python
-featurizer = nearl.features.Featurizer()
-```
-
-### Start featurization
-```python
-FEATURIZER_PARMS = {
-  "dimensions": 32, 
-  "lengths": 16, 
-  "time_window": 10, 
-
-  # For default setting inference of registered features
-  "sigma": 2.0, 
-  "cutoff": 2.0, 
-  "outfile": outputfile, 
-
-  # Other options
-  "progressbar": False, 
-}
-feat = nearl.featurizer.Featurizer(FEATURIZER_PARMS)
-loader = nearl.io.TrajectoryLoader(trajlists)
-feat.register_feature(nearl.features.Mass())
-feat.register_focus([":15&@CA"], "mask")
-feat.main_loop()
-```
-
-### Register a feature to featurizer
-```
-from nearl.featurizer import Featurizer
-featurizer = Featurizer()
-featurizer.register_feature(YourFeature)
-feat.register_traj(trajectory)
-feat.register_frames(range(100))
-index_selected = trajectory.top.select(":LIG")
-repr_traji, features_traji = feat.run_by_atom(index_selected, focus_mode="cog")
-
-```
-View the example project featurizing a small subset of the [PDBbind](http://www.pdbbind.org.cn/) dataset
-[in this script](https://github.com/miemiemmmm/BetaPose/blob/master/scripts/prepare_pdbbind.py)
-
-
-### Register the focused miety
-
-```python
-# Register the area of interest
-feat.register_focus([":MOL"],  "mask")
-
-```
-
-### Manual focus parser
-If the built-in focus parser does not meet your needs, you could define your own focus parser. 
-The following is an example to read a standalone json file recording the atom indices of the structure of interest. 
-
-```python
-def manual_focal_parser(traj): 
-  # The reference json file to map the indices to track
-  ligandmap = "/MieT5/BetaPose/data/misato_ligand_indices.json"
-  # The sliding time window has to match the one put in the featurizer
-  timewindow = 10 
-
-  with open(ligandmap, "r") as f:
-    LIGAND_INDICE_MAP = json.load(f)
-    assert traj.identity.upper() in LIGAND_INDICE_MAP.keys(), f"Cannot find the ligand indices for {traj.identity}"
-    ligand_indices = np.array(LIGAND_INDICE_MAP[traj.identity.upper()])
-
-  # Initialize the proper shaped array to store the focal points
-  # There has to be three dimensions: number of frame slices, number of focal points, and 3
-  FOCALPOINTS = np.full((traj.n_frames // timewindow, 1, 3), 99999, dtype=np.float32)
-  for i in range(traj.n_frames // timewindow):
-    FOCALPOINTS[i] = np.mean(traj.xyz[i*timewindow][ligand_indices], axis=0)
-  return FOCALPOINTS
-
-# To use the manually defined focal point parser, you need to register that function to the featurizer
-feat.register_focus(manual_focal_parser, "function")
-```
-
-
-
-### Define your own feature
-When defining a new feature, you need to inherit the base class Features and implement the feature function.
-
-```python
-from nearl import commands, utils
-from nearl.features import Features
-
-class MyFirstFeature(Features): 
-  def __init__(self, *args, **kwargs):
-    super().__init__(*args, **kwargs)
-    # your own initialization
-    
-  # Implement your own feature calculation
-  def cache(self, trajectory):
-    # this example is to generate a random number for each atom
-    self.cached_props = np.random.rand(trajectory.n_atoms)
-
-  # Topology of the trajectory
-  def query(self, topology, frames, focual_point):
-    frame = frames[0]
-    mask_inbox = super().query(topology, frame, focual_point)
-    coords = frame.xyz[mask_inbox]
-    weights = self.cached_props[mask_inbox]
-    return coords, weights
-
-  # your own feature calculation
-  def run(self, coords, weights): 
-    feature_vector = commands.voxelize_coords(coords, weights,  self.dims, self.spacing, self.cutoff, self.sigma )
-    return feature_vector
-
-  def dump(self, feature_vector): 
-    # your own output
-    utils.append_hdf_data(self.outfile, self.outkey, np.asarray([result], dtype=np.float32), dtype=np.float32, maxshape=(None, *self.dims), chunks=True, compression="gzip", compression_opts=4)
-    
-```
-
-
 
 # Model training
 
 There are several pre-defined models in the [nearl.models](https://github.com/miemiemmmm/BetaPose/tree/main/BetaPose/models) using 
 [PyTorch](https://pytorch.org/) 
-<!-- and 
-[JAX](https://jax.readthedocs.io/en/latest/) framework. -->
 You could easily re-use these models or write your own model. <br>
 ```python
 TO BE UPDATED
 ```
 
 View the example project training on a small dataset in [PyTorch framework](https://github.com/miemiemmmm/BetaPose/blob/master/scripts/train_simple_network.py) 
-<!-- or [JAX framework](https://github.com/miemiemmmm/BetaPose/blob/master/scripts/train_simple_network_Jax.py) -->
 
 
 # Visualize voxelized feature and the molecule block
@@ -256,6 +163,4 @@ View the example project training on a small dataset in [PyTorch framework](http
 from nearl import utils, io, data
 ``` 
 
-# License
 
-[MIT License](https://github.com/miemiemmmm/BetaPose/blob/master/LICENSE)

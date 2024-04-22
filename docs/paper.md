@@ -37,10 +37,12 @@ It implemented two dynamic features: marching observers (MOBS) and property-dens
 Complemented by standard static feature voxelization, Nearl transforms substructures of proteins into 3D grids, suitable for contemporary 3D convolutional neural network (3D-CNN) frameworks.
 The pipeline leverages modern GPU acceleration, adheres to the FAIR principles for research software, and prioritizes flexibility and user-friendliness, allowing customization of input formats and feature extraction.
 
+<!-- 124 words 982 characters -->
 
-<!-- 134 words 1,023 characters -->
-
-![Schematic representation of the two dynamic features. 
+![[!!!Primitive plot!!!] Workflow of Nearl for transforming MD trajectories into 3D dynamic features for 3D-CNN applications. 
+Featurizer could register a set of features and trajectories for their target computation.
+Registered components are processed sequentially for the computation 3D dynamic features. 
+The computed features are saved in HDF5 format for efficient use by downstream 3D-CNN models.
 \label{fig:dynalgorithms}](nearl_workflow.png){width=95%}
 
 # State of the field
@@ -55,7 +57,7 @@ Molecular dynamics (MD) simulation, leveraging its ability to predict the evolut
 It allows atomic-level exploration of the conformational space of biomolecules, providing insights for various applications such as the design of ligands and biomolecules, guiding interpretation of experimental results, and investigating the dynamic behavior of proteins [@Hollingsworth2018].
 <!-- ### Current strategy in information condensation -->
 Several strategies have been developed to bridge the gap between the rich information contained in MD trajectories and the requirements of machine learning frameworks.
-Due to the high dimensionality of the phase space explored during simulations, a common approach involves dimensionality reduction and information condensation. This is often achieved by calculating a set of simple collective variables (CVs) that effectively capture the essential dynamics of the system [@gorostiola20233ddpds, @riniker2017molecular, @cocina2020sapphire, @Morishita2021]. 
+Due to the high dimensionality of the phase space explored during simulations, a common approach involves dimensionality reduction and information condensation. This is often achieved by calculating a set of simple collective variables (CVs) that effectively capture the essential dynamics of the system [@gorostiola20233ddpds; @riniker2017molecular; @cocina2020sapphire; @Morishita2021]. 
 In recent years, researchers have explored alternative methods for 3D feature embedding that move beyond traditional CVs, such as geometric bit vector [@Kumar2024], atom centered symmetry functions [@Gallegos2024], Coulomb matrix [@Farahvash2020], and 2D grayscale image of radial distribution function curve [@Ayush2023]. 
 
 
@@ -69,7 +71,7 @@ Capturing 3D features like atomic motion, conformational changes, and molecular 
 <!-- Common MD analysis tools -->
 Current mainstream MD analysis tools such as pytraj/CPPTRAJ [@Hai2017pytraj; @roe2013ptraj], MDTraj [@McGibbon2015MDTraj], MDAnalysis [@gowers2019mdanalysis], efficiently process MD trajectories but primarily focus on simple features like RMSD, RMSF, and hydrogen bonds, which usually require manual definition. 
 <!-- Common voxelization tools -->
-The majority of 3D-CNN frameworks require specialized voxelization schemes [@stepniewska2018development; hassan2020rosenet] that are not universally transferable to other applications.
+The majority of 3D-CNN frameworks require specialized voxelization schemes [@stepniewska2018development; @hassan2020rosenet] that are not universally transferable to other applications.
 While tools like DeepRank [@crocioni2024deeprank2] and libmogrid [@sunseri2020libmolgrid] 
 systematically address voxelization of protein-protein interactions (PPI) and atomic properties, they mainly focus on static structures and do not provide insights into the dynamic behaviors of proteins.
 
@@ -90,24 +92,13 @@ Property-Density Flow (PDF) which voxelizes the atoms into 3D grids for individu
 The most expensive grid-based computations, such as Gaussian interpolation, observable computation and time-series aggregation, are accelerated by CUDA.
 Apart from the two dynamic features, voxelization of static structure (part of PDF method) is also implemented in Nearl with various pre-implemented atomic properties. Further details can be viewed in the [documentation](http://nearl.readthedocs.io/).
 
-
-<!-- encoding the geometric, chemical/physical -->
-<!-- 
-grid-major order by calculating local ovservables along a trajectory slice
-Property-density flow: atom-major order by voxelizing into 3D grids across a slice of frames.  
--->
-
 <!-- Design principles -->
-Inspired by the polymorphic design of the [PyTorch](https://pytorch.org/)[@paszke2019pytorch], Nearl abstracts five steps during 3D feature generation including 1. featurizer setting perception; 2. property caching (one-time); 3. point query; 4. feature computation; and 5. result dumping. 
-The pipeline is designed to be modular and flexible, allowing for full control of the customizability of features. 
-With this design, the user can register an arbitrary number of desired features and the corresponding label-like features, and easily prepare the training data and their corresponding labels for the 3D-CNN models. 
+Drawing inspiration from the polymorphic design principles of [PyTorch](https://pytorch.org/)[@paszke2019pytorch], Nearl adopts a modular and flexible approach for 3D feature generation. This approach abstracts the process into five steps covering the lifecycle of each feature computation: 1. featurizer setting perception; 2. property caching (one-time); 3. substructure query; 4. feature computation; and 5. result dumping. 
+This modular design empowers users with full control over feature customization. 
+They can readily register any number of desired features and their corresponding labels, facilitating the preparation of training data tailored to specific 3D-CNN models.
 
 
 <!-- Input supports --> 
-<!-- Nearl treats all input structures as trajectories, seamlessly accommodating both dynamic (MD simulations) and static (PDB files) data. 
-Since all of the input structures are viewed as a trajectory, static PDB files are implicitly treated as a trajectory with a single frame. 
-Nearl supports commonly used trajectory formats including PDB, NetCDF and DCD. 
-The trajectory module also follows the polymorphic design enabling users to define their dedicated trajectory supplier. -->
 Nearl accommodates a variety of trajectory formats commonly used in MD simulations, including PDB, NetCDF, and DCD. This flexibility ensures compatibility with a wide range of workflows. Notably, Nearl can handle static PDB files by treating them implicitly as single-frame trajectories. Furthermore, the pipeline adheres to a polymorphic design for the trajectory module. This empowers users to define their own custom trajectory suppliers, catering to specific needs.
 <!-- Output supports -->
 Processed results are by default stored in HDF5 files, leveraging this format's high-performance data access capabilities. Users can readily switch to alternative storage formats by modifying the dump method within the features module. Notably, the HDF dataset supplier employs process pools during model training, enabling concurrent access to data across multiple HDF files for enhanced efficiency.
