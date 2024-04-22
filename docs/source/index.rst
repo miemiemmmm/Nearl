@@ -6,11 +6,39 @@
 Welcome to nearl's documentation!
 =================================
 
-.. toctree::
-   :maxdepth: 2
-   :caption: Contents:
 
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Installation
+
+   installation
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Quick Start
+
+   quick_start
+
+
+.. toctree::
+   :maxdepth: 0
+   :caption: Nearl Documentation
+   
    nearl_doc
+   modules_features
+   modules_featurizer
+   modules_trajloader
+   modules_traj
+   modules_commands
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Tutorials
+   
+   tutorials
+   
+   
 
 
 Indices and tables

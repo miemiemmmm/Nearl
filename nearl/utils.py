@@ -13,6 +13,19 @@ from . import printit, config
 def get_hash(theinput="", mode="md5"):
   """
   Get the hash value of a string or a list or a numpy array
+
+  Parameters
+  ----------
+  theinput : str or list-like or numpy-like (optional)
+    The input to hash
+  mode : str, default="md5"
+    The hash function to use (md5, sha1, sha256, sha512)
+
+  Returns
+  -------
+  hash_value : str
+    The hash value of the input
+    
   """
   if mode=="md5":
     hash_func = hashlib.md5
@@ -44,6 +57,12 @@ def get_hash(theinput="", mode="md5"):
 def get_timestamp(): 
   """
   Get the current timestamp to nano-second
+
+  Returns
+  -------
+  timestamp : str
+    The timestamp in the format of %y%m%d_%H%M%S_ns
+
   """
   return time.strftime("%y%m%d_%H%M%S", time.localtime()) + "_" + time.time_ns().__str__()[-4:]
 
@@ -147,6 +166,21 @@ def compute_pcdt(traj, mask1, mask2, use_mean=False, ref=None, return_info=False
     return distarr
 
 def plot_pcdt(array):
+  """
+  Plot the Pairwise Closest Distance of a trajectory, the array should be the output of compute_pcdt with X-axis as time and Y-axis as atomic index
+
+  Parameters
+  ----------
+  array : numpy array
+    The distance array between the closest pairs of atoms
+
+  Returns
+  -------
+  fig : matplotlib figure
+    The figure object
+  ax : matplotlib axis
+    The axis object
+  """
   import matplotlib.pyplot as plt
   fig, ax = plt.subplots(1)
   c = ax.pcolormesh(array, cmap="inferno")
@@ -160,12 +194,40 @@ def plot_pcdt(array):
   return fig, ax
 
 def get_pdbcode(pdbcode): 
+  """
+  Correct the PDB code to a standard format (lowercase) and replace with the superceded PDB code
+
+  Parameters
+  ----------
+  pdbcode : str
+    The PDB code
+
+  Returns
+  -------
+  pdbcode : str
+    The corrected PDB code
+
+  """
   pdbcode = pdbcode.lower()
   return constants.PDBCODE_SUPERCEDES.get(pdbcode, pdbcode)
 
 def fetch(code):
+  """
+  Fetch the PDB file from the RCSB PDB database
+
+  Parameters
+  ----------
+  code : str
+    The PDB code
+
+  Returns
+  -------
+  response.text : str
+    The content of the PDB file
+
+  """
   from requests import post
-  pdb = code.lower()
+  pdb = get_pdbcode(code)
   response = post(f'http://files.rcsb.org/download/{pdb}.pdb')
   return response.text
 
@@ -197,7 +259,7 @@ def get_mask(traj, mask):
 
 def get_residue_mask(traj, mask):
   """
-  Get the residue mask by the atom mask
+  Get the residue mask by the mask
   """
   selected = traj.top.select(mask)
   if hasattr(traj, "atoms"):
@@ -227,6 +289,7 @@ def get_mask_by_idx(traj, idxs):
 def get_protein_mask(_structure):
   """
   Get the protein mask for a given structure
+
   Args:
     _structure: a string or a pytraj trajectory object
   Returns:
@@ -322,6 +385,19 @@ def generate_gridcoords(thecenter, thelengths, thedims):
 
   Parameters
   ----------
+  thecenter: array_like
+    The center of the grid
+  thelengths: array_like
+    The lengths of the grid
+  thedims: array_like
+    The dimensions of the grid
+
+  Returns
+  -------
+  thegrid: tuple
+    The grid coordinates
+  thecoord: array_like
+    The flattened coordinates
 
   """
   thegrid = np.meshgrid(
@@ -334,7 +410,20 @@ def generate_gridcoords(thecenter, thelengths, thedims):
 
 
 def get_pdb_title(pdbcode):
-  pdb = pdbcode.lower().strip().replace(" ", "")
+  """
+  Get the title of a PDB entry from the RCSB PDB database
+
+  Parameters
+  ----------
+  pdbcode : str
+    The PDB code
+
+  Returns
+  -------
+  title : str
+    The title of the PDB entry
+  """
+  pdb = get_pdbcode(pdbcode)
   assert len(pdb) == 4, "Please enter a valid PDB name"
   pdbstr = fetch(pdb)
   title = " ".join([i.strip("TITLE").strip() for i in pdbstr.split("\n") if "TITLE" in i])
@@ -438,7 +527,16 @@ def update_hdf_data(hdffile, dataset_name:str, data:np.ndarray, hdf_slice, **kwa
 
   Parameters
   ----------
-  hdffile : 
+  hdffile : str or h5py.File
+    The path to the HDF5 file or the h5py.File object
+  dataset_name : str
+    The name of the dataset
+  data : array_like
+    The data to update
+  hdf_slice : slice
+    The slice of the dataset
+  kwargs : dict
+    Additional keyword arguments for creating the dataset (If the dataset does not exist yet)
 
   """
   if isinstance(hdffile, str):
@@ -601,6 +699,28 @@ def check_filelist(training_set):
 # Available models:
 # Atom3D, DeepRank, Gnina2017, Gnina2017_, GninaDense, Gnina2018, KDeep, VoxNet, Pafnucy
 def get_model(name, in_channels, out_channels, box_size, **kwargs):
+  """
+  A quick wrapper to get the model object
+
+  Parameters
+  ----------
+  name : str
+    The name of the model
+  in_channels : int
+    The number of input channels
+  out_channels : int
+    The number of output channels
+  box_size : int
+    The size of the box
+  kwargs : dict
+    Additional keyword arguments for the model
+
+  Returns
+  -------
+  model : nn.Module
+    The model object
+
+  """
   if name == "Atom3D":
     import nearl.models.model_atom3d
     return nearl.models.model_atom3d.Atom3DNetwork(in_channels, out_channels, box_size)

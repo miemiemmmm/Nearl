@@ -128,7 +128,7 @@ class Trajectory(pt.Trajectory):
     self.atoms = np.array([i for i in self.top.atoms])
     self.residues = np.array([i for i in self.top.residues])
 
-  def write_frame(self, frames, outfile="", mask=""): 
+  def write_frame(self, frames, outfile="", mask="", **kwarg): 
     """
     Save the trajectory to the file
 
@@ -167,7 +167,7 @@ class Trajectory(pt.Trajectory):
     if len(outfile) > 0:
 
       tmp_traj = pt.Trajectory(xyz=frame_coords, top=top)
-      pt.save(outfile, tmp_traj, overwrite=True)
+      pt.save(outfile, tmp_traj, overwrite=True, **kwarg)
 
   def add_dummy_points(self, coordinates, elements = None, frame_idx=0, outfile=""):
     """

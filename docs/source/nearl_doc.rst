@@ -1,33 +1,25 @@
-Nearl Modules
-=============
 
-This part of the documentation covers the modules in the Nearl package.
+Core modules
+============
 
-Feature
-----------
+This part of the documentation covers the core modules in the Nearl package.
 
-.. automodule:: nearl.features
-   :members:
-   :undoc-members:
-   :show-inheritance:
 
-.. .. autoclass:: nearl.features.Feature
-..    :members:
-..    :undoc-members:
-..    :show-inheritance:
 
-Featurizer
-----------
+.. _my_subsection_label:
 
-.. automodule:: nearl.featurizer
-   :members:
-   :undoc-members:
-   :show-inheritance:
+Subsection Title
+----------------
 
-Commands
---------
+Please refer to the `details in this subsection <my_subsection_label>`_ for more
 
-.. automodule:: nearl.commands
-   :members:
-   :undoc-members:
-   :show-inheritance:
+
+
+`Features module <module_features.html>`_ 
+
+`Featurizer module <module_featurizer>`_
+
+`Trajectory module <module_trajectory>`_
+
+`Trajectory Loader module <module_trajloader>`_
+
