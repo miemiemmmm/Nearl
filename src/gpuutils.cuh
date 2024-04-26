@@ -134,6 +134,46 @@ __device__ float information_entropy_device(const T *Arr, const int N){
 
 
 /**
+ * @brief Calculates the information entropy of an array based on the histogram on the CUDA device.
+ * In this function, it calculates the histogram with 16 bins based on the input array.
+ * For each bin, calculate the probability and then the entropy.
+ * 
+ * TODO: test this function. 
+ */
+template <typename T>
+__device__ float information_entropy_histogram_device(const T *Arr, const int N){
+  T min = min_device(Arr, N);
+  T max = max_device(Arr, N);
+  if (min == max){
+    return 0;
+  } else {
+    int bins = 16;
+    T range = max - min;
+    T bin_width = range / bins;
+    if (bin_width == 0) bin_width = 1;
+    
+    int hist[bins] = {0};
+    int bin = 0;
+    for (int i = 0; i < N; ++i){
+      bin = (Arr[i] - min) / bin_width;
+      bin = bin >= bins ? bins - 1 : bin;
+      hist[bin] += 1;
+    }
+
+    float entropy_val = 0.0f;
+    float prob = 0.0f;
+    for (int i = 0; i < bins; ++i){
+      if (hist[i] > 0){
+        prob = static_cast<float>(hist[i]) / N;
+        entropy_val -= prob * log2f(prob);
+      }
+    }
+    return entropy_val;
+  }
+}
+
+
+/**
  * @brief Calculates the median value of an array on the CUDA device
  * 
  * This function firstly sorts the input array in ascending order via the bubble 

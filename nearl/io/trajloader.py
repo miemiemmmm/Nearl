@@ -8,6 +8,19 @@ __all__ = [
 
 
 class TrajectoryLoader: 
+  """
+  A class to load multiple trajectories for further processing
+
+  Attributes
+  ----------
+  trajs : list
+    A list of trajectory arguments
+  trajtype : trajectory_like
+    The trajectory type to be used while loading the trajectory
+  loading_options : dict
+    The loading options (stride, frame_indices, mask)
+
+  """
   def __init__(self, trajs = None, trajtype = None, **kwarg):
     """
     Systematically load trajectories for further processing
@@ -52,7 +65,7 @@ class TrajectoryLoader:
   @loading_options.setter
   def loading_options(self, kwargs):
     """
-    Update the loading options
+    Update the loading options (stride, frame_indices, mask)
     """
     for key, value in kwargs.items():
       if key in kwargs:
@@ -62,18 +75,41 @@ class TrajectoryLoader:
     outstr = ""
     for i in self.__iter__(): 
       outstr += i.__str__()
-      # outstr += i.traj.__str__().replace("\n", "\t")+"\n"
     return outstr.strip("\n")
 
   def __iter__(self):
+    """
+    Iterate through the trajectories in the loader
+
+    Yields
+    ------
+    trajectory_like
+      The trajectory object
+    """
     options = self.loading_options
     for i in range(len(self)): 
       yield self.OUTPUT_TYPE[i](*self.trajs[i], **options)
 
   def __len__(self):
+    """
+    Get the number of trajectories in the loader
+    """
     return len(self.trajs)
 
   def __getitem__(self, index):
+    """
+    Get the trajectory object by index
+
+    Parameters
+    ----------
+    index : int, list, tuple, slice
+      The index of the trajectory object to be retrieved
+
+    Returns
+    -------
+    trajectory_like or list
+      The trajectory object or a list of trajectory objects
+    """
     options = self.loading_options
     if isinstance(index, int):
       ret = self.OUTPUT_TYPE[index](*self.trajs[index], **options)
@@ -90,6 +126,13 @@ class TrajectoryLoader:
   def append(self, trajs = None, trajtype = None): 
     """
     Append a trajectory or a list of trajectories to the trajectory loader
+
+    Parameters
+    ----------
+    trajs : str or list
+      Trajectory file names
+    trajtype: trajectory_like
+      The trajectory type to be used while loading the trajectory
     """
     # determine how many trajectories will be appended
     traj_nr = len(trajs) if isinstance(trajs, (list, tuple)) else 0
