@@ -10,6 +10,25 @@
 namespace py = pybind11;
 
 
+/**
+ * @brief 
+ * Perform the voxelization of a trajectory
+ * 
+ * @param arr_traj: The input array of coordinates
+ * @param arr_weights: The input array of weights
+ * @param grid_dims: The dimensions of the grid
+ * @param spacing: The spacing between the grid points
+ * @param cutoff: The cutoff distance for the voxelization
+ * @param sigma: The sigma value for the Gaussian kernel
+ * @param type_agg: The type of aggregation to use
+ * @return py::array_t<float>: The output array of the observable
+ * 
+ * @note
+ * The input array of coordinates should be one single frame shaped (atom_nr, 3)
+ * The input array of weights should be one single frame shaped (atom_nr)
+ * The input array of dimensions should be shaped (3)
+ * The output array is shaped (grid_dims[0] * grid_dims[1] * grid_dims[2]). Need to reshape it in the python code.
+ */
 py::array_t<float> do_voxelize(
   py::array_t<float> arr_coords, 
   py::array_t<float> arr_weights, 
@@ -56,6 +75,27 @@ py::array_t<float> do_voxelize(
   return result;
 }
 
+
+/**
+ * @brief
+ * Perform the marching observers algorithm to convert a slice of coordinate sets to a 3D grid
+ * 
+ * @param arr_coord: The input array of coordinates
+ * @param arr_weights: The input array of weights
+ * @param arr_dims: The dimensions of the grid
+ * @param spacing: The spacing between the grid points
+ * @param cutoff: The cutoff distance for the marching observers algorithm
+ * @param type_obs: The type of observable to compute
+ * @param type_agg: The type of aggregation to use
+ * @return py::array_t<float>: The output array of the observable
+ * 
+ * @note
+ * The input array of coordinates must have the shape (frame_nr, atom_nr, 3)
+ * The input array of weights must have the shape (frame_nr, atom_nr)
+ * The input array of dimensions must have the shape (3)
+ * The output array is shaped (arr_dims[0] * arr_dims[1] * arr_dims[2]). Need to reshape it to in the python code.
+ * 
+ */
 py::array_t<float> do_marching_observers(
   py::array_t<float> arr_coord, 
   py::array_t<float> arr_weights,
@@ -93,7 +133,19 @@ py::array_t<float> do_marching_observers(
       throw py::value_error("The aggregation type is not supported"); 
     }
   }
-  if (frame_nr > MAX_FRAME_NUMBER){ throw py::value_error("The number of frames " + std::to_string(frame_nr) + " exceeds the maximum number of frames allowed " + std::to_string(MAX_FRAME_NUMBER) + " frames."); }
+  if (frame_nr > MAX_FRAME_NUMBER){ 
+    throw py::value_error("The number of frames " + std::to_string(frame_nr) + " exceeds the maximum number of frames allowed " + std::to_string(MAX_FRAME_NUMBER) + " frames."); 
+  }
+  // If there is no point in all of the frames (At least one coordinate not the DEFAULT_COORD_PLACEHOLDER), directly return an array of zeros 
+  for (int i=0; i < frame_nr*atom_nr*3; i++){
+    if (static_cast<float*>(buf_coord.ptr)[i] != DEFAULT_COORD_PLACEHOLDER){
+      break;
+    } else if (i == frame_nr*atom_nr*3 - 1){
+      py::array_t<float> result({gridpoint_nr});
+      for (int i = 0; i < gridpoint_nr; i++) result.mutable_at(i) = 0;
+      return result;
+    }
+  }
 
   // Current hard coded to 0, 0 for type_obs and type_agg
   py::array_t<float> result({gridpoint_nr});
@@ -111,6 +163,25 @@ py::array_t<float> do_marching_observers(
 }
 
 
+/**
+ * @brief 
+ * Perform property density flow for a slice of frames in a trajectory
+ * 
+ * @param arr_traj: The input array of coordinates
+ * @param arr_weights: The input array of weights
+ * @param grid_dims: The dimensions of the grid
+ * @param spacing: The spacing between the grid points
+ * @param cutoff: The cutoff distance for the voxelization
+ * @param sigma: The sigma value for the Gaussian kernel
+ * @param type_agg: The type of aggregation to use
+ * @return py::array_t<float>: The output array of the observable
+ * 
+ * @note
+ * The input array of coordinates must have the shape (frame_nr, atom_nr, 3)
+ * The input array of weights must have the shape (frame_nr, atom_nr)
+ * The input array of dimensions must have the shape (3)
+ * The output array is shaped (arr_dims[0] * arr_dims[1] * arr_dims[2]). Need to reshape it to in the python code.
+ */
 py::array_t<float> do_traj_voxelize(
   py::array_t<float> arr_traj, 
   py::array_t<float> arr_weights,
@@ -153,8 +224,6 @@ py::array_t<float> do_traj_voxelize(
   ); 
   return result;
 }
-
-
 
 
 PYBIND11_MODULE(all_actions, m) {

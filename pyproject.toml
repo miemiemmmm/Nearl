@@ -9,7 +9,16 @@ description = "Nearl Package Installation"
 authors = [
     {name = "Yang Zhang", email = "y.zhang@bioc.uzh.ch"},
 ]
+# Reconsider dependencies when publishing the package
+# Ambertools and Openbabel should be installed separately
 dependencies = [
+    "numpy>=1.24",
+    "matplotlib>=3.7",
+    "pandas>=2.0",
+    "h5py>=3.9",
+    "open3d>=0.17",
+    "torch>=2.1",
+    "rdkit>=2022.3", 
 ]
 requires-python = ">=3.7"
 readme = "README.md"

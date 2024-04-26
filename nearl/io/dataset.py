@@ -7,6 +7,11 @@ import multiprocessing as mp
 from .. import utils
 from .. import config, printit
 
+__all__ = [
+  "Dataset",
+  "data_augment",
+  "readdata",
+]
 
 # Flip by batch with 5 dimensions (batch, channel, x, y, z)
 FLIP_DICT_BATCH_LEVEL_TORCH = {
@@ -48,6 +53,23 @@ def rand_translate(factor=1):
 
 
 def readdata(input_file, keyword, theslice):
+  """
+  A simple wrapper function to read the data from the HDF5 file.
+
+  Parameters
+  ----------
+  input_file : str
+    The HDF5 file path.
+  keyword : str
+    The keyword to read from the HDF5 file.
+  theslice : slice
+    The slice to read from the HDF5 file.
+
+  Returns
+  -------
+  np.ndarray
+    The data read from the HDF5 file.
+  """
   with h5py.File(input_file, "r") as h5file:
     ret_data = h5file[keyword][theslice]
   return ret_data
@@ -70,6 +92,17 @@ def data_augment(batch_array, translation_factor=2, add_noise=False):
   """
   Batch data are in the shape of (batch:0, channel:1, x:2, y:3, z:4)
 
+  Parameters
+  ----------
+  batch_array : torch.Tensor
+    The batch data to augment.
+  translation_factor : int
+    The factor of translation for data augmentation, defaults to 2.
+  add_noise : bool
+    Whether to add noise to the data or not, defaults to False.
+  
+  Notes
+  -----
   Data augmentation includes:
   1. Flip along the axes
   2. Rotate along the axes
@@ -121,6 +154,23 @@ def data_augment(batch_array, translation_factor=2, add_noise=False):
 
 
 class Dataset: 
+  """
+  A dataset class that reads data from HDF5 files.
+
+  Parameters
+  ----------
+  files : list
+    A list of HDF5 file paths.
+  grid_dim : int
+    The dimension of the grid.
+  label_key : str
+    The key of the label in the HDF5 file.
+  feature_keys : list
+    The keys of the features in the HDF5 file.
+  benchmark : bool
+    Whether to print the benchmarking information.
+  """
+  # TODO Check if the Label is not defined in the file
   def __init__(self, files, grid_dim, label_key="label", feature_keys=[], benchmark = False): 
     self.size = np.array([grid_dim, grid_dim, grid_dim], dtype=int)
     self.FILELIST = files
@@ -164,16 +214,62 @@ class Dataset:
       tmp_count += label_nr
 
   def __len__(self):
+    """
+    Get the total number of entries in the dataset.
+
+    Returns
+    -------
+    int
+      The total number of entries in the dataset.
+    """
     return self.total_entries
   
   def position(self, index):
+    """
+    Get the internal position (to the corresponding HDF file) of the entry at the global index in the dataset.
+
+    Parameters
+    ----------
+    index : int
+      The global index of the entry.
+
+    Returns
+    -------
+    int
+      The internal position of the entry.
+    """
     return self.position_map[index]
   
   def filename(self, index):
+    """
+    Get the HDF file name of the entry at the global index in the dataset.
+
+    Parameters
+    ----------
+    index : int
+      The global index of the entry.
+
+    Returns
+    -------
+    str
+      The HDF file name.
+    """
     return self.FILELIST[self.file_map[index]]
 
   def __getitem__(self, index):
-    # Get the file
+    """
+    Get the data and label of the entry at the global index in the dataset.
+
+    Parameters
+    ----------
+    index : int
+      The global index of the entry.
+
+    Returns
+    -------
+    tuple
+      The data and label of the entry.
+    """
     if index >= self.total_entries:
       raise IndexError(f"Index {index} is out of range. The dataset has {self.total_entries} entries.")
     
@@ -184,6 +280,20 @@ class Dataset:
     return data, label
   
   def mini_batch_task(self, index):
+    """
+    Get the tasks describing the location of the data and the label of the entry at the global index in the dataset.
+
+    Parameters
+    ----------
+    index : int
+      The global index of the entry.
+
+    Returns
+    -------
+    list
+      The tasks describing the location of the data and the label including the filename, the key, and the slice.
+    
+    """
     tasks = []
     for i in range(len(self.feature_keys)):
       tasks.append((self.filename(index), self.feature_keys[i], np.s_[self.position(index)]))
@@ -193,6 +303,31 @@ class Dataset:
 
   def mini_batches(self, batch_nr=None, batch_size=None, shuffle=True, process_nr=24, augment=False, augment_translation=0, augment_add_noise=False, **kwargs):
     """
+    Built-in generator to iterate the dataset in mini-batches. 
+
+    Parameters
+    ----------
+    batch_nr : int
+      The number of batches to split the dataset into, mutually exclusive with batch_size. 
+    batch_size : int
+      The size of each batch, mutually exclusive with batch_nr.
+    shuffle : bool
+      Whether to shuffle the dataset or not, defaults to True.
+    process_nr : int
+      The number of processes to use for reading the data, defaults to 24.
+    augment : bool
+      Whether to augment the data or not, defaults to False. TODO: Implement data augmentation.
+      If True is set, the following parameters are used.
+    augment_translation : int
+      The factor of translation for data augmentation, defaults to 0.
+    augment_add_noise : bool
+      Whether to add noise to the data or not, defaults to False.
+
+    Yields
+    ------
+    tuple
+      The data and label of the mini-batch.
+
     """
     indices = np.arange(self.total_entries)
     if shuffle:

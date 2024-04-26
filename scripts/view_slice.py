@@ -107,28 +107,28 @@ def get_geo_slices(voxel, slices:dict, cmap="inferno", scale_factor=[1,1,1]) -> 
     if key == "x": 
       for y in range(dims[1]):
         for z in range(dims[2]):
-          box = o3d.geometry.TriangleMesh.create_box(width=0.001, height=0.5, depth=0.5)
+          box = o3d.geometry.TriangleMesh.create_box(width=0.001, height=0.45, depth=0.45)
           box.translate(np.asarray([slices[key] * scale_factor[0], y * scale_factor[1], z * scale_factor[2]], dtype=np.float64))
           color = cmap(theslice[y,z]/vmax)[:3]
-          box.compute_vertex_normals()
+          # box.compute_vertex_normals()
           box.paint_uniform_color(color)
           ret.append(box)
     elif key == "y":
       for x in range(dims[0]):
         for z in range(dims[2]):
-          box = o3d.geometry.TriangleMesh.create_box(width=0.5, height=0.001, depth=0.5)
+          box = o3d.geometry.TriangleMesh.create_box(width=0.45, height=0.001, depth=0.45)
           box.translate(np.asarray([x * scale_factor[0], slices[key] * scale_factor[1], z * scale_factor[2]], dtype=np.float64))
           color = cmap(theslice[x,z]/vmax)[:3]
-          box.compute_vertex_normals()
+          # box.compute_vertex_normals()
           box.paint_uniform_color(color)
           ret.append(box)
     else:
       for x in range(dims[0]):
         for y in range(dims[1]):
-          box = o3d.geometry.TriangleMesh.create_box(width=0.5, height=0.5, depth=0.001)
+          box = o3d.geometry.TriangleMesh.create_box(width=0.45, height=0.45, depth=0.001)
           box.translate(np.asarray([x * scale_factor[0], y * scale_factor[1], slices[key] * scale_factor[2]], dtype=np.float64))
           color = cmap(theslice[x,y]/vmax)[:3]
-          box.compute_vertex_normals()
+          # box.compute_vertex_normals()
           box.paint_uniform_color(color)
           ret.append(box)
   return ret
@@ -206,7 +206,9 @@ def main_render(inputfile:str, index:int, args):
   vis.create_window(window_name="HDF viewer", width=600, height=600)
 
   # geoms_voxel = get_geo_voxeli(voxeli, cmap=args.cmap, percentile=args.percentile, hide=args.hide, scale_factor=scale_factor)
-  geoms_voxel = get_geo_slices(voxeli, slices={"x": 16, "y": 16, "z": 16}, cmap=args.cmap, scale_factor=scale_factor)
+  geoms_voxel = get_geo_slices(voxeli, 
+                               slices={"y": 16, "z": 16}, 
+                               cmap=args.cmap, scale_factor=scale_factor)
   for geo in geoms_voxel:
     vis.add_geometry(geo)
 
@@ -255,7 +257,7 @@ def parse_args():
   parser.add_argument("-f", "--fileinput", type=str, help="The input HDF5 file")
   parser.add_argument("-i", "--index", type=int, default=0, help="The index of the molecule to be viewed")
   parser.add_argument("-p", "--percentile", type=int, default=90, help="The percentile of the voxel to be viewed")
-  parser.add_argument("-c", "--cmap", type=str, default="jet", help="The colormap to be used")
+  parser.add_argument("-c", "--cmap", type=str, default="inferno", help="The colormap to be used")
   parser.add_argument("-t", "--tagname", type=str, default="voxel", help="The tag name of the voxel")
   parser.add_argument("-hide", "--hide", default=1, type=int, help="Hide the zero voxels. Default: 1.")
   parser.add_argument("-m", "--markcenter", default=1, type=int, help="Mark the center of the voxel (Marked by a green sphere). Default: 1")

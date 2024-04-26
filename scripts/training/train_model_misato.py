@@ -31,6 +31,8 @@ def parse_args():
   parser.add_argument("-train", "--training_data", type=str, help="The file writes all of the absolute path of h5 files of training data set")
   parser.add_argument("-test", "--test_data", type=str, help="The file writes all of the absolute path of h5 files of test data set")
   parser.add_argument("-o", "--output_folder", type=str, default="/tmp/", help="Output folder")
+  parser.add_argument("-t", "--tag", type=str, default="", help="Feature named delimited by '%' ")
+  parser.add_argument("-l", "--labeltag", type=str, default="label", help="Label name")
   
   # Pretrained model and break point restart
   parser.add_argument("--model", type=str, help="Model to use")
@@ -103,7 +105,7 @@ def perform_training(training_settings: dict):
   optimizer = optim.Adam(model.parameters(), lr=training_settings["learning_rate"], betas=(0.9, 0.999))
   # criterion = nn.CrossEntropyLoss()  # For classification
   criterion = nn.MSELoss() 
-  scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.5)
+  scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=30, gamma=0.5)
   
   parameter_number = sum([p.numel() for p in model.parameters()])
   training_settings["parameter_number"] = parameter_number
@@ -130,6 +132,8 @@ def perform_training(training_settings: dict):
       # if (batch_idx+1) % 300 == 0:   # TODO: Remove this line when production
       #   break
       train_data, train_label = batch
+      if torch.isnan(train_data).any():
+        train_data[torch.isnan(train_data)] = 0
       if USECUDA:
         train_data, train_label = train_data.cuda(), train_label.cuda()
       optimizer.zero_grad()
@@ -146,6 +150,8 @@ def perform_training(training_settings: dict):
         with torch.no_grad():
           # Measure the RMSE of the training set and one batch of the test set
           trdata, trlabel = next(training_data.mini_batches(batch_size=1000, process_nr=WORKER_NR))
+          if torch.isnan(trdata).any():
+            trdata[torch.isnan(trdata)] = 0
           if USECUDA:
             trdata, trlabel = trdata.cuda(), trlabel.cuda()
           pred = model(trdata)
@@ -154,6 +160,8 @@ def perform_training(training_settings: dict):
           tr_pearson, tr_spearman = compute_correlations(trlabel, pred)
 
           tedata, telabel = next(test_data.mini_batches(batch_size=1000, process_nr=WORKER_NR))
+          if torch.isnan(tedata).any():
+            tedata[torch.isnan(tedata)] = 0
           if USECUDA:
             tedata, telabel = tedata.cuda(), telabel.cuda()
           pred = model(tedata)
@@ -184,6 +192,12 @@ def perform_training(training_settings: dict):
         print(f"{msg}")
     scheduler.step()
 
+    # Track the gradients
+    parmset = list(model.parameters())
+    for idx, p in enumerate(parmset):
+      if p.grad is not None:
+        writer.add_histogram(f"global/gradhist{idx}", p.grad.cpu().detach().numpy(), epoch * batch_nr + batch_idx)
+
     # Save the model
     model_name = "Model"+training_settings["model"]+f"_{len(datatags)}_1_{dimensions}_{epoch}.pth"
     modelfile_output = os.path.join(os.path.abspath(training_settings["output_folder"]), model_name)
@@ -207,6 +221,8 @@ def perform_training(training_settings: dict):
   c = 0
   with torch.no_grad():
     for data, label in training_data.mini_batches(batch_size=BATCH_SIZE, process_nr=WORKER_NR):
+      if torch.isnan(data).any():
+        data[torch.isnan(data)] = 0
       if USECUDA:
         data, label = data.cuda(), label.cuda()
       pred = model(data)
@@ -225,6 +241,10 @@ def perform_training(training_settings: dict):
   c = 0
   with torch.no_grad():
     for data, label in test_data.mini_batches(batch_size=BATCH_SIZE, process_nr=WORKER_NR):
+      # Check nan and replace nan with 0 
+      if torch.isnan(data).any():
+        data[torch.isnan(data)] = 0
+
       if USECUDA:
         data, label = data.cuda(), label.cuda()
       pred = model(data)
@@ -263,6 +283,8 @@ def perform_training(training_settings: dict):
   c = 0
   with torch.no_grad():
     for data, label in _training_data.mini_batches(batch_size=BATCH_SIZE, process_nr=WORKER_NR):
+      if torch.isnan(data).any():
+        data[torch.isnan(data)] = 0
       if USECUDA:
         data, label = data.cuda(), label.cuda()
       pred = model(data)
@@ -278,6 +300,8 @@ def perform_training(training_settings: dict):
   c = 0
   with torch.no_grad():
     for data, label in _test_data.mini_batches(batch_size=BATCH_SIZE, process_nr=WORKER_NR):
+      if torch.isnan(data).any():
+        data[torch.isnan(data)] = 0
       if USECUDA:
         data, label = data.cuda(), label.cuda()
       pred = model(data)
@@ -304,20 +328,7 @@ if __name__ == "__main__":
   args = parse_args()
   SETTINGS = vars(args)
 
-  SETTINGS["datatags"] = [
-    "atomtype_hydrogen", "atomtype_carbon", 
-    "atomtype_nitrogen", "atomtype_oxygen",
-    "atomtype_sulfur", 
-    # "aromaticity",
-    # "atomic_number", "mass",
-
-    # "ligand_annotation", "protein_annotation", 
-    "obs_density_mass", "obs_distinct_atomic_number",
-    # "obs_distinct_resid", 
-
-    # "partial_charge_negative", "partial_charge_positive", 
-  ]
-  SETTINGS["labeltag"] = "label"
+  SETTINGS["datatags"] =  [i.strip() for i in SETTINGS["tag"].split("%") if len(i.strip()) > 0]
   SETTINGS["dimensions"] = 32
 
   _SETTINGS = json.dumps(SETTINGS, indent=2)
@@ -338,22 +349,3 @@ if __name__ == "__main__":
 
   print(f"Training finished, time elapsed: {time.perf_counter() - st:.2f}")
 
-
-# variables:
-# 	float aromaticity(phony_dim_0, phony_dim_1, phony_dim_2, phony_dim_3) ;
-# 	float atomic_number(phony_dim_0, phony_dim_1, phony_dim_2, phony_dim_3) ;
-# 	float atomtype_carbon(phony_dim_0, phony_dim_1, phony_dim_2, phony_dim_3) ;
-# 	float atomtype_hydrogen(phony_dim_0, phony_dim_1, phony_dim_2, phony_dim_3) ;
-# 	float atomtype_nitrogen(phony_dim_0, phony_dim_1, phony_dim_2, phony_dim_3) ;
-# 	float atomtype_oxygen(phony_dim_0, phony_dim_1, phony_dim_2, phony_dim_3) ;
-# 	float atomtype_sulfur(phony_dim_0, phony_dim_1, phony_dim_2, phony_dim_3) ;
-# 	float label(phony_dim_0) ;
-# 	float ligand_annotation(phony_dim_0, phony_dim_1, phony_dim_2, phony_dim_3) ;
-# 	float mass(phony_dim_0, phony_dim_1, phony_dim_2, phony_dim_3) ;
-# 	float obs_density_mass(phony_dim_0, phony_dim_1, phony_dim_2, phony_dim_3) ;
-# 	float obs_distinct_atomic_number(phony_dim_0, phony_dim_1, phony_dim_2, phony_dim_3) ;
-# 	float obs_distinct_resid(phony_dim_0, phony_dim_1, phony_dim_2, phony_dim_3) ;
-# 	float partial_charge_negative(phony_dim_0, phony_dim_1, phony_dim_2, phony_dim_3) ;
-# 	float partial_charge_positive(phony_dim_0, phony_dim_1, phony_dim_2, phony_dim_3) ;
-# 	float pk_original(phony_dim_0) ;
-# 	float protein_annotation(phony_dim_0, phony_dim_1, phony_dim_2, phony_dim_3) ;

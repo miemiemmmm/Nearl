@@ -53,7 +53,7 @@ __device__ float existence_device(const float *coord, const float *coord_framei,
  * a count of those within a given cutoff distance from a reference coordinate. 
  *
  * @param coord Pointer to the reference coordinate's float array (x, y, z).
- * @param coord_framei Pointer to the frame's atom coordinates float array, with each
+ * @param coord_framei Pointer to the frame's atom coordinates float array, with each 
  *        atom's coordinates stored consecutively as (x, y, z).
  * @param atomnr The total number of atoms in the frame.
  * @param cutoff The distance threshold for counting an atom. Only atoms within this
@@ -352,6 +352,10 @@ __device__ float observe_device(const float *coord, const float *coord_framei,
   return ret_framei; 
 }
 
+
+/**
+ * @brief The device function to calculate the observable in frame i
+*/
 __device__ float observe_device(const float *coord, const float *coord_framei, const float *weight_framei,
   const int atomnr, const float cutoff, const int type_obs){
   float ret_framei = 0.0f;
@@ -374,7 +378,7 @@ __device__ float observe_device(const float *coord, const float *coord_framei, c
 }
 
 /**
- * @brief 
+ * @brief The device function to calculate the final aggregated results from the time series
  */
 __device__ float result_aggregation_device(float *series, const int frame_number, const int type_aggregation){
   float ret_series; 
@@ -392,16 +396,18 @@ __device__ float result_aggregation_device(float *series, const int frame_number
     ret_series = static_cast<float>(min_device(series, frame_number));
   } else if (type_aggregation == 7){
     ret_series = information_entropy_device(series, frame_number); 
+    // TODO: replace with this line 
+    // ret_series = information_entropy_histogram_device(series, frame_number);
   }
   return ret_series;
 }
 
 
-// Global kernel: particle count
+////////////////////////////////////////////////////////////////////////////////
+// Direct particle count-based observables
+////////////////////////////////////////////////////////////////////////////////
 /**
  * @brief The global kernel function to calculate the observable in a grid point
- * 
- * 
  */
 __global__ void moving_observer_global(
   float *result, const float *coord_frames, const float *weight_frames,
@@ -448,7 +454,7 @@ __global__ void moving_observer_global(
 
 
 /**
- * @brief Normal host function available to C++ part 
+ * @brief The host function to perform the marching observer algorithm
  */
 void marching_observer_host(
   float *grid_return, 

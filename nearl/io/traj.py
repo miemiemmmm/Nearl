@@ -13,12 +13,57 @@ __all__ = [
   "MisatoTraj",
 ]
 
-# Trajectory object
+
 class Trajectory(pt.Trajectory):
+  """
+  This class represents the base-class for trajectory handling in the Nearl package.
+  This class inherits from pytraj.Trajectory. 
+
+  Attributes
+  ----------
+  top_filename : str
+    The topology file of the trajectory
+  traj_filename : str
+    The trajectory file of the trajectory
+  mask : str
+    The mask to select the atoms to be saved
+  mask_indices : np.ndarray
+    The indices of the atoms selected by the mask
+  atoms : np.ndarray
+    The per-atom index of the trajectory
+  residues : np.ndarray
+    The per-residue index of the trajectory
+
+  
+  Methods
+  -------
+  identity()
+    Return the identity of the trajectory
+  copy_traj()
+    Return a copy of the trajectory object
+  make_index()
+    Prepare the per-atom/per-residue index for the further trajectory processing
+  write_frame()
+    Save the trajectory to the file
+  add_dummy_points()
+    Add additional points to a frame for visual inspection
+
+  Examples
+  --------
+  >>> from nearl.io import Trajectory
+  >>> traj = Trajectory("traj.nc", "top.pdb")
+
+  Notes
+  -----
+  Three types of trajectory initialization are supported:
+  1. File-based trajectory initialization (traj_src and pdb_src are strings)
+  2. Pytraj-based trajectory initialization (traj_src is pytraj.Trajectory)
+  3. Self-based trajectory initialization (traj_src is self)
+  
+  """
   def __init__(self, traj_src = None, pdb_src = None, **kwarg):
     """
-    This class inherits from pytraj.Trajectory for adding more customizable functions. 
-    It could take the trajectory and topology as file names or pytraj.Trajectory for initialization.
+    Initialize the trajectory object with the trajectory and topology files
 
     Parameters
     ----------
@@ -26,13 +71,6 @@ class Trajectory(pt.Trajectory):
       The trajectory like or filename to be loaded
     pdb_src : topology_like
       The topology like or filename to be loaded
-
-
-    Examples
-    --------
-    >>> from nearl.io import Trajectory
-    >>> traj = Trajectory("traj.nc", "top.pdb")
-    
     """
     # Set the keyword arguments for slicing/masking trajectory;
     stride = kwarg.get("stride", None)
@@ -107,9 +145,20 @@ class Trajectory(pt.Trajectory):
     return self._life_holder
   
   def identity(self):
+    """
+    Return the identity of the trajectory used for metadata retrieval. 
+
+    Returns
+    -------
+    str
+      By default, it returns the trajectory file name
+    """
     return self.traj_filename
 
   def copy_traj(self):
+    """
+    Return a copy of the trajectory object
+    """
     xyzcopy = self.xyz.copy()
     topcopy = self.top.copy()
     thecopy = pt.Trajectory(xyz=xyzcopy, top=topcopy,
@@ -140,6 +189,8 @@ class Trajectory(pt.Trajectory):
       The file name to save the trajectory
     mask : str
       The mask to select the atoms to be saved
+    kwarg : dict
+      Additional keyword arguments for the pytraj.save function
 
     Examples
     --------
@@ -172,6 +223,17 @@ class Trajectory(pt.Trajectory):
   def add_dummy_points(self, coordinates, elements = None, frame_idx=0, outfile=""):
     """
     Add additional points to a frame for visual inspection
+
+    Parameters
+    ----------
+    coordinates : list
+      The list of coordinates to be added
+    elements : str or list
+      The list of element symbols to be added
+    frame_idx : int
+      The frame index to add the dummy points
+    outfile : str
+      The file name to save the new trajectory
     """
     if elements is None:
       elements = ["H"] * len(coordinates)
@@ -206,23 +268,28 @@ class Trajectory(pt.Trajectory):
 
 class MisatoTraj(Trajectory): 
   """
-  Takes the Misato HDF5 trajectory to initialize the Trajectory object compatible with the Nearl package
+  Built-in implementation of the Misato HDF5 trajectory. 
 
-  Parameters
+  Original paper:
+  Siebenmorgen, T., Menezes, F., Benassou, S., Merdivan, E., Kesselheim, S., Piraud, M., Theis, F.J., Sattler, M. and Popowicz, G.M., 2023. MISATO-Machine learning dataset of protein-ligand complexes for structure-based drug discovery. bioRxiv, pp.2023-05.
+
+  Attributes
   ----------
   pdbcode : str
-    The PDB code of the trajectory to be loaded
-  misatodir : str
-    The directory of the Misato MD simulation output
+    The PDB code as the identity of the trajectory 
+  topfile : str
+    The topology file of the trajectory
+  trajfile : str
+    The trajectory file of the trajectory
 
   Notes
   -----
-  Before pushing the trajectory list to the trajectory loader, define the corresponding trajectory type (see example). 
+  The trajectory type has to be manually defined when pushing to the trajectory loader (see example). 
+  Solvents and ions are stripped for the alignment of the coordinates with the topology. 
 
-  This module uses relative path to the `misatodir` to retrieve the trajectory. 
-
-  Due to the fact that the trajectory stored in the HDF does not contain the time information, solvents and ions are stripped
-  for the alignment of the coordinates with the topology. 
+  This module uses relative path to the `misatodir` to retrieve the trajectory. The following files are required to load the trajectory:
+  1. The topology file ({misatodir}/parameter_restart_files_MD/{pdbcode}/production.top.gz)
+  2. The trajectory file ({misatodir}/MD.hdf5)
 
   Examples
   --------
@@ -234,10 +301,26 @@ class MisatoTraj(Trajectory):
        ('1KTI', '/MieT5/DataSets/misato_database/')
       ]
   >>> trajloader = TrajectoryLoader(trajs, trajtype=MisatoTraj)
-  >>> for i in trajloader: print(i.xyz.shape)
+  >>> for i in trajloader: 
+  >>> print(i.xyz.shape)
 
   """
   def __init__(self, pdbcode, misatodir, **kwarg): 
+    """
+    Initialize the MisatoTraj object with the PDB code and the Misato directory. 
+
+    Parameters
+    ----------
+    pdbcode : str
+      The PDB code of the trajectory to be loaded
+    misatodir : str
+      The directory of the Misato MD simulation output
+
+    Notes
+    -----
+    The trajectory is firstly read as a pytraj.Trajectory object and then converted to the Nearl Trajectory object.
+
+    """
     # Needs dbfile and parm_folder;
     self.topfile = f"{misatodir}/parameter_restart_files_MD/{pdbcode.lower()}/production.top.gz"
     if not os.path.exists(self.topfile):
@@ -287,9 +370,19 @@ class MisatoTraj(Trajectory):
       else:
         printit(f"{self.__class__.__name__}: Superpose the trajectory with default mask @CA")
         pt.superpose(ret_traj, mask="@CA")
+    
+    # Pytraj trajectory-based initialization
     super().__init__(ret_traj)
 
   @property
   def identity(self):
+    """
+    Return the PDB code as the identity of the trajectory
+
+    Returns
+    -------
+    str
+      The PDB code of the trajectory
+    """
     return utils.get_pdbcode(self.pdbcode)
 
