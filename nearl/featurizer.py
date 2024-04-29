@@ -6,7 +6,7 @@ from tqdm import tqdm
 from . import utils, constants
 from . import printit, config
 
-from memory_profiler import profile
+# from memory_profiler import profile
 
 __all__ = [
   "Featurizer",

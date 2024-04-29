@@ -13,9 +13,9 @@
 # import sphinx.ext.autodoc, sphinx.ext.viewcode
 import os
 import sys
-# import maisie_sphinx_theme
 sys.path.insert(0, os.path.abspath('.'))
-# sys.path.insert(0, os.path.abspath('../nearl'))
+sys.path.insert(0, os.path.abspath('../../nearl'))
+sys.path.insert(0, os.path.abspath('../..'))
 # sys.path.insert(0, os.path.abspath('../src'))
 
 
@@ -25,6 +25,7 @@ project = 'Nearl'
 copyright = '2024, Yang Zhang'
 author = 'Yang Zhang'
 
+master_doc = "index"
 
 # -- General configuration ---------------------------------------------------
 
@@ -35,15 +36,18 @@ extensions = [
   "sphinx.ext.autodoc",
   "sphinx.ext.viewcode",
   'sphinx.ext.intersphinx',
+  'sphinx_copybutton',
   # 'sphinx.ext.linkcheck',
+  "sphinx_togglebutton", 
+  "myst_parser",
   "sphinx_design",
-  "numpydoc"
-  # "myst_parser",
-  # "maisie_sphinx_theme",
+  "numpydoc",
+  # "myst_nb",
 ]
 
 autodoc_member_order = 'bysource'
 numpydoc_show_class_members = False
+myst_heading_anchors = 3  
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
@@ -66,9 +70,20 @@ exclude_patterns = []
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
 #
-html_theme = 'sphinx_rtd_theme'
-# html_theme = "maisie_sphinx_theme"
-# html_theme_path = maisie_sphinx_theme.html_theme_path()
+# html_theme = 'sphinx_rtd_theme'
+html_theme = 'sphinx_book_theme'
+html_title = "Nearl Documentation"
+html_copy_source = True
+
+html_theme_options = {
+  "home_page_in_toc": True,
+  "collapse_navbar": False,
+  "show_navbar_depth": 4,
+  "max_navbar_depth": 4,
+  'navigation_depth': 4,         # Controls how deep the navigation can go
+  "show_toc_level": 4,
+}
+
 
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,

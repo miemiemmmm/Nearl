@@ -1,5 +1,6 @@
 // Function for voxelization of atomic coordinates and weights
 
+#define DEFAULT_COORD_PLACEHOLDER 99999.0f
 
 void voxelize_host(
   float *interpolated, 

@@ -3,7 +3,7 @@ import os
 import numpy as np 
 import open3d as o3d
 
-import siesta 
+
 from . import all_actions, printit, utils
 
 __all__ = [
@@ -147,6 +147,7 @@ def viewpoint_histogram_xyzr(xyzr_arr, viewpoint, bin_nr, write_ply=False, retur
   
   Wiewpoint is the position of the observer.
   """
+  import siesta 
   thearray = np.asarray(xyzr_arr, dtype=np.float32)
   vertices, faces = siesta.xyzr_to_surf(thearray, grid_size=0.2) 
   c_vertices = np.mean(vertices, axis=0)

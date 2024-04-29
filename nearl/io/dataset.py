@@ -4,7 +4,6 @@ import torch
 import numpy as np 
 import multiprocessing as mp
 
-from .. import utils
 from .. import config, printit
 
 __all__ = [

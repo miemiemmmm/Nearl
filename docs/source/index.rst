@@ -3,42 +3,45 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-Welcome to nearl's documentation!
+Welcome to Nearl's documentation!
 =================================
 
+.. Include the README page 
+.. include:: ../../README.rst
+.. .. include:: installation.rst
 
+   .. install_prereq
+   .. install_steps
+   .. install_valid
 
 .. toctree::
-   :maxdepth: 1
-   :caption: Installation
+   :maxdepth: 2
+   :caption: Get started
 
    installation
+   quick_start
+   visualization
 
 .. toctree::
-   :maxdepth: 1
-   :caption: Quick Start
-
-   quick_start
-
+   :maxdepth: 2
+   :caption: Tutorials
+   
+   tutorial1
+   tutorial2
+   tutorial3
+   tutorial4
+   tutorial5
+   tutorial6
 
 .. toctree::
    :maxdepth: 0
-   :caption: Nearl Documentation
+   :caption: API Reference
    
-   nearl_doc
    modules_features
    modules_featurizer
    modules_trajloader
    modules_traj
    modules_commands
-
-.. toctree::
-   :maxdepth: 1
-   :caption: Tutorials
-   
-   tutorials
-   
-   
 
 
 Indices and tables

@@ -1,7 +1,8 @@
-.. _module_trajectory:
+.. _nearl.io.trajloader:
+
 
 Trajectory
-----------
+==========
 Define the ways to represent a trajectory.
 
 .. automodule:: nearl.io.traj
