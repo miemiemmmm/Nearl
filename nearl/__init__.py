@@ -128,10 +128,9 @@ def draw_call_stack():
   printit(f"{'End Drawing Calling Stack':=^100s}")
 
 
-# from nearl import io, features, models, utils, data
-from . import features, featurizer, io
-# from . import commands
-
-
-
+# from nearl import io, features, models, utils, data, commands
+from . import features, featurizer, io, utils
+from .features import Feature
+from .featurizer import Featurizer
+from .io import Dataset, Trajectory, TrajectoryLoader
 

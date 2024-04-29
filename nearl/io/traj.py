@@ -1,4 +1,4 @@
-import os, tempfile
+import os
 
 import h5py
 import numpy as np
@@ -33,7 +33,6 @@ class Trajectory(pt.Trajectory):
     The per-atom index of the trajectory
   residues : np.ndarray
     The per-residue index of the trajectory
-
   
   Methods
   -------
@@ -46,19 +45,20 @@ class Trajectory(pt.Trajectory):
   write_frame()
     Save the trajectory to the file
   add_dummy_points()
-    Add additional points to a frame for visual inspection
+    Add additional points to a frame for visual inspection  
+
+  Notes
+  -----
+  Three types of trajectory initialization are supported:
+
+  1. File-based trajectory initialization (traj_src and pdb_src are strings)
+  2. Pytraj-based trajectory initialization (traj_src is pytraj.Trajectory)
+  3. Self-based trajectory initialization (traj_src is self)
 
   Examples
   --------
   >>> from nearl.io import Trajectory
   >>> traj = Trajectory("traj.nc", "top.pdb")
-
-  Notes
-  -----
-  Three types of trajectory initialization are supported:
-  1. File-based trajectory initialization (traj_src and pdb_src are strings)
-  2. Pytraj-based trajectory initialization (traj_src is pytraj.Trajectory)
-  3. Self-based trajectory initialization (traj_src is self)
   
   """
   def __init__(self, traj_src = None, pdb_src = None, **kwarg):
@@ -271,6 +271,7 @@ class MisatoTraj(Trajectory):
   Built-in implementation of the Misato HDF5 trajectory. 
 
   Original paper:
+
   Siebenmorgen, T., Menezes, F., Benassou, S., Merdivan, E., Kesselheim, S., Piraud, M., Theis, F.J., Sattler, M. and Popowicz, G.M., 2023. MISATO-Machine learning dataset of protein-ligand complexes for structure-based drug discovery. bioRxiv, pp.2023-05.
 
   Attributes
@@ -288,6 +289,7 @@ class MisatoTraj(Trajectory):
   Solvents and ions are stripped for the alignment of the coordinates with the topology. 
 
   This module uses relative path to the `misatodir` to retrieve the trajectory. The following files are required to load the trajectory:
+
   1. The topology file ({misatodir}/parameter_restart_files_MD/{pdbcode}/production.top.gz)
   2. The trajectory file ({misatodir}/MD.hdf5)
 
@@ -301,8 +303,7 @@ class MisatoTraj(Trajectory):
        ('1KTI', '/MieT5/DataSets/misato_database/')
       ]
   >>> trajloader = TrajectoryLoader(trajs, trajtype=MisatoTraj)
-  >>> for i in trajloader: 
-  >>> print(i.xyz.shape)
+  
 
   """
   def __init__(self, pdbcode, misatodir, **kwarg): 

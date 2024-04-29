@@ -1,17 +1,14 @@
 install: 
-		echo "Installing the package";
+	echo "Installing the package";
 
 
-test: 
-		cd logs;
-		ls -l;
-		# logit "Checking the installed package and do some tests";
-		python -c "import nearl; print(nearl.__version__)";
-		python -c "from nearl import tests; ";
+dotest: 
+	python3 -c "import nearl; print(nearl.__version__)"
+	pytest nearl/tests
 
 compilepdf: 
-		echo "sudo docker run --rm \
-		--volume ${PWD}:/data \
-		--user $(id -u):$(id -g) \
-		--env JOURNAL=joss \
-		openjournals/inara";
+	cd docs && docker run --rm --volume ./:/data --env JOURNAL=joss openjournals/inara
+
+compilehtml: 
+	cd docs && make html
+# sudo docker run --rm --volume ${PWD}:/data --user $(id -u):$(id -g) --env JOURNAL=joss openjournals/inara

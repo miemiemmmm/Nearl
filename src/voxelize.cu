@@ -3,8 +3,8 @@
 
 #include "gpuutils.cuh"
 #include "cpuutils.h"
+#include "voxelize.cuh"
 
-#define DEFAULT_COORD_PLACEHOLDER 99999.0f
 
 // TODO : Simplify this module. 
 
