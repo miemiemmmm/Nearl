@@ -1,12 +1,10 @@
-import tempfile, time
+import time
 
 import numpy as np
 from tqdm import tqdm
 
 from . import utils, constants
 from . import printit, config
-
-# from memory_profiler import profile
 
 __all__ = [
   "Featurizer",
@@ -18,10 +16,11 @@ def wrapper_runner(func, args):
 
   Parameters
   ----------
-  func: function
+  func : function
     The function to be run
-  args: list
+  args : list
     The arguments for the function
+  
   """
   return func(*args)  
 
@@ -29,22 +28,75 @@ def wrapper_runner(func, args):
 class Featurizer:
   """
   Featurizer aims to automate the process of featurization of multiple Features for a batch of structures or trajectories
+
+  Parameters
+  ----------
+  parms : dict
+    A dictionary of parameters for the featurizer
+  **kwargs : dict
+    A dictionary of parameters for the featurizer
+  
+    
+  Attributes
+  ----------
+  dims : np.ndarray, default = [32, 32, 32]
+    The dimensions of the 3D grid
+  lengths : np.ndarray, default = [16, 16, 16]
+    The lengths of the 3D grid
+  spacing : float, default = 0.5
+    The spacing of the 3D grid
+  time_window : int, default = 1
+    The time window for the trajectory (default is 1), Simple integer.
+
+  traj : :class:`nearl.Trajectory <nearl.io.traj.Trajectory>` or pytraj.Trajectory
+    The trajectory to be processed
+  FRAMENUMBER : int
+    The number of frames in the trajectory to be processed
+  FRAMESLICENUMBER : int
+    The number of slices of frames in the trajectory
+  FRAMESLICES : list
+    A list of slices of frames in the trajectory to be processed
+
+  TRAJLOADER : nearl.io.trajloader.TrajectoryLoader
+    A trajectory iterator for the featurizer
+  TRAJECTORYNUMBER : int
+    The number of trajectories to be processed
+
+  FEATURESPACE : list
+    A list of features to be processed
+  FEATURENUMBER : int
+    The number of features to be processed
+
+  FOCALPOINTS_PROTOTYPE
+    The prototype of the focal points
+  FOCALPOINTS : np.ndarray
+    The focal points to be processed
+  FOCALNUMBER : int
+    The number of focal points for each frame slice
+
+  Notes
+  -----
+
+  .. note::
+
+    Required parameters:
+
+    - **dimensions**: the dimensions of the 3D grid
+    - lengths: the lengths of the 3D grid (optinal)
+    - spacing: the spacing of the 3D grid (optinal)
+    - time_window: the time window for the trajectory (default is 1), Simple integer.
+    
+    The following are optional parameters for features. 
+    If the initialization of the feature did not explicit define the following parameters, the following parameters will be inherited from the featurizer: 
+
+    - outfile: The output file to dump the parameters and the results
+    - sigma: The smoothness of the Gaussian-based feature distribution
+    - cutoff: The cutoff distance for the grid-based feature calculation
+
   """
   def __init__(self, parms={}, **kwargs):
     """
     Initialize the featurizer with the given parameters
-    Parameters
-    ----------
-    parms: dict
-      A dictionary of parameters for the featurizer
-
-    Notes
-    -----
-    Required parameters:
-    - dimensions: the dimensions of the 3D grid
-    - lengths: the lengths of the 3D grid (optinal)
-    - spacing: the spacing of the 3D grid (optinal)
-
     """
     # Check the essential parameters for the featurizer
     assert "dimensions" in parms, "Please define the 'dimensions' in the parameter set"
@@ -109,6 +161,10 @@ class Featurizer:
     if "outfile" in parms.keys():
       # Dump the parm dict to that hdf file
       tmpdict = {**parms, **kwargs}
+      {'dimensions': 10, 'lengths': 16, 'time_window': 10, 'sigma': 1.5, 'cutoff': 2.55, 'outfile': '/tmp/test.h5', 'progressbar': True}
+      tmpdict["dimensions"] = [int(i) for i in self.dims]
+      tmpdict["lengths"] = [float(i) for i in self.lengths]
+      print(tmpdict) # TODO
       utils.dump_dict(parms["outfile"], "featurizer_parms", tmpdict)
 
   def __str__(self):
@@ -157,6 +213,9 @@ class Featurizer:
 
   @property
   def spacing(self):
+    """
+    The spacing between grid points, could also be understood as the **resolution** of the 3D grid
+    """
     return self.__spacing  
   
   @property
@@ -173,7 +232,7 @@ class Featurizer:
     self._traj = the_traj
     self.FRAMENUMBER = the_traj.n_frames
     self.SLICENUMBER = self.FRAMENUMBER // self.time_window
-    if self.FRAMENUMBER % self.time_window != 0:
+    if self.FRAMENUMBER % self.time_window != 0 and self.FRAMENUMBER != 1:
       printit(f"{self.__class__.__name__} Warning: the number of frames ({self.FRAMENUMBER}) is not divisible by the time window ({self.time_window}). The last few frames will be ignored.")
     printit(f"{self.__class__.__name__}: Registered {self.SLICENUMBER} slices of frames with {self.time_window} as the time window (frames-per-slice).")
     frame_array = np.array([0] + np.cumsum([self.time_window] * self.SLICENUMBER).tolist())
@@ -189,7 +248,7 @@ class Featurizer:
     
     Parameters
     ----------
-    feature: nearl.features.Feature
+    feature : nearl.features.Feature
       A feature object
     """
     feature.hook(self)  # Hook the featurizer to the feature
@@ -202,7 +261,7 @@ class Featurizer:
 
     Parameters
     ----------
-    features: list_like or dict_like 
+    features : list_like or dict_like 
       A list or dictionary like object of a set of features (nearl.features.Feature) 
     """
     if isinstance(features, (list, tuple)):
@@ -220,8 +279,9 @@ class Featurizer:
 
     Parameters
     ----------
-    trajloader: nearl.io.TrajectoryLoader
+    trajloader : :class:`nearl.io.trajloader.TrajectoryLoader`
       A trajectory iterator
+    
     """
     self.TRAJLOADER = trajloader
     self.TRAJECTORYNUMBER = len(trajloader)
@@ -234,17 +294,20 @@ class Featurizer:
 
     Parameters
     ----------
-    focus: 
+    focus : list_like
       The focal points to process
-    format: string
+    format : str
       The format of the focal points
 
     Notes
     -----
-    Formats includes:
-    - "mask": provide a selection of atoms (Amber's selection convention)
-    - "absolute": provide a list of 3D coordinates
-    - "index": provide a list of atom indexes (int)
+    .. note::
+
+      Definition of focus follows the following formats:
+
+      - "mask": provide a selection of atoms (Amber's selection convention)
+      - "absolute": provide a list of 3D coordinates
+      - "index": provide a list of atom indexes (int)
 
     Focal points are applied to each slice of the trajectory
 
@@ -318,8 +381,10 @@ class Featurizer:
     else:
       raise ValueError(f"Unexpected focus format: {self.FOCALPOINTS_TYPE}")
 
-  # @profile
   def main_loop(self, process_nr=20): 
+    """
+
+    """
     for tid in range(self.TRAJECTORYNUMBER):
       # Setup the trajectory and its related parameters such as slicing of the trajectory
       self.traj = self.TRAJLOADER[tid]
@@ -391,7 +456,9 @@ class Featurizer:
       printit(f"{self.__class__.__name__}: {msg:^^80}\n")
     printit(f"{self.__class__.__name__}: All trajectories and tasks are finished")
 
-  def loop_by_residue(self, process_nr=20, restype="single"): 
+  def loop_by_residue(self, restype, process_nr=20, tag_limit=0): 
+    """
+    """
     for tid in range(self.TRAJECTORYNUMBER):
       # Setup the trajectory and its related parameters such as slicing of the trajectory
       self.traj = self.TRAJLOADER[tid]
@@ -407,10 +474,16 @@ class Featurizer:
       for bid in range(self.SLICENUMBER): 
         frames = self.traj.xyz[self.FRAMESLICES[bid]]
         if restype == "single":  
-          for label, single_resname in constants.LAB2RES.items(): 
+          for single_resname in (constants.RES + [i for i in constants.RES_PATCH.keys()]): 
+            if single_resname in constants.RES_PATCH.keys():
+              label = constants.RES2LAB[constants.RES_PATCH[single_resname]]
+            else: 
+              label = constants.RES2LAB[single_resname]
             # Find all of the residue block in the sequence and iterate them 
             slices = utils.find_block_single(self.traj, single_resname) 
-            for s_ in slices:
+            for sidx, s_ in enumerate(slices):
+              if tag_limit > 0 and sidx >= tag_limit:
+                break
               sliced_top = self.traj.top[s_]
               sliced_coord = frames[:, s_, :] 
               focal_point = np.mean(sliced_coord[0], axis=0)
@@ -420,20 +493,32 @@ class Featurizer:
                 feature_map.append((tid, bid, fidx, label))
 
         elif restype == "dual":
-          for label, dual_resname in constants.LAB2RES_DUAL.items(): 
-            # Find the residue block in the sequence.
-            slices = utils.find_block_dual(self.traj, dual_resname)
-            for s_ in slices:
-              sliced_top = self.traj.top[s_]
-              sliced_coord = frames[:, s_, :] 
-              focal_point = np.mean(sliced_coord[0], axis=0)
-              for fidx in range(self.FEATURENUMBER):
-                queried = self.FEATURESPACE[fidx].query(sliced_top, sliced_coord.copy(), focal_point)
-                tasks.append([self.FEATURESPACE[fidx].run, queried])
-                feature_map.append((tid, bid, fidx, label))
-
-      printit(f"{self.__class__.__name__}: Task set containing {len(tasks)} tasks are created for the trajectory {tid}; ")
+          # for label, dual_resname in constants.LAB2RES_DUAL.items(): 
+          for res1 in (constants.RES + [i for i in constants.RES_PATCH.keys()]): 
+            for res2 in (constants.RES + [i for i in constants.RES_PATCH.keys()]): 
+              tmp_key = ""
+              if res1 in constants.RES_PATCH.keys():
+                tmp_key += constants.RES_PATCH[res1]
+              else:
+                tmp_key += res1
+              if res2 in constants.RES_PATCH.keys():
+                tmp_key += constants.RES_PATCH[res2]
+              else:
+                tmp_key += res2
+              label = constants.RES2LAB_DUAL.get(tmp_key, "Unknown")
+              dual_resname = res1 + res2
+              # Find the residue block in the sequence.
+              slices = utils.find_block_dual(self.traj, dual_resname)
+              for s_ in slices:
+                sliced_top = self.traj.top[s_]
+                sliced_coord = frames[:, s_, :] 
+                focal_point = np.mean(sliced_coord[0], axis=0)
+                for fidx in range(self.FEATURENUMBER):
+                  queried = self.FEATURESPACE[fidx].query(sliced_top, sliced_coord.copy(), focal_point)
+                  tasks.append([self.FEATURESPACE[fidx].run, queried])
+                  feature_map.append((tid, bid, fidx, label))
       
+      printit(f"{self.__class__.__name__}: Task set containing {len(tasks)} tasks are created for the trajectory {tid}; ")
       ######################################################
       # TODO: Find a proper way to parallelize the CUDA function. 
       if self.OTHER_PARMS.get("progressbar", False):

@@ -292,6 +292,12 @@ class MisatoTraj(Trajectory):
 
   1. The topology file ({misatodir}/parameter_restart_files_MD/{pdbcode}/production.top.gz)
   2. The trajectory file ({misatodir}/MD.hdf5)
+  
+
+  .. tip::
+    Since there is no explicit annotation for the ligand part, we use a ligand indices map to 
+    extract the ligand part of the protein. 
+
 
   Examples
   --------

@@ -630,7 +630,7 @@ def find_block_dual(traj, key):
           atomc = top_res1.select("@C")
           atomn = top_res2.select("@N")
           
-          if (previous_res.name not in constants.RES) or (this_res.name not in constants.RES):
+          if (previous_res.name not in constants.RES+[i for i in constants.RES_PATCH.keys()]) or (this_res.name not in constants.RES+[i for i in constants.RES_PATCH.keys()]):
             print(f"Residue pair {previous_res.name}-{this_res.name} is not supported yet", file=sys.stderr)
             previous_res = this_res
             continue

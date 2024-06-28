@@ -12,13 +12,7 @@ authors = [
 # Reconsider dependencies when publishing the package
 # Ambertools and Openbabel should be installed separately
 dependencies = [
-    "numpy>=1.24",
-    "matplotlib>=3.7",
-    "pandas>=2.0",
-    "h5py>=3.9",
-    "open3d>=0.17",
-    "torch>=2.1",
-    "rdkit>=2022.3", 
+    "numpy==1.26",
 ]
 requires-python = ">=3.7"
 readme = "README.md"
@@ -27,5 +21,7 @@ license = {text = "MIT"}
 [tool.setuptools]
 include-package-data = true
 
-[project.scripts]
 
+[project.entry-points.console_scripts]
+nearl-view-slice = "nearl.visual:CLI_view_slice"
+nearl-view-voxel = "nearl.visual:CLI_view_voxel"

@@ -76,7 +76,7 @@ html_title = "Nearl Documentation"
 html_copy_source = True
 
 html_theme_options = {
-  "home_page_in_toc": True,
+  "home_page_in_toc": True, 
   "collapse_navbar": False,
   "show_navbar_depth": 4,
   "max_navbar_depth": 4,

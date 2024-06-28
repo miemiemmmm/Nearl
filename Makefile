@@ -1,5 +1,6 @@
 install: 
-	echo "Installing the package";
+	echo "Installing the package"
+	pip install --force-reinstall ./
 
 
 dotest: 

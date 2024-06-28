@@ -229,6 +229,14 @@ RES2LAB = {
   'SER' :   15, 'THR' :   16, 'TRP' :   17, 'TYR' :   18, 'VAL' :   19, 
 }
 
+#### Other mappings
+RES_PATCH = {
+  "CYX" : "CYS", 
+  "HID" : "HIS", "HIE" : "HIS", "HIP" : "HIS",
+  "HSD" : "HIS", "HSE" : "HIS", "HSP" : "HIS",
+}
+
+
 RES2LAB_DUAL = {
   'ALAALA' :    0, 'ALAARG' :    1, 'ALAASN' :    2, 'ALAASP' :    3, 'ALACYS' :    4, 'ALAGLU' :    5, 'ALAGLN' :    6, 'ALAGLY' :    7, 'ALAHIS' :    8, 'ALAILE' :    9, 
   'ALALEU' :   10, 'ALALYS' :   11, 'ALAMET' :   12, 'ALAPHE' :   13, 'ALAPRO' :   14, 'ALASER' :   15, 'ALATHR' :   16, 'ALATRP' :   17, 'ALATYR' :   18, 'ALAVAL' :   19, 

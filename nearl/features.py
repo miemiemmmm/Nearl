@@ -32,6 +32,7 @@ __all__ = [
 
 
   # Dynamic features
+  "DynamicFeature",
   "DensityFlow",
   "MarchingObservers",
 
@@ -44,7 +45,10 @@ __all__ = [
   
 
   # Other features
-  "VectorizerViewpoint", 
+  # "VectorizerViewpoint", 
+
+  # Function to get properties for dynamic features
+  "cache_properties", 
   
 ]
 
@@ -312,7 +316,7 @@ class Feature:
       The featurizer object describing the feature generation process
 
     Notes
-    --------
+    -----
     If the following attributes are not set manually, hook function will try to inherit them from the featurizer object: 
     sigma, cutoff, outfile, outkey, padding, byres
     """
@@ -340,7 +344,7 @@ class Feature:
     atoms = [i for i in trajectory.top.atoms]
     self.resids = np.array([i.resid for i in atoms], dtype=int)
     self.atomic_numbers = np.array([i.atomic_number for i in atoms], dtype=int)
-    if self.selection == None:
+    if self.selection is None:
       # If the selection is not set, select all the atoms
       self.selected = np.full(len(self.atomic_numbers), True, dtype=bool)
     elif isinstance(self.selection, str):
@@ -413,7 +417,7 @@ class Feature:
         final_mask[np.where(self.resids == res)] = True
     else: 
       final_mask = mask
-    if self.selection != None:
+    if self.selection is not None:
       final_mask = final_mask * self.selected
     return final_mask
 
@@ -632,6 +636,9 @@ class Ring(Feature):
 
 
 class Selection(Feature):
+  """
+
+  """
   def __init__(self, default_value=1, **kwargs):
     if "selection" not in kwargs.keys():
       raise ValueError(f"{self.__class__.__name__}: The selection parameter should be set")
@@ -651,6 +658,9 @@ class Selection(Feature):
   
 
 class HBondDonor(Feature):
+  """
+
+  """
   def __init__(self, **kwargs):
     super().__init__(**kwargs)
 
@@ -674,6 +684,9 @@ class HBondDonor(Feature):
 
 
 class HBondAcceptor(Feature):
+  """
+
+  """
   def __init__(self, **kwargs):
     super().__init__(**kwargs)
 
@@ -697,6 +710,9 @@ class HBondAcceptor(Feature):
 
 
 class Hybridization(Feature):
+  """
+
+  """
   def __init__(self, **kwargs):
     super().__init__(**kwargs)
 
@@ -720,6 +736,9 @@ class Hybridization(Feature):
 
 
 class Backbone(Feature):
+  """
+
+  """
   def __init__(self, reverse=False, **kwargs):
     super().__init__(**kwargs)
     self.reverse = reverse
@@ -742,6 +761,9 @@ class Backbone(Feature):
   
 
 class AtomType(Feature):
+  """
+
+  """
   def __init__(self, focus_element, **kwargs):
     super().__init__(**kwargs)
     self.focus_element = int(focus_element)
@@ -948,31 +970,59 @@ class Hydrophobicity(Feature):
 ###############################################################################
 def cache_properties(trajectory, property_type, **kwargs): 
   """
-  Cache the required atomic properties for the trajectory. 
+  Cache the required atomic properties for the trajectory (called in the :func:`nearl.features.DynamicFeature.cache`). 
   Re-implement the previously cached properties in the Feature classes
+  
+  Notes
+  -----
+  .. note::
 
-  Direct count-based weights:
-    - atomic_id (int type) 
-    - residue_id (int type)
+    **Direct count-based weights**:
 
-  Atom properties-based weights:
-    - atomic_number (int type)
-    - hybridization (int type)
+    +------------------------+------------------+
+    | Property Name          | Property Type    |
+    +========================+==================+
+    | atomic_id              | int              |
+    +------------------------+------------------+
+    | residue_id             | int              |
+    +------------------------+------------------+
 
-    - mass (float type) 
-    - radius (float type)
-    - electronegativity (float type)
-    - hydrophobicity (float type)
-    - partial_charge (float type)
-    
-    - heavy_atom (boolean type)
-    - aromaticity (boolean type)
-    - ring (boolean type)
-    - hbond_donor (boolean type)
-    - hbond_acceptor (boolean type)
-    - sidechainness (boolean type)
-    - backboneness (boolean type)
-    - atom_type (boolean type)
+    **Atom properties-based weights**:
+
+    +------------------------+------------------+
+    | Property Name          | Property Type    |
+    +========================+==================+
+    | atomic_number          | int              |
+    +------------------------+------------------+
+    | hybridization          | int              |
+    +------------------------+------------------+
+    | mass                   | float            |
+    +------------------------+------------------+
+    | radius                 | float            |
+    +------------------------+------------------+
+    | electronegativity      | float            |
+    +------------------------+------------------+
+    | hydrophobicity         | float            |
+    +------------------------+------------------+
+    | partial_charge         | float            |
+    +------------------------+------------------+
+    | heavy_atom             | boolean          |
+    +------------------------+------------------+
+    | aromaticity            | boolean          |
+    +------------------------+------------------+
+    | ring                   | boolean          |
+    +------------------------+------------------+
+    | hbond_donor            | boolean          |
+    +------------------------+------------------+
+    | hbond_acceptor         | boolean          |
+    +------------------------+------------------+
+    | sidechainness          | boolean          |
+    +------------------------+------------------+
+    | backboneness           | boolean          |
+    +------------------------+------------------+
+    | atom_type              | boolean          |
+    +------------------------+------------------+
+  
   """
   
   atoms = [i for i in trajectory.top.atoms]
@@ -1069,6 +1119,33 @@ def cache_properties(trajectory, property_type, **kwargs):
 
 
 class DynamicFeature(Feature):
+  """
+  Visit this function :func:`nearl.features.cache_properties` to get the available properties for the dynamic features.
+
+  Parameters
+  ----------
+  weight_type : str, default="mass"
+    The weight type for the dynamic feature. Check :func:`nearl.features.cache_properties` for the available weight types
+  agg : str, default="mean"
+    The aggregation function for the dynamic feature. 
+
+  Notes
+  -----
+
+  .. note::
+
+    Aggregation types: 
+
+    - mean 1 
+    - standard_deviation 2 
+    - median 3
+    - variance 4
+    - max 5
+    - min 6
+    - information_entropy 7
+    
+  """
+
   def __init__(self, agg="mean", weight_type="mass", **kwargs):
     super().__init__(**kwargs)
     self._agg_type = agg
@@ -1087,14 +1164,7 @@ class DynamicFeature(Feature):
   @property
   def agg(self):
     """
-    Accepted aggregation functions for the dynamic feature: 
-    - mean 1 
-    - standard_deviation 2 
-    - median 3
-    - variance 4
-    - max 5
-    - min 6
-    - information_entropy 7
+    Accepted aggregation functions for the dynamic feature:     
     """
     if self._agg_type in SUPPORTED_AGGREGATION.keys():
       return SUPPORTED_AGGREGATION[self._agg_type]
@@ -1137,11 +1207,12 @@ class DynamicFeature(Feature):
 
     Notes
     -----
-    - MAX_ALLOWED_ATOMS: Depends on the GPU cache size for each thread
 
+    - MAX_ALLOWED_ATOMS: Depends on the GPU cache size for each thread
     - DEFAULT_COORD: The coordinates for padding of atoms in the box across required frames. Also hard coded in GPU code. 
 
     The return weight array should be flattened to a 1D array
+
     """
     assert len(frame_coords.shape) == 3, f"Warning from feature ({self.__str__()}): The coordinates should follow the convention (frames, atoms, 3); "
     MAX_ALLOWED_ATOMS = 1000 
@@ -1182,22 +1253,23 @@ class DynamicFeature(Feature):
 
 class DensityFlow(DynamicFeature):
   """
-  Dynamic feature: Density flow,
+  Dynamic feature: Density flow algorithm
+  
+  Notes
+  -----
+  .. note::
 
-  Aggregation type: mean, std, sum
+    For weight types, please refer to the :func:`nearl.features.cache_properties` function.
 
-  Weight type:
-    Direct count-based weights: 
-      uniform, atomid
-
-    Atom properties-based weights:
-      mass, radius, residue_id, sidechainness
+    For aggregation types, please refer to the :class:`nearl.features.DynamicFeature` .
 
   """
   def __init__(self, **kwargs):
     super().__init__(**kwargs) 
 
   def query(self, topology, frame_coords, focal_point):
+    """
+    """
     ret_coord, ret_weight = super().query(topology, frame_coords, focal_point)
     return ret_coord, ret_weight
 
@@ -1222,31 +1294,29 @@ class MarchingObservers(DynamicFeature):
 
   Inherit from the DynamicFeature class since there are common ways to query the coordinates and weights. 
 
-  Observation types: 
-    Direct Count-based Observables
-      - existence 1
-      - direct_count 2
-      - distinct_count 3
-    
-    Weight-based Observables
-      - mean_distance 11
-      - cumulative_weight 12
-      - density  13
-      - dispersion  14
-      - eccentricity  15
-      - radius_of_gyration  16
+  Notes
+  -----
+  .. note::
 
-  Weight types: 
-    mass, radius, residue_id, sidechainness, uniform
+    Observation types: 
+      Direct Count-based Observables
 
-  Aggregation type: 
-    - mean 1 
-    - standard_deviation 2 
-    - median 3
-    - variance 4
-    - max 5
-    - min 6
-    - information_entropy 7
+        - existence 1
+        - direct_count 2
+        - distinct_count 3
+      
+      Weight-based Observables
+
+        - mean_distance 11
+        - cumulative_weight 12
+        - density  13
+        - dispersion  14
+        - eccentricity  15
+        - radius_of_gyration  16
+
+    For weight types, please refer to the :func:`nearl.features.cache_properties` function.
+
+    For aggregation types, please refer to the :class:`nearl.features.DynamicFeature` .
   
   """
   def __init__(self, obs="particle_existance", **kwargs): 
@@ -1259,6 +1329,9 @@ class MarchingObservers(DynamicFeature):
     return f"{self.__class__.__name__} <obs:{self._obs_type}|type:{self._weight_type}|agg:{self._agg_type}>"
   @property
   def obs(self):
+    """
+    The observation type for the marching observers algorithm
+    """
     if self._obs_type in SUPPORTED_OBSERVATION.keys():
       return SUPPORTED_OBSERVATION[self._obs_type]
     else:
@@ -1275,6 +1348,7 @@ class MarchingObservers(DynamicFeature):
     Notes
     -----
     Use the same method to query the coordinates and weights as the parent class
+
     """
     ret_coord, ret_weight = super().query(topology, coordinates, focus)
     return ret_coord, ret_weight
@@ -1308,41 +1382,77 @@ class MarchingObservers(DynamicFeature):
 # Label-Tyep Features
 ###############################################################################
 class LabelIdentity(Feature):
+  """
+  Return the identity attribute of the trajectory as meta-data.
+
+  Notes
+  -----
+  .. note:: 
+
+    In default Trajectory type, the identity is the file name
+
+    In MisatoTraj Trajectory type, the identity is the PDB code
+  
+  """
   def __init__(self, **kwargs):
     super().__init__(**kwargs)
 
   def cache(self, trajectory):
     """
-    Cache the trajectory identity for the feature. 
+    Cache the trajectory identity for the feature query. 
 
-    Notes
-    -----
-    In MisatoTraj type, the identity is the pdbcode
-
-    In Normal Trajectory type, the identity is the filename
     """
     super().cache(trajectory)
     self.identity = trajectory.identity
 
   def query(self, *args):
+    """
+    Return the identity of the trajectory and there is no dependency on the frame slices. 
+
+    """
     return self.identity
 
 
 class LabelAffinity(Feature):
   """
   Read the PDBBind table and return the affinity values according to the pdbcode (identity from the trajectory) 
+
+  Parameters
+  ----------
+  baseline_map : str
+    The path to the baseline map for the affinity values
+  **kwargs : dict
+    The additional arguments for the parent class :class:`nearl.features.Feature`
+  
+  Attributes
+  ----------
+  baseline_table : pd.DataFrame
+    The baseline table for the affinity values. 
+  base_value : float
+    The base value for the affinity values, searched in the :func:`cache <nearl.features.LabelAffinity.cache>` and 
+    :func:`search_baseline <nearl.features.LabelAffinity.search_baseline>` functions.
+
+  
   """
   def __init__(self, baseline_map, **kwargs):
-    """
-    Since there is no explicit annotation for the ligand part, we use a ligand indices map to 
-    extract the ligand part of the protein.
-    """
     import pandas as pd
     super().__init__(outshape=(None,), **kwargs)
     self.baseline_table = pd.read_csv(baseline_map, header=0, delimiter=",")
     self.base_value = None
 
   def search_baseline(self, pdbcode):
+    """
+    Search the baseline value based on the PDB code. 
+
+    Notes
+    -----
+    .. tip::
+      The default implementation here is to read the csv from PDBBind dataset and search through the PDB code. 
+      Override this function to customize the search method for baseline affinity.
+
+      We recommend to use a map from the trajectory identity to the affinity values. 
+
+    """
     pdbcode = utils.get_pdbcode(pdbcode)
     if pdbcode.lower() in self.baseline_table["pdbcode"].values:
       return self.baseline_table.loc[self.baseline_table["pdbcode"] == pdbcode.lower()]["pK"].values[0]
@@ -1357,7 +1467,10 @@ class LabelAffinity(Feature):
 
     Notes
     -----
-    In this type, the super.cache() is not needed.
+    .. tip::
+      In this base type, it does not 
+      the super.cache() is not needed.
+
     """
     # IMPORTANT: Retrieve the base value based on the trajectory identity
     self.base_value = self.search_baseline(trajectory.identity)
@@ -1366,7 +1479,7 @@ class LabelAffinity(Feature):
 
   def query(self, *args):
     """
-    No frame slice specific query is needed.
+    Return the for the baseline affinity based on the :func:`nearl.io.traj.Trajectory.identity`. No extra trajectory information is needed. 
     """
     return (self.base_value, )
 
@@ -1427,21 +1540,13 @@ class LabelPCDT(LabelAffinity):
   ----------
   selection : str or list, tuple, np.ndarray
     The selection of the atoms for the PCDT calculation
-  selection_type : str
-    The selection type of the atoms for the PCDT calculation
-  base_value : float
-    The base value of the feature
-  outshape : tuple
-    The output shape of the feature array
-
-  Notes
-  -----
+  search_cutoff : float, default=None
+    The cutoff distance for limiting the outliers in the PCDT calculation
+  **kwargs : dict
+    The additional arguments for the parent class :class:`nearl.features.LabelAffinity`
   
   """
-  def __init__(self, 
-    selection=None, search_cutoff = None, 
-    **kwargs
-  ): 
+  def __init__(self, selection=None, search_cutoff = None, **kwargs): 
     # Initialize the self.base_value in the parent class
     super().__init__(**kwargs) 
     # Pairs of atoms for the PCDT calculation 
@@ -1487,6 +1592,11 @@ class LabelPCDT(LabelAffinity):
   def query(self, topology, frames, focus):
     """
     Compute the PCDT of the frame slice and return the final value based on the cached PCDT array
+
+    Notes
+    -----
+    This function applies a Z-score-based penalty to the original base pK value. 
+
     """
     tmptraj = pt.Trajectory(xyz=frames, top=topology)
     pdist_arr = utils.compute_pcdt(tmptraj, self.selected, self.selected_counterpart, ref=self.refframe, return_info=False)
@@ -1551,6 +1661,9 @@ class LabelResType(Feature):
     return (final_resname, )
 
   def run(self, resname):
+    """
+    Look up the residue name in the dictionary and return its label
+    """
     if self.restype == "single" and resname in constants.RES2LAB:
       retval = constants.RES2LAB[resname]
     elif self.restype == "single" and resname not in constants.RES2LAB:
