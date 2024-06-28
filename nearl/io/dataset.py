@@ -168,6 +168,7 @@ class Dataset:
     The keys of the features in the HDF5 file.
   benchmark : bool
     Whether to print the benchmarking information.
+
   """
   # TODO Check if the Label is not defined in the file
   def __init__(self, files, grid_dim, label_key="label", feature_keys=[], benchmark = False): 
@@ -215,11 +216,6 @@ class Dataset:
   def __len__(self):
     """
     Get the total number of entries in the dataset.
-
-    Returns
-    -------
-    int
-      The total number of entries in the dataset.
     """
     return self.total_entries
   
@@ -231,11 +227,6 @@ class Dataset:
     ----------
     index : int
       The global index of the entry.
-
-    Returns
-    -------
-    int
-      The internal position of the entry.
     """
     return self.position_map[index]
   
@@ -248,10 +239,6 @@ class Dataset:
     index : int
       The global index of the entry.
 
-    Returns
-    -------
-    str
-      The HDF file name.
     """
     return self.FILELIST[self.file_map[index]]
 
@@ -264,10 +251,6 @@ class Dataset:
     index : int
       The global index of the entry.
 
-    Returns
-    -------
-    tuple
-      The data and label of the entry.
     """
     if index >= self.total_entries:
       raise IndexError(f"Index {index} is out of range. The dataset has {self.total_entries} entries.")
@@ -286,11 +269,6 @@ class Dataset:
     ----------
     index : int
       The global index of the entry.
-
-    Returns
-    -------
-    list
-      The tasks describing the location of the data and the label including the filename, the key, and the slice.
     
     """
     tasks = []
@@ -300,7 +278,8 @@ class Dataset:
     return tasks
   
 
-  def mini_batches(self, batch_nr=None, batch_size=None, shuffle=True, process_nr=24, augment=False, augment_translation=0, augment_add_noise=False, **kwargs):
+  def mini_batches(self, batch_nr=None, batch_size=None, shuffle=True, process_nr=24, 
+                   augment=False, augment_translation=0, augment_add_noise=False, **kwargs):
     """
     Built-in generator to iterate the dataset in mini-batches. 
 
@@ -341,40 +320,32 @@ class Dataset:
   
     if config.verbose() or self.BENCHMARK or config.debug():
       printit(f"Iterating the dataset: {len(batches)} batches with batch size {batch_size}. Using {process_nr} processes.")
-
-    pool = mp.Pool(process_nr)
     
     taskset_size = self.channel_nr+1
     st = time.perf_counter()
-    for batch_idx, batch in enumerate(batches): 
-      data = torch.zeros([len(batch), self.channel_nr] + self.size.tolist(), dtype=torch.float32)
-      label = torch.zeros([len(batch), 1], dtype=torch.float32)
-      
-      taskset = []
-      for i in batch:
-        taskset += self.mini_batch_task(i)
-      results = pool.starmap(readdata, taskset)
-      
-      for i in range(len(batch)):
-        for j in range(self.channel_nr):
-          data[i, j] = torch.from_numpy(results[i*taskset_size+j])
-        _label = np.array([results[i*taskset_size+self.channel_nr]])
-        label[i] = torch.from_numpy(_label)
-      
-      if self.BENCHMARK:
-        mps = (time.perf_counter() - st)/len(batch) * 1000
-        sps = len(batch)/(time.perf_counter()-st)
-        time_remaining = (len(batches) - batch_idx) * (time.perf_counter() - st)
-        printit(f"Batch {batch_idx:4d} ({batch_size} entries): MPS: {mps:8.2f}; SPS: {int(sps):6d}; Time left: {time_remaining:8.2f} seconds")
+    with mp.Pool(process_nr) as pool:
+      for batch_idx, batch in enumerate(batches): 
+        data = torch.zeros([len(batch), self.channel_nr] + self.size.tolist(), dtype=torch.float32)
+        label = torch.zeros([len(batch), 1], dtype=torch.float32)
+        
+        taskset = []
+        for i in batch:
+          taskset += self.mini_batch_task(i)
+        results = pool.starmap(readdata, taskset)
+        
+        for i in range(len(batch)):
+          for j in range(self.channel_nr):
+            data[i, j] = torch.from_numpy(results[i*taskset_size+j])
+          _label = np.array([results[i*taskset_size+self.channel_nr]])
+          label[i] = torch.from_numpy(_label)
+        
+        if self.BENCHMARK:
+          mps = (time.perf_counter() - st)/len(batch) * 1000
+          sps = len(batch)/(time.perf_counter()-st)
+          time_remaining = (len(batches) - batch_idx) * (time.perf_counter() - st)
+          printit(f"Batch {batch_idx:4d} ({batch_size} entries): MPS: {mps:8.2f}; SPS: {int(sps):6d}; Time left: {time_remaining:8.2f} seconds")
 
-      # if augment: 
-      #   data = data_augment(data, translation_factor=augment_translation, add_noise=augment_add_noise)
-      st = time.perf_counter()
-      yield data, label
-
-
-# dataset = dataloader(files, 32, 
-#   feature_keys=["mass", "mass_distinct_count", "partial_charge_negative", "partial_charge_negative"], 
-#   label_key="label", 
-#   benchmark=True
-# )
+        # if augment: 
+        #   data = data_augment(data, translation_factor=augment_translation, add_noise=augment_add_noise)
+        st = time.perf_counter()
+        yield data, label

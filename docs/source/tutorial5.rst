@@ -18,6 +18,3 @@ The following code snippet shows how to train a model using the pre-defined mode
 
 
 
-
-
-

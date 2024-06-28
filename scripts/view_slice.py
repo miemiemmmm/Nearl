@@ -1,3 +1,7 @@
+"""
+
+"""
+
 import os, time, random, argparse
 
 import numpy as np
@@ -94,6 +98,7 @@ def get_geo_slices(voxel, slices:dict, cmap="inferno", scale_factor=[1,1,1]) -> 
   dims = np.asarray(voxel.shape)
   vmax = np.max(voxel)
   ret = []
+  pixel_size = 1 * scale_factor[0] - 0.05
   for key in slices.keys():
     if key not in ["x", "y", "z"]:
       raise ValueError(f"Invalid key {key} for the slice")
@@ -107,7 +112,7 @@ def get_geo_slices(voxel, slices:dict, cmap="inferno", scale_factor=[1,1,1]) -> 
     if key == "x": 
       for y in range(dims[1]):
         for z in range(dims[2]):
-          box = o3d.geometry.TriangleMesh.create_box(width=0.001, height=0.45, depth=0.45)
+          box = o3d.geometry.TriangleMesh.create_box(width=0.001, height=pixel_size, depth=pixel_size)
           box.translate(np.asarray([slices[key] * scale_factor[0], y * scale_factor[1], z * scale_factor[2]], dtype=np.float64))
           color = cmap(theslice[y,z]/vmax)[:3]
           # box.compute_vertex_normals()
@@ -116,7 +121,7 @@ def get_geo_slices(voxel, slices:dict, cmap="inferno", scale_factor=[1,1,1]) -> 
     elif key == "y":
       for x in range(dims[0]):
         for z in range(dims[2]):
-          box = o3d.geometry.TriangleMesh.create_box(width=0.45, height=0.001, depth=0.45)
+          box = o3d.geometry.TriangleMesh.create_box(width=pixel_size, height=0.001, depth=pixel_size)
           box.translate(np.asarray([x * scale_factor[0], slices[key] * scale_factor[1], z * scale_factor[2]], dtype=np.float64))
           color = cmap(theslice[x,z]/vmax)[:3]
           # box.compute_vertex_normals()
@@ -125,7 +130,7 @@ def get_geo_slices(voxel, slices:dict, cmap="inferno", scale_factor=[1,1,1]) -> 
     else:
       for x in range(dims[0]):
         for y in range(dims[1]):
-          box = o3d.geometry.TriangleMesh.create_box(width=0.45, height=0.45, depth=0.001)
+          box = o3d.geometry.TriangleMesh.create_box(width=pixel_size, height=pixel_size, depth=0.001)
           box.translate(np.asarray([x * scale_factor[0], y * scale_factor[1], slices[key] * scale_factor[2]], dtype=np.float64))
           color = cmap(theslice[x,y]/vmax)[:3]
           # box.compute_vertex_normals()
@@ -176,11 +181,13 @@ def main_render(inputfile:str, index:int, args):
   st = time.perf_counter()
   with io.hdffile(inputfile, "r") as hdf:
     voxeli = hdf[args.tagname][index]
-    # dims = np.asarray(hdf["dimensions"])
-    dims = np.array([32, 32, 32])
-    # boxsize = np.asarray(hdf["boxsize"])
-    boxsize = np.array([16, 16, 16])
+    dims = np.array(hdf["featurizer_parms"]["dimensions"][:])
+    boxsize = np.array(hdf["featurizer_parms"]["lengths"][:])
+    x_slice = int(dims[0] / 2)
+    y_slice = int(dims[1] / 2)
+    z_slice = int(dims[2] / 2)
     scale_factor = boxsize / dims
+    print(f"Boxsize: {boxsize}, Dims: {dims}, Scale factor: {scale_factor}")
   print("Reading the coordinate")
   print(f"The scale factor is {scale_factor}")
   print(f"The sum of the voxel is {np.sum(voxeli):6.3f}: Max {np.max(voxeli):6.3f}, Min {np.min(voxeli):6.3f}")
@@ -193,7 +200,7 @@ def main_render(inputfile:str, index:int, args):
       traj = Trajectory(top=top, xyz=np.array([coordi]))
       coord_t = coordi 
       coord_cog = np.mean(coord_t, axis=0)
-      diff = coord_cog - np.asarray([8, 8, 8])
+      diff = coord_cog - boxsize / 2
       coord_t -= diff
       traj.xyz[0] = coord_t
       geoms_coord = view_obj.traj_to_o3d(traj)
@@ -203,11 +210,12 @@ def main_render(inputfile:str, index:int, args):
   print(f"Coodinate reading took {time.perf_counter() - st:6.2f}s")
   # Main rendering functions
   vis = o3d.visualization.Visualizer()
-  vis.create_window(window_name="HDF viewer", width=600, height=600)
+  vis.create_window(window_name="HDF viewer", width=1000, height=1000)
 
   # geoms_voxel = get_geo_voxeli(voxeli, cmap=args.cmap, percentile=args.percentile, hide=args.hide, scale_factor=scale_factor)
   geoms_voxel = get_geo_slices(voxeli, 
-                               slices={"y": 16, "z": 16}, 
+                              #  slices={"y": y_slice, "z": z_slice}, 
+                               slices={"z": z_slice}, 
                                cmap=args.cmap, scale_factor=scale_factor)
   for geo in geoms_voxel:
     vis.add_geometry(geo)

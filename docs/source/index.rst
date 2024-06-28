@@ -21,6 +21,7 @@ Welcome to Nearl's documentation!
    installation
    quick_start
    visualization
+   intro_dynfeat
 
 .. toctree::
    :maxdepth: 2
@@ -39,8 +40,8 @@ Welcome to Nearl's documentation!
    
    modules_features
    modules_featurizer
-   modules_trajloader
    modules_traj
+   modules_trajloader
    modules_commands
 
 

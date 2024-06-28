@@ -9,29 +9,47 @@ __all__ = [
 
 class TrajectoryLoader: 
   """
-  A class to load multiple trajectories for further processing
+  A class to systematically load trajectories for further processing in the pipeline. 
 
+  Parameters
+  ----------
+  trajs : str or list
+    A list of trajectories to be loaded
+  trajtype : trajectory_like
+    The trajectory type to be used while loading the trajectory
+  **kwarg : dict
+    The loading options (stride, frame_indices, mask)
+  
   Attributes
   ----------
   trajs : list
-    A list of trajectory arguments
-  trajtype : trajectory_like
+    A list of trajectories to be loaded
+  trajtype : trajectory_like, optional, default = :class:`nearl.io.traj.Trajectory`
     The trajectory type to be used while loading the trajectory
-  loading_options : dict
+  loading_options : dict, optional
     The loading options (stride, frame_indices, mask)
+    
+  Examples
+  --------
+  .. code-block:: python
+
+    import nearl
+    import nearl.data
+    trajs = [
+      nearl.data.MINI_TRAJ,
+      nearl.data.MINI_TRAJ,
+      nearl.data.MINI_TRAJ,
+      nearl.data.MINI_TRAJ,
+    ]
+    loader = nearl.TrajectoryLoader(trajs)
+    print(f"{len(loader)} trajectories detected")  # 4 trajectories detected
+    loader[3].visualize()  # Visualize the last trajectory
+    print(loader.loading_options)  # Print the loading options
+    for traj in loader:
+      print(traj)  # Print the trajectory information
 
   """
   def __init__(self, trajs = None, trajtype = None, **kwarg):
-    """
-    Systematically load trajectories for further processing
-
-    Parameters
-    ----------
-    trajs : str or list
-      Trajectory file names
-    trajtype: trajectory_like
-      The trajectory type to be used while loading the trajectory
-    """
     self.trajs = []
     if isinstance(trajs, (list, tuple)):
       for traj in trajs:
@@ -125,14 +143,15 @@ class TrajectoryLoader:
   
   def append(self, trajs = None, trajtype = None): 
     """
-    Append a trajectory or a list of trajectories to the trajectory loader
+    Append a trajectory or a list of trajectories to the trajectory loader. 
 
     Parameters
     ----------
     trajs : str or list
       Trajectory file names
-    trajtype: trajectory_like
+    trajtype : trajectory_like, optional, default = :class:`nearl.io.traj.Trajectory`
       The trajectory type to be used while loading the trajectory
+      
     """
     # determine how many trajectories will be appended
     traj_nr = len(trajs) if isinstance(trajs, (list, tuple)) else 0
@@ -141,6 +160,5 @@ class TrajectoryLoader:
     # Append to self.trajs, self.tops and self.OUTPUT_TYPE
     for i in range(traj_nr):
       self.trajs.append(trajs)
-      # self.tops.append(None)
       self.OUTPUT_TYPE.append(trajtype)
 
