@@ -541,12 +541,13 @@ def update_hdf_data(hdffile, dataset_name:str, data:np.ndarray, hdf_slice, **kwa
   """
   if isinstance(hdffile, str):
     with h5py.File(hdffile, "a") as hdf:
-      if dataset_name not in hdf.keys():
-        hdf.create_dataset(dataset_name, data=data, **kwargs)
-      else:
-        if hdf_slice.stop > hdf[dataset_name].shape[0]:
-          hdf[dataset_name].resize(hdf_slice.stop, axis=0)
-        hdf[dataset_name][hdf_slice] = data
+      update_hdf_data(hdf, dataset_name, data, hdf_slice, **kwargs)
+      # if dataset_name not in hdf.keys():
+      #   hdf.create_dataset(dataset_name, data=data, **kwargs)
+      # else:
+      #   if hdf_slice.stop > hdf[dataset_name].shape[0]:
+      #     hdf[dataset_name].resize(hdf_slice.stop, axis=0)
+      #   hdf[dataset_name][hdf_slice] = data
   elif isinstance(hdffile, h5py.File):
     if dataset_name not in hdffile.keys():
         hdffile.create_dataset(dataset_name, data=data, **kwargs)

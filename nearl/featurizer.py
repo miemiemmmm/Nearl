@@ -254,6 +254,9 @@ class Featurizer:
     feature.hook(self)  # Hook the featurizer to the feature
     self.FEATURESPACE.append(feature)
     self.FEATURENUMBER = len(self.FEATURESPACE)
+    output_keys = [i.outkey for i in self.FEATURESPACE]
+    if len(set(output_keys)) != len(output_keys): 
+      raise ValueError("The output keys for the features should be unique")
   
   def register_features(self, features):
     """
@@ -525,7 +528,7 @@ class Featurizer:
         results = [wrapper_runner(*task) for task in tqdm(tasks)]
       else:
         results = [wrapper_runner(*task) for task in tasks]
-      # results = [wrapper_runner(*task) for task in tqdm(tasks)] 
+      
       ######################################################
       # Run the actions in the process pool 
       # Not working
@@ -538,12 +541,22 @@ class Featurizer:
       # with dask.config.set(scheduler='processes', num_workers=process_nr):
       #   results = dask.compute(*[dask.delayed(wrapper_runner)(func, args) for func, args in tasks])
       ######################################################
+
       printit(f"{self.__class__.__name__}: Tasks are finished, dumping the results to the feature space...")
 
       # Dump to file for each feature
       for feat_meta, result in zip(feature_map, results):
         tid, bid, fidx, label = feat_meta
         self.FEATURESPACE[fidx].dump(result)
+      
+      if self.FEATURE_PARMS.get("outfile", None) is not None: 
+        # Dump the label to the file
+        labels = np.array([i[-1] for i in feature_map], dtype=int) 
+        if self.FEATURE_PARMS.get("hdf_compress_level", 0) > 0:
+          utils.append_hdf_data(self.FEATURE_PARMS["outfile"], "label", labels[:int(len(feature_map)/len(self.FEATURESPACE))], dtype=int, maxshape=(None, ), chunks=True, compress_level=self.FEATURE_PARMS.get("hdf_compress_level", 0))
+        else: 
+          utils.append_hdf_data(self.FEATURE_PARMS["outfile"], "label", labels[:int(len(feature_map)/len(self.FEATURESPACE))], dtype=int, maxshape=(None, ), chunks=True)
+      
       if config.verbose() or config.debug():
         printit(f"{self.__class__.__name__}: Finished the trajectory {tid} with {len(tasks)} tasks")
     printit("f{self.__class__.__name__}: All trajectories and tasks are finished")

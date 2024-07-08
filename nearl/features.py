@@ -177,9 +177,6 @@ class Feature:
   -----
   The input and the output of the query, run and dump function should be chained together.
   
-
-  
-  
   """
   # The input and the output of the query, run and dump function should be chained together.
   #   Key methods
@@ -209,7 +206,7 @@ class Feature:
     outfile=None, outkey=None,
     cutoff=None, sigma=None,
     padding=0, byres=None, 
-    outshape=None, force_recache=False,
+    outshape=None, force_recache=None,
     selection=None,
     **kwargs
   ):
@@ -223,27 +220,23 @@ class Feature:
     self.__center = None
     self.__lengths = None
 
-    # Simple variables, no need for setter callback, not all of them might be used in the feature definition
+    # General variables for featurization process 
     self.cutoff = cutoff
-    self._cutoff = False if cutoff is None else True
     self.sigma = sigma
-    self._sigma = False if sigma is None else True
     self.outfile = outfile
-    self._outfile = False if outfile is None else True
     self.padding = padding
-    self._padding = False if padding == 0 else True
     self.byres = byres
-    self._byres = False if byres is None else True
 
-    # Simple variables, no need for setter callback and hook to featurizer
-    self.outkey = outkey    # Has to be specific to the feature
-    self._outkey = False if outkey is None else True
-    self.outshape = outshape
-    self._outshape = False if outshape is None else True
-    self.force_recache = force_recache
-    self._force_recache = False if force_recache is False else True
+    # To be used in .query() function
     self.selection = selection
     self.selected = None
+    self.force_recache = False if force_recache is None else True
+    
+    # To be used in .dump() function
+    self.outkey = outkey        # Has to be specific to the feature
+    self.outshape = outshape 
+    self.hdf_compress_level = kwargs.get("hdf_compress_level", 0)
+    self.hdf_dump_opts = {}
 
   def __str__(self):
     ret_str = f"{self.__class__.__name__}"
@@ -323,15 +316,19 @@ class Feature:
     print("Hooking features: ", featurizer.dims, featurizer.spacing)
     self.dims = featurizer.dims
     self.spacing = featurizer.spacing
-    # TODO: Update this upon adding more variables to the feature
+    # Update this upon adding more variables to the feature
     for key in constants.COMMON_FEATURE_PARMS:
-      if getattr(self, f"_{key}") == False: 
-        # Try to inherit the attributes from the featurizer if the attribute is not manually set
+      if getattr(self, key, None) is None: 
+        # If the variable is not manually set, try to inherit the attributes from the featurizer
         if key in featurizer.FEATURE_PARMS.keys() and featurizer.FEATURE_PARMS[key] is not None:
           keyval = featurizer.FEATURE_PARMS[key]
           setattr(self, key, keyval)
           printit(f"{self.__class__.__name__}: Inheriting the sigma from the featurizer: {key} {keyval}")
-          
+    
+    if getattr(self, "hdf_compress_level", 0):
+      self.hdf_dump_opts["compression_opts"] = self.hdf_compress_level
+      self.hdf_dump_opts["compression"] = "gzip"
+    
 
   def cache(self, trajectory): 
     """
@@ -463,11 +460,15 @@ class Feature:
       The result feature array
     """
     if ("outfile" in dir(self)) and ("outkey" in dir(self)) and (len(self.outfile) > 0):
-      if self.outshape is not None or self._outshape != False: 
-        # Explicitly set the shape of the output
-        utils.append_hdf_data(self.outfile, self.outkey, np.array([result], dtype=np.float32), dtype=np.float32, maxshape=self.outshape, chunks=True, compression="gzip", compression_opts=4)
+      if self.outshape is not None: 
+        # Output shape is explicitly set (Usually heterogeneous data like coordinates)
+        utils.append_hdf_data(self.outfile, self.outkey, np.array([result], dtype=np.float32), dtype=np.float32, maxshape=self.outshape, chunks=True, compression="gzip", compression_opts=self.hdf_compress_level)
       elif len(self.dims) == 3: 
-        utils.append_hdf_data(self.outfile, self.outkey, np.array([result], dtype=np.float32), dtype=np.float32, maxshape=(None, *self.dims), chunks=True, compression="gzip", compression_opts=4)
+        # For homogeneous features, set the chunks to match their actual shape 
+        if self.hdf_compress_level == 0: 
+          utils.append_hdf_data(self.outfile, self.outkey, np.array([result], dtype=np.float32), dtype=np.float32, maxshape=(None, *self.dims), chunks=(1, *self.dims))
+        else: 
+          utils.append_hdf_data(self.outfile, self.outkey, np.array([result], dtype=np.float32), dtype=np.float32, maxshape=(None, *self.dims), chunks=(1, *self.dims), **self.hdf_dump_opts)
 
 
 class AtomicNumber(Feature):
@@ -1023,6 +1024,7 @@ def cache_properties(trajectory, property_type, **kwargs):
     | atom_type              | boolean          |
     +------------------------+------------------+
   
+    The **atom_type** needs the extra argument **element_type** (Atomic number of the element of interest). 
   """
   
   atoms = [i for i in trajectory.top.atoms]
@@ -1110,9 +1112,9 @@ def cache_properties(trajectory, property_type, **kwargs):
 
   elif property_type == 28:
     # Needs the focus_element to be set in the kwargs
-    if "focus_element" not in kwargs.keys():
+    if "element_type" not in kwargs.keys():
       raise ValueError("The focus element should be set for the atom type")
-    focus_element = kwargs["focus_element"]
+    focus_element = kwargs["element_type"]  
     cached_arr = np.array([1 if i == focus_element else 0 for i in atom_numbers], dtype=np.float32)
   
   return np.array(cached_arr, dtype=np.float32)

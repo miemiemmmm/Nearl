@@ -57,7 +57,7 @@ class FeatureLabel(features.Feature):
 
   def featurize(self):
     if self.FAIL_FLAG == True:
-      return -1;
+      return -1
     pdbcode = self.traj.top_filename;
     pdbcode = pdbcode.lower();
     if pdbcode in self.PDBCODES:
