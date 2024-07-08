@@ -19,38 +19,43 @@ class PafnucyNetwork(nn.Module):
 
 
   """
-  def __init__(self, 
-               input_channel_number, 
-               output_dimension, 
-               box_dim, 
-               conv_patch = 5, 
-               pool_patch = 2, 
+  def __init__(self, input_channels, output_dimension, input_shape, 
+               conv_patch = 5, pool_patch = 2, 
                conv_channels = [32, 64, 128],
                dense_sizes = [1024, 512, 256],
                drop_prob = 0.1):
     super(PafnucyNetwork, self).__init__()
-
+    self.n_classes = output_dimension
+    if isinstance(input_shape, int):
+      self.input_shape = (input_shape, input_shape, input_shape)
+    elif isinstance(input_shape, (tuple, list)):
+      self.input_shape = tuple([int(i) for i in input_shape][:3])
+    elif "__iter__" in dir(input_shape):
+      self.input_shape = tuple([int(i) for i in input_shape][:3])
+    else:
+      raise ValueError("input_shape should be a tuple or list of 3 integers")
+    
     conv_layers = OrderedDict()
     for i in range(len(conv_channels)):
       if i == 0:
-        conv_layers[f"conv{i+1}"] = nn.Conv3d(input_channel_number, conv_channels[i], kernel_size=conv_patch, padding=(conv_patch//2))
+        conv_layers[f"conv3d_{i}"] = nn.Conv3d(input_channels, conv_channels[i], kernel_size=conv_patch, padding=(conv_patch//2))
       else:
-        conv_layers[f"conv{i+1}"] = nn.Conv3d(conv_channels[i-1], conv_channels[i], kernel_size=conv_patch, padding=(conv_patch//2))
-      conv_layers[f"relu{i+1}"] = nn.ReLU(inplace=True)
-      conv_layers[f"pool{i+1}"] = nn.MaxPool3d(kernel_size=pool_patch, stride=pool_patch)
+        conv_layers[f"conv3d_{i}"] = nn.Conv3d(conv_channels[i-1], conv_channels[i], kernel_size=conv_patch, padding=(conv_patch//2))
+      conv_layers[f"relu_{i}"] = nn.ReLU(inplace=True)
+      conv_layers[f"pool_{i}"] = nn.MaxPool3d(kernel_size=pool_patch, stride=pool_patch)
     self.conv_blocks = nn.Sequential(conv_layers)
     
-    dummpy_out = self.conv_blocks(torch.rand(1, input_channel_number, box_dim, box_dim, box_dim))
-    conv_outsize = dummpy_out.flatten().size()[0]
+    dummpy_out = self.conv_blocks(torch.rand(1, input_channels, *self.input_shape))
+    size = dummpy_out.flatten().size()[0]
 
     fc_layers = OrderedDict()
     for i in range(len(dense_sizes)):
       if i == 0:
-        fc_layers[f"fc{i+1}"] = nn.Linear(conv_outsize, dense_sizes[i])
+        fc_layers[f"fc_{i}"] = nn.Linear(size, dense_sizes[i])
       else:
-        fc_layers[f"fc{i+1}"] = nn.Linear(dense_sizes[i-1], dense_sizes[i])
-      fc_layers[f"relu{i+1}"] = nn.ReLU(inplace=True)
-      fc_layers[f"dropout{i+1}"] = nn.Dropout(p=drop_prob)
+        fc_layers[f"fc_{i}"] = nn.Linear(dense_sizes[i-1], dense_sizes[i])
+      fc_layers[f"relu_{i}"] = nn.ReLU(inplace=True)
+      fc_layers[f"dropout_{i}"] = nn.Dropout(p=drop_prob)
     self.fc_layers = nn.Sequential(fc_layers)
     
     self.output_layer = nn.Linear(dense_sizes[-1], output_dimension)

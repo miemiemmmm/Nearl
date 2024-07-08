@@ -1,6 +1,3 @@
-# The following network models are implemented based on the 
-# https://github.com/gnina/models/tree/master/acs2018
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -8,27 +5,41 @@ from collections import OrderedDict
 
 
 class GninaNetwork2017(nn.Module):
-  def __init__(self, 
-    input_channel_number: int, 
-    output_dimension: int, 
-    box_shape: int,
-    conv = [32, 64, 128],
-  ):
+  """
+  Gnina network model for 2017.
+
+  Notes
+  -----
+  This code block is adopted from the following link: 
+  https://github.com/gnina/models/blob/master/acs2018/default2017.model
+
+  """
+  def __init__(self, input_channels: int, output_dimension: int, input_shape, conv = [32, 64, 128] ):
     super(GninaNetwork2017, self).__init__()
+    self.n_classes = output_dimension
+    if isinstance(input_shape, int):
+      self.input_shape = (input_shape, input_shape, input_shape)
+    elif isinstance(input_shape, (tuple, list)):
+      self.input_shape = tuple([int(i) for i in input_shape][:3])
+    elif "__iter__" in dir(input_shape):
+      self.input_shape = tuple([int(i) for i in input_shape][:3])
+    else:
+      raise ValueError("input_shape should be a tuple or list of 3 integers")
+    
     conv_layers = OrderedDict()
     for i in range(len(conv)):
       if i == 0:
-        conv_layers["conv1"] = nn.Conv3d(input_channel_number, conv[i], kernel_size=3, padding=1)
+        conv_layers["conv3d_1"] = nn.Conv3d(input_channels, conv[i], kernel_size=3, padding=1)
       else:
-        conv_layers[f"conv{i+1}"] = nn.Conv3d(conv[i-1], conv[i], kernel_size=3, padding=1)
-      conv_layers[f"relu{i+1}"] = nn.ReLU(inplace=True)
-      conv_layers[f"pool{i+1}"] = nn.MaxPool3d(2, stride=2)
+        conv_layers[f"conv3d_{i+1}"] = nn.Conv3d(conv[i-1], conv[i], kernel_size=3, padding=1)
+      conv_layers[f"relu_{i+1}"] = nn.ReLU(inplace=True)
+      conv_layers[f"pool_{i+1}"] = nn.MaxPool3d(2, stride=2)
     self.conv_blocks = nn.Sequential(conv_layers)
 
-    with torch.no_grad():
-      dummpy_out = self.conv_blocks(torch.zeros(1, input_channel_number, box_shape, box_shape, box_shape))
-      size = dummpy_out.flatten().size()[0]
-    self.output_layer = nn.Linear(size, output_dimension)
+    dummpy_out = self.conv_blocks(torch.rand(1, input_channels, *self.input_shape))
+    size = dummpy_out.flatten().size()[0]
+    
+    self.output_layer = nn.Linear(size, self.n_classes)
 
   def forward(self, x):
     x = self.conv_blocks(x)
@@ -38,8 +49,26 @@ class GninaNetwork2017(nn.Module):
 
 
 class GninaNetwork2018(nn.Module):
-  def __init__(self, input_channels, output_dimension, box_shape):
+  """
+  Gnina network model for 2018.
+
+  Notes
+  -----
+  This code block is adopted from the following link: 
+  https://github.com/gnina/models/tree/master/acs2018
+  """
+  def __init__(self, input_channels, output_dimension, input_shape):
     super(GninaNetwork2018, self).__init__()
+    self.n_classes = output_dimension 
+    if isinstance(input_shape, int):
+      self.input_shape = (input_shape, input_shape, input_shape)
+    elif isinstance(input_shape, (tuple, list)):
+      self.input_shape = tuple([int(i) for i in input_shape][:3])
+    elif "__iter__" in dir(input_shape):
+      self.input_shape = tuple([int(i) for i in input_shape][:3])
+    else:
+      raise ValueError("input_shape should be a tuple or list of 3 integers")
+
     conv_layers = OrderedDict()
     conv_layers["poolavg1"] = nn.AvgPool3d(2, stride=2)
 
@@ -59,22 +88,17 @@ class GninaNetwork2018(nn.Module):
     conv_layers["relu3"] = nn.ReLU()
     self.conv_blocks = nn.Sequential(conv_layers)
     
-    dummy_output = self.conv_blocks(torch.zeros(1, input_channels, box_shape, box_shape, box_shape))
-    flattened_feature_size = dummy_output.flatten().size()[0]
+    dummpy_out = self.conv_blocks(torch.rand(1, input_channels, *self.input_shape))
+    size = dummpy_out.flatten().size()[0]
     
-    # self.pose_output = nn.Linear(flattened_feature_size, 2)
-    self.affinity_output = nn.Linear(flattened_feature_size, output_dimension)
+    self.affinity_output = nn.Linear(size, output_dimension)
     
   def forward(self, x):
     x = self.conv_blocks(x)
     x = torch.flatten(x, 1)
     affinity = self.affinity_output(x)
     return affinity
-  
-    # pose = self.pose_output(x)
-    # Apply softmax to pose for classification
-    # pose = F.softmax(pose, dim=1)
-    # return pose, affinity
+
 
 
 class GninaNetworkDense(nn.Module):
@@ -159,12 +183,6 @@ class GlobalMaxPool(nn.Module):
     super().__init__()
   def forward(self, x):
     return F.max_pool3d(x, kernel_size=x.size()[2:]).view(*x.size()[:2])
-  
-
-
-
-
-
 
 
 

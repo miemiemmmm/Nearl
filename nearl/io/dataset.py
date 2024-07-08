@@ -74,6 +74,12 @@ def readdata(input_file, keyword, theslice):
   return ret_data
 
 
+def readlabel(input_file, position):
+  with h5py.hdffile(input_file, "r") as h5file:
+    ret_data = h5file["label"][position]
+  return ret_data
+
+
 def split_array(input_array, batch_size): 
   # For the N-1 batches, the size is uniformed and only variable for the last batch
   bin_nr = (len(input_array) + batch_size - 1) // batch_size 
@@ -85,6 +91,7 @@ def split_array(input_array, batch_size):
       return [input_array[-final_batch_size:]]
     else:
       return np.array_split(input_array[:-final_batch_size], bin_nr-1) + [input_array[-final_batch_size:]]
+
 
 
 def data_augment(batch_array, translation_factor=2, add_noise=False): 
@@ -166,44 +173,51 @@ class Dataset:
     The key of the label in the HDF5 file.
   feature_keys : list
     The keys of the features in the HDF5 file.
-  benchmark : bool
-    Whether to print the benchmarking information.
 
   """
   # TODO Check if the Label is not defined in the file
-  def __init__(self, files, grid_dim, label_key="label", feature_keys=[], benchmark = False): 
-    self.size = np.array([grid_dim, grid_dim, grid_dim], dtype=int)
+  def __init__(self, files, grid_dim=None, label_key="label", feature_keys=[]): 
+    # self.size = np.array([grid_dim, grid_dim, grid_dim], dtype=int)
     self.FILELIST = files
     self.sample_sizes = []
     self.total_entries = 0
-    self.BENCHMARK = bool(benchmark)
     
-    # Check the existence of the feature keys in the file
-    for i in feature_keys:
-      if i not in h5py.File(files[0], "r").keys():
-        raise KeyError(f"Feature key {i} is not in the file")
     self.feature_keys = feature_keys
     self.channel_nr = len(feature_keys)
-    if label_key not in h5py.File(files[0], "r").keys():
-      raise KeyError(f"Label key {label_key} is not in the file")
     self.label_key = label_key
+    self.size = None
 
     for filename in self.FILELIST:
       if not os.path.exists(filename):
         raise FileNotFoundError(f"File {filename} does not exist")
-      with h5py.File(filename, "r") as hdf:
+      with h5py.File(filename, "r") as hdf: 
+        # Set up the grid size
+        if grid_dim is None and self.size is None: 
+          # Read from the file
+          self.size = np.array(hdf["featurizer_parms"]["dimensions"][:])
+        else:
+          if isinstance(grid_dim, (int, float)):
+            self.size = np.array([grid_dim, grid_dim, grid_dim], dtype=int)
+          elif isinstance(grid_dim, (list, tuple, np.ndarray)):
+            self.size = np.array(grid_dim, dtype=int)
+        # Check the existence of the feature keys in the file
+        for k in feature_keys:
+          if k not in hdf.keys():
+            raise KeyError(f"Feature key {k} is not in the h5 file: {filename}")
+        if self.label_key not in hdf.keys():
+          raise KeyError(f"Label key {label_key} is not in the h5 file: {filename}")
+        else: 
+          # Get the native dtype of the hdf label and set to numpy's dtype
+          self.label_dtype = np.dtype(hdf[label_key].dtype)
+
         label_nr = hdf[label_key].shape[0]
         if config.verbose(): 
           printit(f"Found {label_nr} labels in {filename}")
         self.sample_sizes.append(label_nr)
         self.total_entries += label_nr
 
-    if config.verbose() or self.BENCHMARK or config.debug():
-      printit(f"Total number of samples: {sum(self.sample_sizes)}")
-
     self.file_map = np.full(self.total_entries, 0, dtype=np.uint32)
     self.position_map = np.full(self.total_entries, 0,dtype=np.uint64)
-    
 
     tmp_count = 0
     for fidx, filename in enumerate(self.FILELIST):
@@ -274,7 +288,6 @@ class Dataset:
     tasks = []
     for i in range(len(self.feature_keys)):
       tasks.append((self.filename(index), self.feature_keys[i], np.s_[self.position(index)]))
-    tasks.append((self.filename(index), self.label_key, np.s_[self.position(index)]))
     return tasks
   
 
@@ -310,42 +323,37 @@ class Dataset:
     indices = np.arange(self.total_entries)
     if shuffle:
       np.random.shuffle(indices)
-    if batch_nr is not None: 
-      batch_size = self.total_entries // batch_nr
+    
+    if batch_size is not None:
       batches = split_array(indices, batch_size)
-    elif batch_size is not None:
+    elif batch_nr is not None: 
+      batch_size = self.total_entries // batch_nr
       batches = split_array(indices, batch_size)
     else:
       raise ValueError("Either batch_nr or batch_size should be specified")
   
-    if config.verbose() or self.BENCHMARK or config.debug():
+    if config.verbose():
       printit(f"Iterating the dataset: {len(batches)} batches with batch size {batch_size}. Using {process_nr} processes.")
     
-    taskset_size = self.channel_nr+1
-    st = time.perf_counter()
+    result_shape = [-1, self.channel_nr] + self.size.tolist()
+    
     with mp.Pool(process_nr) as pool:
-      for batch_idx, batch in enumerate(batches): 
-        data = torch.zeros([len(batch), self.channel_nr] + self.size.tolist(), dtype=torch.float32)
-        label = torch.zeros([len(batch), 1], dtype=torch.float32)
-        
+      for batch in batches: 
         taskset = []
         for i in batch:
           taskset += self.mini_batch_task(i)
         results = pool.starmap(readdata, taskset)
-        
-        for i in range(len(batch)):
-          for j in range(self.channel_nr):
-            data[i, j] = torch.from_numpy(results[i*taskset_size+j])
-          _label = np.array([results[i*taskset_size+self.channel_nr]])
-          label[i] = torch.from_numpy(_label)
-        
-        if self.BENCHMARK:
-          mps = (time.perf_counter() - st)/len(batch) * 1000
-          sps = len(batch)/(time.perf_counter()-st)
-          time_remaining = (len(batches) - batch_idx) * (time.perf_counter() - st)
-          printit(f"Batch {batch_idx:4d} ({batch_size} entries): MPS: {mps:8.2f}; SPS: {int(sps):6d}; Time left: {time_remaining:8.2f} seconds")
 
+        # Convert and reshape to the target numpy array 
+        data_numpy = np.array(results, dtype=np.float32).reshape(result_shape)
+        # Read the labels
+        labels = pool.starmap(readdata, [(self.filename(i), self.label_key, self.position(i)) for i in batch])
+        labels_numpy = np.array(labels, dtype=self.label_dtype).reshape(-1, 1)
+
+        # TODO: implement it if data augment is needed 
         # if augment: 
         #   data = data_augment(data, translation_factor=augment_translation, add_noise=augment_add_noise)
-        st = time.perf_counter()
+
+        data = torch.from_numpy(data_numpy)
+        label = torch.from_numpy(labels_numpy)
         yield data, label

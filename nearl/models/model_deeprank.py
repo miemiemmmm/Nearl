@@ -1,51 +1,50 @@
-# This code block is from DeepRank2, an open-source deep learning (DL) framework for data 
-# mining of protein-protein interfaces (PPIs) or single-residue variants (SRVs).
-# https://github.com/DeepRank/deeprank2/blob/main/deeprank2/neuralnets/cnn/model3d.py
-
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from torch.autograd import Variable
-
-import numpy as np
 from collections import OrderedDict
 
 
-class DeepRankNetwork(torch.nn.Module): 
-  def __init__(self, 
-               input_channel_number: int, 
-               output_dimension: int,
-               box_shape:int, 
-               conv=[4, 5],
-               fc = [84]
-               ):
+class DeepRankNetwork(nn.Module): 
+  """
+  DeepRank network model. 
+
+  Notes
+  -----
+  This code block is adopted from DeepRank2: 
+
+  https://github.com/DeepRank/deeprank2/blob/main/deeprank2/neuralnets/cnn/model3d.py
+  """
+  def __init__(self, input_channels: int, output_dimension: int, input_shape:int, 
+               conv=[4, 5], fc = [84]):
     super(DeepRankNetwork, self).__init__()
-    if isinstance(box_shape, int):
-      box_shape = (box_shape, box_shape, box_shape)
-    elif isinstance(box_shape, (tuple, list, np.ndarray)):
-      box_shape = tuple(box_shape)[:3]
+    if isinstance(input_shape, int):
+      self.input_shape = (input_shape, input_shape, input_shape)
+    elif isinstance(input_shape, (tuple, list)):
+      self.input_shape = tuple([int(i) for i in input_shape][:3])
+    elif "__iter__" in dir(input_shape):
+      self.input_shape = tuple([int(i) for i in input_shape][:3])
+    else:
+      raise ValueError("input_shape should be a tuple or list of 3 integers")
 
     conv_layers = OrderedDict()
     for i in range(len(conv)):
       if i == 0:
-        conv_layers[f'conv_{i:d}'] = torch.nn.Conv3d(input_channel_number, conv[i], kernel_size=2)
+        conv_layers[f'conv3d_{i}'] = nn.Conv3d(input_channels, conv[i], kernel_size=2)
       else: 
-        conv_layers[f'conv_{i:d}'] = torch.nn.Conv3d(conv[i-1], conv[i], kernel_size=2)
-      conv_layers[f'relu_{i:d}'] = torch.nn.ReLU()  
-      conv_layers[f'pool_{i:d}'] = torch.nn.MaxPool3d((2, 2, 2))
-    
+        conv_layers[f'conv3d_{i}'] = nn.Conv3d(conv[i-1], conv[i], kernel_size=2)
+      conv_layers[f'relu_{i}'] = nn.ReLU()  
+      conv_layers[f'pool_{i}'] = nn.MaxPool3d((2, 2, 2))
     self.conv_blocks = torch.nn.Sequential(conv_layers)
 
-    dummpy_out = self.conv_blocks(torch.rand(1, input_channel_number, *box_shape))
+    dummpy_out = self.conv_blocks(torch.rand(1, input_channels, *self.input_shape))
     size = dummpy_out.flatten().size()[0]
 
     fc_layers = OrderedDict()
     for i in range(len(fc)):
       if i == 0:
-        fc_layers[f'fc_{i:d}'] = torch.nn.Linear(size, fc[i])
+        fc_layers[f'fc_{i:d}'] = nn.Linear(size, fc[i])
       else:
-        fc_layers[f'fc_{i:d}'] = torch.nn.Linear(fc[i-1], fc[i])
-      fc_layers[f'relu_{i:d}'] = torch.nn.ReLU()
+        fc_layers[f'fc_{i:d}'] = nn.Linear(fc[i-1], fc[i])
+      fc_layers[f'relu_{i:d}'] = nn.ReLU()
     self.fc_layers = torch.nn.Sequential(fc_layers)
     self.output_layer = torch.nn.Linear(fc[-1], output_dimension)
 
@@ -55,111 +54,3 @@ class DeepRankNetwork(torch.nn.Module):
     data = self.fc_layers(data)
     data = self.output_layer(data)
     return data 
-
-
-# Original code from DeepRank2:
-# ----------------------------------------------------------------------
-# Network Structure
-# ----------------------------------------------------------------------
-# conv layer   0: conv | input -1  output  4  kernel  2  post relu
-# conv layer   1: pool | kernel  2  post None
-# conv layer   2: conv | input  4  output  5  kernel  2  post relu
-# conv layer   3: pool | kernel  2  post None
-# fc   layer   0: fc   | input -1  output  84  post relu
-# fc   layer   1: fc   | input  84  output  1  post None
-# ----------------------------------------------------------------------
-
-class _DeepRankNetwork(torch.nn.Module):  # noqa: D101
-  def __init__(self, 
-               input_channel_number: int, 
-               output_dimension: int,
-               box_shape:int, 
-               ):
-    super(DeepRankNetwork, self).__init__()
-    if isinstance(box_shape, int):
-      box_shape = (box_shape, box_shape, box_shape)
-    elif isinstance(box_shape, (tuple, list, np.ndarray)):
-      box_shape = tuple(box_shape)[:3]
-
-    self.convlayer_000 = torch.nn.Conv3d(input_channel_number, 4, kernel_size=2)
-    self.convlayer_001 = torch.nn.MaxPool3d((2, 2, 2))
-    self.convlayer_002 = torch.nn.Conv3d(4, 5, kernel_size=2)
-    self.convlayer_003 = torch.nn.MaxPool3d((2, 2, 2))
-
-    size = self._get_conv_output(input_channel_number, box_shape)
-
-    self.fclayer_000 = torch.nn.Linear(size, 84)
-    self.fclayer_001 = torch.nn.Linear(84, output_dimension)
-
-  def _get_conv_output(self, num_features: int, shape: tuple[int]):
-    num_data_points = 1
-    input_ = Variable(torch.rand(num_data_points, num_features, *shape))
-    output = self._forward_features(input_)
-    return output.data.view(num_data_points, -1).size(1)
-
-  def _forward_features(self, x):
-    x = F.relu(self.convlayer_000(x))
-    x = self.convlayer_001(x)
-    x = F.relu(self.convlayer_002(x))
-    x = self.convlayer_003(x)
-    return x  # noqa:RET504 (unnecessary-assign)
-
-  def forward(self, data):
-    x = self._forward_features(data)
-    x = x.view(x.size(0), -1)
-    x = F.relu(self.fclayer_000(x))
-    x = self.fclayer_001(x)
-    return x  # noqa:RET504 (unnecessary-assign)
-
-
-######################################################################
-#
-# Model automatically generated by modelGenerator
-#
-######################################################################
-
-# ----------------------------------------------------------------------
-# Network Structure
-# ----------------------------------------------------------------------
-# conv layer   0: conv | input -1  output  4  kernel  2  post relu
-# conv layer   1: pool | kernel  2  post None
-# conv layer   2: conv | input  4  output  5  kernel  2  post relu
-# conv layer   3: pool | kernel  2  post None
-# fc   layer   0: fc   | input -1  output  84  post relu
-# fc   layer   1: fc   | input  84  output  1  post None
-# ----------------------------------------------------------------------
-
-
-class _CnnClassification(torch.nn.Module):  # noqa: D101
-  def __init__(self, num_features, box_shape):
-    super().__init__()
-
-    self.convlayer_000 = torch.nn.Conv3d(num_features, 4, kernel_size=2)
-    self.convlayer_001 = torch.nn.MaxPool3d((2, 2, 2))
-    self.convlayer_002 = torch.nn.Conv3d(4, 5, kernel_size=2)
-    self.convlayer_003 = torch.nn.MaxPool3d((2, 2, 2))
-
-    size = self._get_conv_output(num_features, box_shape)
-
-    self.fclayer_000 = torch.nn.Linear(size, 84)
-    self.fclayer_001 = torch.nn.Linear(84, 2)
-
-  def _get_conv_output(self, num_features, shape):
-    inp = Variable(torch.rand(1, num_features, *shape))
-    out = self._forward_features(inp)
-    return out.data.view(1, -1).size(1)
-
-  def _forward_features(self, x):
-    x = F.relu(self.convlayer_000(x))
-    x = self.convlayer_001(x)
-    x = F.relu(self.convlayer_002(x))
-    x = self.convlayer_003(x)
-    return x  # noqa:RET504 (unnecessary-assign)
-
-  def forward(self, data):
-    x = self._forward_features(data.x)
-    x = x.view(x.size(0), -1)
-    x = F.relu(self.fclayer_000(x))
-    x = self.fclayer_001(x)
-    return x  # noqa:RET504 (unnecessary-assign)
-    

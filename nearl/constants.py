@@ -326,5 +326,12 @@ LAB2RES_DUAL = {
 
 PDBCODE_SUPERCEDES = {"4dgo": "6qs5", "4otw": "6op9", "4v1c": "6iso", "5v8h": "6nfg", "5v8j": "6nfo", "6fim": "6fex", "6h7k": "6ibl", "3m8t": "5wcm", "4n3l": "6eo8"}
 
-COMMON_FEATURE_PARMS = ["outfile", "cutoff", "sigma", "padding", "byres"]
+COMMON_FEATURE_PARMS = [
+  # Output settings 
+  "outfile", 
+  # Feature calculation parms
+  "cutoff", "sigma", "padding", "byres",
+  # HDF dumping parms
+  "hdf_compress_level",
+]
 
