@@ -136,16 +136,19 @@ py::array_t<float> do_marching_observers(
   if (frame_nr > MAX_FRAME_NUMBER){ 
     throw py::value_error("The number of frames " + std::to_string(frame_nr) + " exceeds the maximum number of frames allowed " + std::to_string(MAX_FRAME_NUMBER) + " frames."); 
   }
+  
   // If there is no point in all of the frames (At least one coordinate not the DEFAULT_COORD_PLACEHOLDER), directly return an array of zeros 
-  for (int i=0; i < frame_nr*atom_nr*3; i++){
-    if (static_cast<float*>(buf_coord.ptr)[i] != DEFAULT_COORD_PLACEHOLDER){
-      break;
-    } else if (i == frame_nr*atom_nr*3 - 1){
-      py::array_t<float> result({gridpoint_nr});
-      for (int i = 0; i < gridpoint_nr; i++) result.mutable_at(i) = 0;
-      return result;
-    }
-  }
+  // for (int i=0; i < frame_nr*atom_nr*3; i++){
+  //   if (static_cast<float*>(buf_coord.ptr)[i] != DEFAULT_COORD_PLACEHOLDER){
+  //     std::cout << "Have coordinates in the input array" << std::endl;
+  //     break;
+  //   } else if (i == frame_nr*atom_nr*3 - 1){
+  //     std::cout << "C++, No valid coordinates found in the input array" << std::endl;
+  //     py::array_t<float> result({gridpoint_nr});
+  //     for (int i = 0; i < gridpoint_nr; i++) result.mutable_at(i) = 0;
+  //     return result;
+  //   }
+  // }
 
   // Current hard coded to 0, 0 for type_obs and type_agg
   py::array_t<float> result({gridpoint_nr});

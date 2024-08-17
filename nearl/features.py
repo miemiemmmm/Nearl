@@ -390,21 +390,18 @@ class Feature:
         self.cache(pt.Trajectory(xyz=np.array([frame_coords]), top=topology))
       else:
         self.cache(pt.Trajectory(xyz=frame_coords, top=topology))
-        
-    if config.verbose() and config.debug():
-      mean_before = np.mean(frame_coords, axis=0)
 
     # In-place translation of the coordinates to the center of the box
-    frame_coords[:] = frame_coords - focal_point + self.center  
-    mask = crop(frame_coords, self.lengths, self.padding)
+    # frame_coords[:] = frame_coords - focal_point + self.center  
+    # mask = crop(frame_coords, self.lengths, self.padding)
+
+    coord_trans = frame_coords - focal_point + self.center  
+    mask = crop(coord_trans, self.lengths, self.padding)
     
     if np.count_nonzero(mask) == 0:
-      printit(f"{self} Warning: Found {np.count_nonzero(mask)} atoms in the bounding box near the focal point {np.round(focal_point,1)}")
+      printit(f"{self} Warning: Found 0 atoms in the bounding box near the focal point {np.round(focal_point,1)}")
     elif config.verbose() or config.debug(): 
       printit(f"{self}: Found {np.count_nonzero(mask)} atoms in the bounding box near the focal point {np.round(focal_point,1)}")
-
-    if config.verbose() and config.debug():
-      printit(f"{self.__class__.__name__}: Shape: {np.shape(frame_coords)}; Before translation: {np.mean(frame_coords, axis=0).round()}; After {mean_before.round()} ")
 
     # Get the boolean array of residues within the bounding box
     if self.byres:
@@ -414,9 +411,11 @@ class Feature:
         final_mask[np.where(self.resids == res)] = True
     else: 
       final_mask = mask
+    # Apply the selected atoms
     if self.selection is not None:
       final_mask = final_mask * self.selected
-    return final_mask
+    final_coords = np.ascontiguousarray(coord_trans[final_mask])
+    return final_mask, final_coords
 
   def run(self, coords, weights):
     """
@@ -440,14 +439,15 @@ class Feature:
       return np.zeros(self.dims, dtype=np.float32)
     
     ret = commands.voxelize_coords(coords, weights, self.dims, self.spacing, self.cutoff, self.sigma)
-
+    
+    if np.sum(np.isnan(ret)) > 0:
+      printit(f"{self} Warning: The returned array has {np.isnan(ret).sum()} NaN values")
     # Check the sum of the absolute values of the returned array
     if config.verbose() or config.debug():
       ret_sum = np.sum(np.abs(ret))
       if np.isclose(ret_sum, 0):
         printit(f"{self} Warning: The sum of the returned array is zero")
-      elif np.isnan(ret_sum):
-        printit(f"{self} Warning: The returned array has {np.isnan(ret).sum()} NaN values")
+    
     return ret
 
   def dump(self, result):
@@ -460,6 +460,9 @@ class Feature:
       The result feature array
     """
     if ("outfile" in dir(self)) and ("outkey" in dir(self)) and (len(self.outfile) > 0):
+      if np.isnan(result).sum() > 0:
+        printit(f"{self.__class__.__name__}: Warning: Found {np.isnan(result).sum()} NaN values in the result array")
+        result = np.nan_to_num(result).astype(result.dtype)     # Replace NaN with 0
       if self.outshape is not None: 
         # Output shape is explicitly set (Usually heterogeneous data like coordinates)
         utils.append_hdf_data(self.outfile, self.outkey, np.array([result], dtype=np.float32), dtype=np.float32, maxshape=self.outshape, chunks=True, compression="gzip", compression_opts=self.hdf_compress_level)
@@ -496,8 +499,8 @@ class AtomicNumber(Feature):
     """
     if frame_coords.shape.__len__() == 3: 
       frame_coords = frame_coords[0]
-    idx_inbox = super().query(topology, frame_coords, focal_point)
-    coord_inbox = frame_coords[idx_inbox]
+    idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
+    # coord_inbox = frame_coords[idx_inbox]
     weights = np.array([self.atomic_numbers[i] for i in self.atomic_numbers[idx_inbox]], dtype=np.float32)
     return coord_inbox, weights
 
@@ -548,8 +551,8 @@ class Mass(Feature):
     if frame_coords.shape.__len__() == 3: 
       frame_coords = frame_coords[0]
     
-    idx_inbox = super().query(topology, frame_coords, focal_point)
-    coord_inbox = frame_coords[idx_inbox]
+    idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
+    # coord_inbox = frame_coords[idx_inbox]
     weights = np.array([self.mass[i] for i in self.atomic_numbers[idx_inbox]], dtype=np.float32)
     return coord_inbox, weights
 
@@ -573,8 +576,8 @@ class HeavyAtom(Feature):
     """
     if frame_coords.shape.__len__() == 3: 
       frame_coords = frame_coords[0]  # NOTE: Get the first frame if multiple frames are given
-    idx_inbox = super().query(topology, frame_coords, focal_point)
-    coord_inbox = frame_coords[idx_inbox]
+    idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
+    # coord_inbox = frame_coords[idx_inbox]
     weights = self.heavy_atoms[idx_inbox]
     return coord_inbox, weights
 
@@ -601,8 +604,8 @@ class Aromaticity(Feature):
   def query(self, topology, frame_coords, focal_point):
     if frame_coords.shape.__len__() == 3: 
       frame_coords = frame_coords[0]
-    idx_inbox = super().query(topology, frame_coords, focal_point)
-    coord_inbox = frame_coords[idx_inbox]
+    idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
+    # coord_inbox = frame_coords[idx_inbox]
     weights = self.atoms_aromatic[idx_inbox]
     return coord_inbox, weights
 
@@ -630,8 +633,8 @@ class Ring(Feature):
   def query(self, topology, frame_coords, focal_point): 
     if frame_coords.shape.__len__() == 3: 
       frame_coords = frame_coords[0]
-    idx_inbox = super().query(topology, frame_coords, focal_point)
-    coord_inbox = frame_coords[idx_inbox]
+    idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
+    # coord_inbox = frame_coords[idx_inbox]
     weights = self.atoms_in_ring[idx_inbox]
     return coord_inbox, weights
 
@@ -652,8 +655,8 @@ class Selection(Feature):
   def query(self, topology, frame_coords, focal_point):
     if frame_coords.shape.__len__() == 3: 
       frame_coords = frame_coords[0]
-    idx_inbox = super().query(topology, frame_coords, focal_point)
-    coord_inbox = frame_coords[idx_inbox]
+    idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
+    # coord_inbox = frame_coords[idx_inbox]
     weights = np.full(len(coord_inbox), self.default_value, dtype=np.float32)
     return coord_inbox, weights
   
@@ -678,8 +681,8 @@ class HBondDonor(Feature):
   def query(self, topology, frame_coords, focal_point):
     if frame_coords.shape.__len__() == 3: 
       frame_coords = frame_coords[0]
-    idx_inbox = super().query(topology, frame_coords, focal_point)
-    coord_inbox = frame_coords[idx_inbox]
+    idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
+    # coord_inbox = frame_coords[idx_inbox]
     weights = self.atoms_hbond_donor[idx_inbox]
     return coord_inbox, weights
 
@@ -704,8 +707,8 @@ class HBondAcceptor(Feature):
   def query(self, topology, frame_coords, focal_point):
     if frame_coords.shape.__len__() == 3: 
       frame_coords = frame_coords[0]
-    idx_inbox = super().query(topology, frame_coords, focal_point)
-    coord_inbox = frame_coords[idx_inbox]
+    idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
+    # coord_inbox = frame_coords[idx_inbox]
     weights = self.atoms_hbond_acceptor[idx_inbox]
     return coord_inbox, weights
 
@@ -730,8 +733,8 @@ class Hybridization(Feature):
   def query(self, topology, frame_coords, focal_point):
     if frame_coords.shape.__len__() == 3: 
       frame_coords = frame_coords[0]
-    idx_inbox = super().query(topology, frame_coords, focal_point)
-    coord_inbox = frame_coords[idx_inbox]
+    idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
+    # coord_inbox = frame_coords[idx_inbox]
     weights = self.atoms_hybridization[idx_inbox]
     return coord_inbox, weights
 
@@ -755,8 +758,8 @@ class Backbone(Feature):
   def query(self, topology, frame_coords, focal_point):
     if frame_coords.shape.__len__() == 3: 
       frame_coords = frame_coords[0]
-    idx_inbox = super().query(topology, frame_coords, focal_point)
-    coord_inbox = frame_coords[idx_inbox]
+    idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
+    # coord_inbox = frame_coords[idx_inbox]
     weights = self.backboneness[idx_inbox]
     return coord_inbox, weights
   
@@ -780,8 +783,8 @@ class AtomType(Feature):
     if frame_coords.shape.__len__() == 3: 
       frame_coords = frame_coords[0]
 
-    idx_inbox = super().query(topology, frame_coords, focal_point)
-    coord_inbox = frame_coords[idx_inbox]
+    idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
+    # coord_inbox = frame_coords[idx_inbox]
     weights = self.atom_type[idx_inbox]
 
     if np.sum(weights) == 0:
@@ -925,8 +928,8 @@ class PartialCharge(Feature):
   def query(self, topology, frame_coords, focal_point):
     if frame_coords.shape.__len__() == 3: 
       frame_coords = frame_coords[0]
-    idx_inbox = super().query(topology, frame_coords, focal_point)
-    coord_inbox = frame_coords[idx_inbox]
+    idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
+    # coord_inbox = frame_coords[idx_inbox]
     weights = self.charge_values[idx_inbox] 
     return coord_inbox, weights
 
@@ -942,8 +945,8 @@ class Electronegativity(Feature):
   def query(self, topology, frame_coords, focal_point):
     if frame_coords.shape.__len__() == 3: 
       frame_coords = frame_coords[0]
-    idx_inbox = super().query(topology, frame_coords, focal_point)
-    coord_inbox = frame_coords[idx_inbox]
+    idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
+    # coord_inbox = frame_coords[idx_inbox]
     weights = self.electronegativity[idx_inbox]
     return coord_inbox, weights
   
@@ -960,8 +963,8 @@ class Hydrophobicity(Feature):
   def query(self, topology, frame_coords, focal_point):
     if frame_coords.shape.__len__() == 3: 
       frame_coords = frame_coords[0]
-    idx_inbox = super().query(topology, frame_coords, focal_point)
-    coord_inbox = frame_coords[idx_inbox]
+    idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
+    # coord_inbox = frame_coords[idx_inbox]
     weights = self.hydrophobicity[idx_inbox]
     return coord_inbox, weights
 
@@ -1154,6 +1157,8 @@ class DynamicFeature(Feature):
     self._weight_type = weight_type
     # Need to manually handle the kwargs for specific features instances
     self.feature_args = kwargs
+    self.MAX_ALLOWED_ATOMS = 1000
+    self.DEFAULT_COORD = 99999.0
 
   def __str__(self):
     ret = f"{self.__class__.__name__} <agg:{self.agg}|weight:{self.weight_type}"
@@ -1210,40 +1215,38 @@ class DynamicFeature(Feature):
     Notes
     -----
 
-    - MAX_ALLOWED_ATOMS: Depends on the GPU cache size for each thread
-    - DEFAULT_COORD: The coordinates for padding of atoms in the box across required frames. Also hard coded in GPU code. 
+    - self.MAX_ALLOWED_ATOMS: Depends on the GPU cache size for each thread
+    - self.DEFAULT_COORD: The coordinates for padding of atoms in the box across required frames. Also hard coded in GPU code. 
 
     The return weight array should be flattened to a 1D array
 
     """
     assert len(frame_coords.shape) == 3, f"Warning from feature ({self.__str__()}): The coordinates should follow the convention (frames, atoms, 3); "
-    MAX_ALLOWED_ATOMS = 1000 
-    DEFAULT_COORD = 99999.0
 
-    coords = np.full((len(frame_coords), MAX_ALLOWED_ATOMS, 3), DEFAULT_COORD, dtype=np.float32)
-    weights = np.full((len(frame_coords), MAX_ALLOWED_ATOMS), 0.0, dtype=np.float32)
+    coords = np.full((len(frame_coords), self.MAX_ALLOWED_ATOMS, 3), self.DEFAULT_COORD, dtype=np.float32)
+    weights = np.full((len(frame_coords), self.MAX_ALLOWED_ATOMS), 0.0, dtype=np.float32)
     max_atom_nr = 0
     zero_count = 0
     for idx, frame in enumerate(frame_coords):
       # Operation on each frame (Frame is modified inplace)
-      idx_inbox = super().query(topology, frame, focal_point)
+      idx_inbox, coord_inbox = super().query(topology, frame, focal_point)
 
       atomnr_inbox = np.count_nonzero(idx_inbox)
-      if atomnr_inbox > MAX_ALLOWED_ATOMS:
-        printit(f"{self.__class__.__name__} Warning: The maximum allowed atom slice is {MAX_ALLOWED_ATOMS} but the maximum atom number is {atomnr_inbox}")
+      if atomnr_inbox > self.MAX_ALLOWED_ATOMS:
+        printit(f"{self.__class__.__name__} Warning: The maximum allowed atom slice is {self.MAX_ALLOWED_ATOMS} but the maximum atom number is {atomnr_inbox}")
       zero_count += 1 if atomnr_inbox == 0 else 0
-      atomnr_inbox = min(atomnr_inbox, MAX_ALLOWED_ATOMS)
+      atomnr_inbox = min(atomnr_inbox, self.MAX_ALLOWED_ATOMS)
 
-      coords[idx, :atomnr_inbox] = frame[idx_inbox][:atomnr_inbox]
+      coords[idx, :atomnr_inbox] = coord_inbox[:atomnr_inbox]
       weights[idx, :atomnr_inbox] = self.cached_weights[idx_inbox][:atomnr_inbox]
       max_atom_nr = max(max_atom_nr, atomnr_inbox)
     
-    if zero_count > 0:
-      printit(f"{self.__class__.__name__} Warning: {zero_count} out of {len(frame_coords)} frames has no atoms in the box. The coordinates will be padded with {DEFAULT_COORD} and 0.0 for the weights.")
+    if zero_count > 0 and config.verbose(): 
+      printit(f"{self.__class__.__name__} Warning: {zero_count} out of {len(frame_coords)} frames has no atoms in the box. The coordinates will be padded with {self.DEFAULT_COORD} and 0.0 for the weights.")
 
     # Prepare the return arrays
-    ret_coord = np.array(coords[:, :max_atom_nr], dtype=np.float32)
-    ret_weight = np.array(weights[:, :max_atom_nr].flatten(), dtype=np.float32)
+    ret_coord  = np.ascontiguousarray(coords[:, :max_atom_nr], dtype=np.float32)
+    ret_weight = np.ascontiguousarray(weights[:, :max_atom_nr].flatten(), dtype=np.float32)
     return ret_coord, ret_weight
   
   def run(self, frames, weights):
@@ -1355,13 +1358,13 @@ class MarchingObservers(DynamicFeature):
     ret_coord, ret_weight = super().query(topology, coordinates, focus)
     return ret_coord, ret_weight
   
-  def run(self, frames, weights): 
+  def run(self, coords, weights): 
     """
     Get several frames and perform the marching observers algorithm
 
     Parameters
     ----------
-    frames : np.array
+    coords : np.array
       The coordinates of the atoms in the frames.
     weights : np.array
       The weights of the atoms in the frames.
@@ -1371,8 +1374,12 @@ class MarchingObservers(DynamicFeature):
     ret_arr : np.array
       The feature array with the same dimensions as self.dims
     """
+    # if np.count_nonzero(coords != self.DEFAULT_COORD) == 0:
+    #   print("============> ALL COORDINATES ARE DEFAULT <============")
+    #   return np.zeros(self.dims, dtype=np.float32)
+    # else: 
     ret_arr = commands.marching_observers(
-      frames, weights, 
+      coords, weights, 
       self.dims, self.spacing, 
       self.cutoff, 
       self.obs, self.agg
@@ -1650,7 +1657,7 @@ class LabelResType(Feature):
     """
     if frames.shape.__len__() == 3: 
       frames = frames[0]
-    returned = super().query(topology, frames, focus)
+    returned, _ = super().query(topology, frames, focus)
     resnames = [i.name for i in topology.residues]
     resids = [i.resid for i in topology.atoms]
 
@@ -1689,10 +1696,10 @@ class Coords(Feature):
   def query(self, topology, frames, focus):
     if frames.shape.__len__() == 3: 
       frames = frames[0]
-    idx_inbox = super().query(topology, frames, focus)
+    idx_inbox, coord_inbox = super().query(topology, frames, focus)
     nr_atom = np.count_nonzero(idx_inbox)
     ret = np.full((nr_atom, 4), 0.0, dtype=np.float32)
-    ret[:, :3] = frames[idx_inbox]
+    ret[:, :3] = coord_inbox
     ret[:, 3] = self.atomic_numbers[idx_inbox]
     return (ret,)
   
@@ -1736,7 +1743,7 @@ class VectorizerViewpoint(Feature):
     """
     if len(frames.shape) == 3: 
       frames = frames[0]
-    idx_inbox = super().query(topology, frames, focus)
+    idx_inbox, _ = super().query(topology, frames, focus)
     segments = utils.index_partition(idx_inbox, self.SEGMENT_NUMBER)
 
     xyzr_ret = []

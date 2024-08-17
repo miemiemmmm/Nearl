@@ -94,9 +94,9 @@ def split_array(input_array, batch_size):
 
 
 
-def data_augment(batch_array, translation_factor=2, add_noise=False): 
+def data_augment(batch_array, translation_factor=0, add_noise=False): 
   """
-  Batch data are in the shape of (batch:0, channel:1, x:2, y:3, z:4)
+  Batch data are in the shape of (batch_size:0, channel:1, x:2, y:3, z:4)
 
   Parameters
   ----------
@@ -126,31 +126,35 @@ def data_augment(batch_array, translation_factor=2, add_noise=False):
     if do_rotation:
       k = np.random.choice([1, 2, 3])
       if axis == 0: 
-        batch_array = torch.rot90(batch_array, k, [axis+1, axis+2])
+        # Rotate along the X-axis
+        batch_array = torch.rot90(batch_array, k, [3, 4]) 
       elif axis == 1:
-        batch_array = torch.rot90(batch_array, k, [axis, axis+2])
+        # Rotate along the Y-axis
+        batch_array = torch.rot90(batch_array, k, [2, 4]) 
       else:
-        batch_array = torch.rot90(batch_array, k, [axis, axis+1])
+        # Rotate along the Z-axis
+        batch_array = torch.rot90(batch_array, k, [2, 3]) 
   
-  trans = rand_translate(factor=translation_factor)
-  # Handling translation edge effects by filling the 'new' space with zeros
-  for i, shift in enumerate(trans):
-    if shift != 0:
-      batch_array = torch.roll(batch_array, shifts=shift, dims=(i+2))
-      if shift > 0 and i == 0:
-        batch_array[:, :, :shift, :, :] = 0
-      elif shift < 0 and i == 0:
-        batch_array[:, :, shift:, :, :] = 0
-      elif shift > 0 and i == 1:
-        batch_array[:, :, :, :shift, :] = 0
-      elif shift < 0 and i == 1:
-        batch_array[:, :, :, shift:, :] = 0
-      elif shift > 0 and i == 2:
-        batch_array[:, :, :, :, :shift] = 0
-      elif shift < 0 and i == 2:
-        batch_array[:, :, :, :, shift:] = 0
+  if translation_factor > 0:
+    trans = rand_translate(factor=translation_factor)
+    # Handling translation edge effects by filling the 'new' space with zeros
+    for i, shift in enumerate(trans):
+      if shift != 0:
+        batch_array = torch.roll(batch_array, shifts=shift, dims=(i+2))
+        if shift > 0 and i == 0:
+          batch_array[:, :, :shift, :, :] = 0
+        elif shift < 0 and i == 0:
+          batch_array[:, :, shift:, :, :] = 0
+        elif shift > 0 and i == 1:
+          batch_array[:, :, :, :shift, :] = 0
+        elif shift < 0 and i == 1:
+          batch_array[:, :, :, shift:, :] = 0
+        elif shift > 0 and i == 2:
+          batch_array[:, :, :, :, :shift] = 0
+        elif shift < 0 and i == 2:
+          batch_array[:, :, :, :, shift:] = 0
     
-  if config.verbose():
+  if config.verbose() or config.debug():
     printit(f"Flipped axes: {flip_axes}, Translation: {trans}")
 
   # Apply a gaussian noise to the array
@@ -350,10 +354,10 @@ class Dataset:
         labels = pool.starmap(readdata, [(self.filename(i), self.label_key, self.position(i)) for i in batch])
         labels_numpy = np.array(labels, dtype=self.label_dtype).reshape(-1, 1)
 
-        # TODO: implement it if data augment is needed 
-        # if augment: 
-        #   data = data_augment(data, translation_factor=augment_translation, add_noise=augment_add_noise)
-
         data = torch.from_numpy(data_numpy)
         label = torch.from_numpy(labels_numpy)
+
+        if augment: 
+          # TODO: implement it if data augment is needed 
+          data = data_augment(data, translation_factor=augment_translation, add_noise=augment_add_noise)
         yield data, label

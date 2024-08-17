@@ -256,7 +256,8 @@ class Featurizer:
     self.FEATURENUMBER = len(self.FEATURESPACE)
     output_keys = [i.outkey for i in self.FEATURESPACE]
     if len(set(output_keys)) != len(output_keys): 
-      raise ValueError("The output keys for the features should be unique")
+      print(np.unique(output_keys, return_counts=True))
+      raise ValueError("The output keys for the features should be unique.")
   
   def register_features(self, features):
     """
@@ -404,10 +405,11 @@ class Featurizer:
       if self.FOCALPOINTS_PROTOTYPE is not None:
         # NOTE: Re-parse the focal points for each trajectory
         # Expected output shape is (self.SLICENUMBER, self.FOCALNUMBER, 3) array 
+        self.parse_focus()
         if config.verbose() or config.debug():
-          printit(f"{self.__class__.__name__}: Re-parsing focal points for the trajectory {tid}")
-        self.parse_focus() 
+          printit(f"{self.__class__.__name__}: Re-parsing of focal points on trajectory ({tid}/{self.traj.identity}) yeield the shape: {self.FOCALPOINTS.shape}. ")
         
+        print(f"==========> Parsing of the focal points yields the shape: {self.FOCALPOINTS.shape}, {np.sum(self.FOCALPOINTS)}")
 
       tasks = []
       feature_map = []
@@ -418,20 +420,17 @@ class Featurizer:
           # After determineing each focus point, run the featurizer for each focus point
           for pid in range(self.FOCALNUMBER):
             focal_point = self.FOCALPOINTS[bid, pid]
-
             # Crop the trajectory and send the coordinates/trajectory to the featurizer
             for fidx in range(self.FEATURENUMBER):
-              # Explicitly transfer the topology and frames to get the queried coordinates for the featurizer
-              # NOTE: pass a copy of frames to the querier function to avoid in-place modification of the frames 
               # NOTE: Isolate the effect on the calculation of the next feature 
-              queried = self.FEATURESPACE[fidx].query(self.top, frames.copy(), focal_point)
+              queried = self.FEATURESPACE[fidx].query(self.top, frames, focal_point)
               tasks.append([self.FEATURESPACE[fidx].run, queried])
               feature_map.append((tid, bid, fidx))
         else:
           # Without registeration of focal points: focal-point independent features such as label-generation
           for fidx in range(self.FEATURENUMBER):
             # Explicitly transfer the topology and frames to get the queried coordinates for the featurizer
-            queried = self.FEATURESPACE[fidx].query(self.top, frames.copy(), [0, 0, 0])
+            queried = self.FEATURESPACE[fidx].query(self.top, frames, [0, 0, 0])
             tasks.append([self.FEATURESPACE[fidx].run, queried])
             feature_map.append((tid, bid, fidx))
 

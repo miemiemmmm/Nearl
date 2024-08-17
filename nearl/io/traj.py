@@ -85,33 +85,33 @@ class Trajectory(pt.Trajectory):
     # NOTE: If none of stride or frame_indices are given, all frames will be loaded;
     if isinstance(traj_src, str) and isinstance(pdb_src, str):
       # File name-based trajectory initialization
-      tmptraj = pt.load(traj_src, pdb_src, stride=stride, frame_indices=frame_indices)
+      tmptraj = pt.load(traj_src, pdb_src, stride=stride, frame_indices=frame_indices, mask=mask)
       timeinfo = tmptraj.time
       boxinfo = tmptraj._boxes
 
     elif isinstance(traj_src, str) and (pdb_src is None):
       # In the case that the trajectory is self-consistent e.g. PDB file
-      tmptraj = pt.load(traj_src)
+      tmptraj = pt.load(traj_src, mask=mask)
       timeinfo = tmptraj.time
       boxinfo = tmptraj._boxes
 
     elif isinstance(traj_src, (pt.Trajectory, self.__class__)):
       # Pytraj or self-based trajectory initialization
-      tmptraj = traj_src
+      tmptraj = traj_src[mask]
       timeinfo = tmptraj.time
       boxinfo = tmptraj._boxes
 
     elif (traj_src is None) and (pdb_src is None):
       # Initialize an empty object
       super().__init__() 
-      return
+      return 
     
     else:
       raise ValueError(f"Invalid input for traj source ({type(traj_src)}) and pdb_src ({type(pdb_src)})")
 
     # NOTE: Adding mask in the first pt.load function causes lose of time information
-    if mask is not None:
-      tmptraj = tmptraj[mask]
+    # if mask is not None:
+    #   tmptraj = tmptraj[mask]
     top = tmptraj.top
     xyz = tmptraj.xyz
 
