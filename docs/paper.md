@@ -39,7 +39,7 @@ The pipeline leverages modern GPU acceleration, adheres to the FAIR principles f
 
 <!-- 124 words 982 characters -->
 
-![[!!!Primitive plot!!!] Workflow of Nearl for transforming MD trajectories into 3D dynamic features for 3D-CNN applications. 
+![Workflow of Nearl for transforming MD trajectories into 3D dynamic features for 3D-CNN applications. 
 Featurizer could register a set of features and trajectories for their target computation.
 Registered components are processed sequentially for the computation 3D dynamic features. 
 The computed features are saved in HDF5 format for efficient use by downstream 3D-CNN models.

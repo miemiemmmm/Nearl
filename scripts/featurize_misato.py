@@ -1,6 +1,5 @@
-import time, json, os, argparse
+import os, argparse, time, json
 import numpy as np
-import pandas as pd
 from collections import OrderedDict
 
 import nearl 
@@ -42,12 +41,11 @@ if __name__ == "__main__":
   print(args)
   task_nr = args.get("task_nr")
   task_index = args.get("task_index")
+  outputfile = os.path.join(os.path.abspath(args["output_dir"]), f"MisatoOutput{task_index}.h5") 
 
   # Candidate trajectories 
   misatodir = args.get("misato_dir")
   training_set = args.get("pdbcodes")
-  
-  outputfile = os.path.join(os.path.abspath(args["output_dir"]), f"MisatoOutput{task_index}.h5") 
 
   print(f"Input file: {training_set}, Output file: {outputfile}; Task {task_index} of {task_nr}")
   
@@ -74,6 +72,9 @@ if __name__ == "__main__":
   loader = nearl.io.TrajectoryLoader(trajlists, trajtype=MisatoTraj, superpose=True)
   print(f"Performing the featurization on {len(loader)} trajectories")
 
+  # for traj in loader:
+  #   print(f"Selected {traj.top.select(':MOL').shape[0]} atoms from {traj.top.n_atoms} atoms")
+
   feat  = nearl.featurizer.Featurizer(FEATURIZER_PARMS)
 
   feat.register_trajloader(loader)
@@ -89,32 +90,31 @@ if __name__ == "__main__":
   # Static features
   features["lig_annotation"] = nearl.features.Selection(selection=":MOL", selection_type="mask", outkey = "ligand_annotation")
   features["prot_annotation"] = nearl.features.Selection(selection="!:MOL", selection_type="mask", outkey = "protein_annotation")
-
-  # features["feat_atomicnumber"] = nearl.features.AtomicNumber( outkey="atomic_number" )
-  # features["feat_backbone"] = nearl.features.Backbone( outkey="backboness" )
-  
   features["mass_lig"] = nearl.features.Mass( selection=":MOL", outkey="mass_lig" )
   features["mass_prot"] = nearl.features.Mass( selection="!:MOL", outkey="mass_prot" )
+  # features["arom_lig"] = nearl.features.Aromaticity( selection=":MOL", outkey="arom_lig" )
+  # features["arom_prot"] = nearl.features.Aromaticity( selection="!:MOL", outkey="arom_prot" )
+  # features["positive_lig"] = nearl.features.PartialCharge(selection=":MOL", keep_sign = "p", outkey="charge_positive_lig")
+  # features["negative_lig"] = nearl.features.PartialCharge(selection=":MOL", keep_sign = "n", outkey="charge_negative_lig")
+  # features["positive_prot"] = nearl.features.PartialCharge(selection="!:MOL", keep_sign = "p", outkey = "charge_positive_prot" )
+  # features["negative_prot"] = nearl.features.PartialCharge(selection="!:MOL", keep_sign = "n", outkey = "charge_negative_prot" )
+  # features["donor_prot"] = nearl.features.HBondDonor(selection="!:MOL", outkey="prot_donor" )
+  # features["acceptor_prot"] = nearl.features.HBondAcceptor(selection="!:MOL", outkey="prot_acceptor" )
+  # features["donor_lig"] = nearl.features.HBondDonor(selection=":MOL", outkey="prot_donor" )
+  # features["acceptor_lig"] = nearl.features.HBondAcceptor(selection=":MOL", outkey="prot_acceptor" )
+  # features["ring_lig"] = nearl.features.Ring(selection=":MOL", outkey="ring_lig")
+  # features["ring_prot"] = nearl.features.Ring(selection="!:MOL", outkey="ring_prot")
 
-  features["arom_lig"] = nearl.features.Aromaticity( selection=":MOL", outkey="arom_lig" )
-  features["arom_prot"] = nearl.features.Aromaticity( selection="!:MOL", outkey="arom_prot" )
 
-  features["positive_lig"] = nearl.features.PartialCharge(selection=":MOL", keep_sign = "p", outkey="charge_positive_lig")
-  features["negative_lig"] = nearl.features.PartialCharge(selection=":MOL", keep_sign = "n", outkey="charge_negative_lig")
-  features["positive_prot"] = nearl.features.PartialCharge(selection="!:MOL", keep_sign = "p", outkey = "charge_positive_prot" )
-  features["negative_prot"] = nearl.features.PartialCharge(selection="!:MOL", keep_sign = "n", outkey = "charge_negative_prot" )
-
-  features["donor_prot"] = nearl.features.HBondDonor(selection="!:MOL", outkey="prot_donor" )
-  features["acceptor_prot"] = nearl.features.HBondAcceptor(selection="!:MOL", outkey="prot_acceptor" )
-  features["donor_lig"] = nearl.features.HBondDonor(selection=":MOL", outkey="prot_donor" )
-  features["acceptor_lig"] = nearl.features.HBondAcceptor(selection=":MOL", outkey="prot_acceptor" )
-
+  ##############################################################################
+  # features["feat_atomicnumber"] = nearl.features.AtomicNumber( outkey="atomic_number" )
+  # features["feat_backbone"] = nearl.features.Backbone( outkey="backboness" )
   # features["feat_sidechain"] = nearl.features.Backbone( selection=":MOL", outkey="sidechain", reverse=True )
   # features["feat_heavyatom"] = nearl.features.HeavyAtom( outkey="heavy_atom" )
   # features["feat_electronegativity"] = nearl.features.Electronegativity( outkey="electronegativity" )
+  ##############################################################################
 
-  features["ring_lig"] = nearl.features.Ring(selection=":MOL", outkey="ring_lig")
-  features["ring_prot"] = nearl.features.Ring(selection="!:MOL", outkey="ring_prot")
+  
          
   # Static atom types 
   features["type_H_Lig"] = nearl.features.AtomType(selection=":MOL", focus_element=1, outkey="lig_type_H")
@@ -128,19 +128,21 @@ if __name__ == "__main__":
   features["type_N_Prot"] = nearl.features.AtomType(selection="!:MOL", focus_element=7, outkey="prot_type_N")
   features["type_O_Prot"] = nearl.features.AtomType(selection="!:MOL", focus_element=8, outkey="prot_type_O")
   features["type_S_Prot"] = nearl.features.AtomType(selection="!:MOL", focus_element=16, outkey="prot_type_S")
+  ##############################################################################
 
   # Dynamic features
-  features["obs_HCount_lig"] = nearl.features.MarchingObservers(selection=":MOL", weight_type="atom_type", obs="distinct_count", agg = "mean", outkey="lig_HCount_obs", element_type=1)
+  features["obs_HCount_lig"] = nearl.features.MarchingObservers(selection=":MOL", weight_type="atom_type", obs="distinct_count", agg = "standard_deviation", outkey="lig_HCount_obs", element_type=1)
   features["obs_CCount_lig"] = nearl.features.MarchingObservers(selection=":MOL", weight_type="atom_type", obs="distinct_count", agg = "standard_deviation", outkey="lig_CCount_obs", element_type=6)
-  features["obs_NCount_lig"] = nearl.features.MarchingObservers(selection=":MOL", weight_type="atom_type", obs="distinct_count", agg = "mean", outkey="lig_NCount_obs", element_type=7)
+  features["obs_NCount_lig"] = nearl.features.MarchingObservers(selection=":MOL", weight_type="atom_type", obs="distinct_count", agg = "standard_deviation", outkey="lig_NCount_obs", element_type=7)
   features["obs_OCount_lig"] = nearl.features.MarchingObservers(selection=":MOL", weight_type="atom_type", obs="distinct_count", agg = "standard_deviation", outkey="lig_OCount_obs", element_type=8)
-  features["obs_SCount_lig"] = nearl.features.MarchingObservers(selection=":MOL", weight_type="atom_type", obs="distinct_count", agg = "mean", outkey="lig_SCount_obs", element_type=16)
+  features["obs_SCount_lig"] = nearl.features.MarchingObservers(selection=":MOL", weight_type="atom_type", obs="distinct_count", agg = "standard_deviation", outkey="lig_SCount_obs", element_type=16)
 
-  features["obs_HCount_prot"] = nearl.features.MarchingObservers(selection="!:MOL", weight_type="atom_type", obs="distinct_count", agg = "mean", outkey="prot_HCount_obs", element_type=1)
+  features["obs_HCount_prot"] = nearl.features.MarchingObservers(selection="!:MOL", weight_type="atom_type", obs="distinct_count", agg = "standard_deviation", outkey="prot_HCount_obs", element_type=1)
   features["obs_CCount_prot"] = nearl.features.MarchingObservers(selection="!:MOL", weight_type="atom_type", obs="distinct_count", agg = "standard_deviation", outkey="prot_CCount_obs", element_type=6)
-  features["obs_NCount_prot"] = nearl.features.MarchingObservers(selection="!:MOL", weight_type="atom_type", obs="distinct_count", agg = "mean", outkey="prot_NCount_obs", element_type=7)
+  features["obs_NCount_prot"] = nearl.features.MarchingObservers(selection="!:MOL", weight_type="atom_type", obs="distinct_count", agg = "standard_deviation", outkey="prot_NCount_obs", element_type=7)
   features["obs_OCount_prot"] = nearl.features.MarchingObservers(selection="!:MOL", weight_type="atom_type", obs="distinct_count", agg = "standard_deviation", outkey="prot_OCount_obs", element_type=8)
-  features["obs_SCount_prot"] = nearl.features.MarchingObservers(selection="!:MOL", weight_type="atom_type", obs="distinct_count", agg = "mean", outkey="prot_SCount_obs", element_type=16)
+  features["obs_SCount_prot"] = nearl.features.MarchingObservers(selection="!:MOL", weight_type="atom_type", obs="distinct_count", agg = "standard_deviation", outkey="prot_SCount_obs", element_type=16)
+  ##############################################################################
 
   
   # features["feat_dyn1.1.1"] = nearl.features.MarchingObservers(selection=":MOL", weight_type="atomic_number", obs="distinct_count", agg = "mean", outkey="lig_atn_distinct_mean" )

@@ -79,7 +79,7 @@ class TrajectoryLoader:
     """
     Get the loading options (stride, frame_indices, mask)
     """
-    return {key: value for key, value in self.__loading_options.items()}
+    return {key: value for key, value in self.__loading_options.items() if value is not None}
   @loading_options.setter
   def loading_options(self, kwargs):
     """

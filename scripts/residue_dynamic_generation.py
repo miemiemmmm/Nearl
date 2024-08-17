@@ -57,7 +57,6 @@ def generate_features(settings):
     "sigma": 1.5, 
     "cutoff": 2.55, 
     "outfile": outputfile, 
-
     "hdf_compress_level": 0,
 
     # Other options

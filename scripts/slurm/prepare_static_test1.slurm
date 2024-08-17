@@ -1,10 +1,11 @@
 #!/bin/bash -l
-#SBATCH --job-name=Voxize_dual_mass                 # Correct the job name
-#SBATCH --output=/Matter/nearl_dual_static/Voxize_dual_mass.out     # Correct the log folder and file name 
-#SBATCH --error=/Matter/nearl_dual_static/Voxize_dual_mass.err
+#SBATCH --job-name=testjob                 # Correct the job name
+#SBATCH --output=/Matter/nearl_results/testjob.out     # Correct the log folder and file name 
+#SBATCH --error=/Matter/nearl_results/testjob.err
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=20                  # Match with the cpu number in the script
+#SBATCH --array=0-26%4
+#SBATCH --cpus-per-task=4                  # Match with the cpu number in the script
 
 
 source /home/yzhang/mamba/bin/loadmamba
@@ -18,8 +19,8 @@ outfolder="/Matter/nearl_dual_static/"
 
 
 python /MieT5/BetaPose/scripts/residue_static_generation.py \
-  -f ${datafile} -o ${outfolder} \
-  -b 500 -c ${SLURM_CPUS_PER_TASK} \
+  -f ${datafile} -o ${outfolder}    \
+  -b 500 -c ${SLURM_CPUS_PER_TASK}  \
   --weight_type mass \
 
 

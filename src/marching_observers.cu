@@ -409,7 +409,7 @@ __device__ float result_aggregation_device(float *series, const int frame_number
 /**
  * @brief The global kernel function to calculate the observable in a grid point
  */
-__global__ void moving_observer_global(
+__global__ void marching_observer_global(
   float *result, const float *coord_frames, const float *weight_frames,
   const int *dims, const float spacing, 
   const int frame_number, const int atomnr, 
@@ -430,9 +430,11 @@ __global__ void moving_observer_global(
     // Iterate over each frames to calculate the observable
     int coord_offset, weight_offset; 
     float ret_framei;
-    for (int i = 0; i < frame_number; ++i){
-      coord_offset = i * atomnr * 3;
-      weight_offset = i * atomnr;
+    int count = 0; 
+    // for (int i = 0; i < frame_number; ++i){
+    while (count < frame_number){
+      coord_offset  = count * atomnr * 3;
+      weight_offset = count * atomnr;
       // Calculate the observable in the frame
       if (type_observable == 1 or type_observable == 2){
         // Hard-coded for the direct count-based observables 
@@ -440,15 +442,21 @@ __global__ void moving_observer_global(
       } else {
         ret_framei = observe_device(coord, coord_frames + coord_offset, weight_frames + weight_offset, atomnr, cutoff, type_observable);
       }
-      series[i] = ret_framei; 
+      series[count] = ret_framei; 
       // Skip the frame if the number of frames exceed the maximum number of frames allowed
-      if (i > MAX_FRAME_NUMBER){ continue; }
+      if (count+1 >= MAX_FRAME_NUMBER){ 
+        continue; 
+      }
+      count += 1;
     }
     
     // Formulate the return value from the time series of the observer
-    // printf("Result of observer %d is: %f\n", index, ret_series);
     int series_length = frame_number > MAX_FRAME_NUMBER ? MAX_FRAME_NUMBER : frame_number; 
-    result[index] = result_aggregation_device(series, series_length, type_aggregation);
+    if (count == 0){
+      result[index] = 0.0;
+    } else {
+      result[index] = result_aggregation_device(series, series_length, type_aggregation);
+    }
   }
 }
 
@@ -490,7 +498,7 @@ void marching_observer_host(
 
   // NOTE: The coordinate should be uniformed meaning each frame have the same number of atoms
   int grid_size = (observer_number + BLOCK_SIZE - 1) / BLOCK_SIZE;
-  moving_observer_global<<<grid_size, BLOCK_SIZE>>>(
+  marching_observer_global<<<grid_size, BLOCK_SIZE>>>(
     ret_arr, coord_device, weights_device, 
     dims_device, spacing, 
     frame_number, atom_per_frame, 
@@ -506,8 +514,14 @@ void marching_observer_host(
   for (int i = 0; i < observer_number; i++){ 
     sum_return += grid_return[i]; 
   }
-  for (int i = 0; i < observer_number; i++){
-    grid_return[i] = grid_return[i] * atom_per_frame / sum_return; 
+  if (sum_return != 0.0){
+    for (int i = 0; i < observer_number; i++){
+      grid_return[i] = grid_return[i] * atom_per_frame / sum_return; 
+    }
+  } else {
+    for (int i = 0; i < observer_number; i++){
+      grid_return[i] = 0.0; 
+    }
   }
 
   cudaFree(ret_arr);
