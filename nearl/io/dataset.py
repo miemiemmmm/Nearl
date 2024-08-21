@@ -155,7 +155,10 @@ def data_augment(batch_array, translation_factor=0, add_noise=False):
           batch_array[:, :, :, :, shift:] = 0
     
   if config.verbose() or config.debug():
-    printit(f"Flipped axes: {flip_axes}, Translation: {trans}")
+    msg = f"Flipped axes: {flip_axes}; "
+    if translation_factor > 0:
+      msg += "Translation: {trans}"
+    printit(msg)
 
   # Apply a gaussian noise to the array
   if add_noise:
@@ -208,13 +211,19 @@ class Dataset:
         for k in feature_keys:
           if k not in hdf.keys():
             raise KeyError(f"Feature key {k} is not in the h5 file: {filename}")
-        if self.label_key not in hdf.keys():
-          raise KeyError(f"Label key {label_key} is not in the h5 file: {filename}")
+        if self.label_key not in [i for i in hdf.keys()]:
+          self.label_key = None
+          self.label_dtype = int
+          # raise KeyError(f"Label key {label_key} is not in the h5 file: {filename}")
         else: 
           # Get the native dtype of the hdf label and set to numpy's dtype
           self.label_dtype = np.dtype(hdf[label_key].dtype)
+          print(f"Label dtype: {self.label_dtype}")
 
-        label_nr = hdf[label_key].shape[0]
+        if self.label_key is None:
+          label_nr = hdf[feature_keys[0]].shape[0]
+        else: 
+          label_nr = hdf[label_key].shape[0]
         if config.verbose(): 
           printit(f"Found {label_nr} labels in {filename}")
         self.sample_sizes.append(label_nr)
@@ -276,7 +285,10 @@ class Dataset:
     data = torch.zeros([self.channel_nr] + self.size.tolist(), dtype=torch.float32)
     for i, key in enumerate(self.feature_keys):
       data[i] = torch.from_numpy(readdata(self.filename(index), key, self.position(index)))
-    label = torch.tensor([readdata(self.filename(index), self.label_key, self.position(index))])
+    if self.label_key is None:
+      label = torch.tensor([0])
+    else: 
+      label = torch.tensor([readdata(self.filename(index), self.label_key, self.position(index))])
     return data, label
   
   def mini_batch_task(self, index):
@@ -351,7 +363,10 @@ class Dataset:
         # Convert and reshape to the target numpy array 
         data_numpy = np.array(results, dtype=np.float32).reshape(result_shape)
         # Read the labels
-        labels = pool.starmap(readdata, [(self.filename(i), self.label_key, self.position(i)) for i in batch])
+        if self.label_key is None:
+          labels = np.zeros(len(batch), dtype=np.float32)
+        else:
+          labels = pool.starmap(readdata, [(self.filename(i), self.label_key, self.position(i)) for i in batch])
         labels_numpy = np.array(labels, dtype=self.label_dtype).reshape(-1, 1)
 
         data = torch.from_numpy(data_numpy)

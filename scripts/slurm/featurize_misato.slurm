@@ -1,15 +1,15 @@
 #!/bin/bash -l
 #SBATCH --job-name=FeaturizeMisato                 # Correct the job name
-#SBATCH --output=/Matter/nearl_training_data/testjob3/FeaturizeMisato%a.out     # Correct the log folder and file name 
-#SBATCH --error=/Matter/nearl_training_data/testjob3/FeaturizeMisato%a.err
+#SBATCH --output=/Matter/nearl_training_data/misato_pdbbind_refined/FeaturizeMisato%a.out     # Correct the log folder and file name 
+#SBATCH --error=/Matter/nearl_training_data/misato_pdbbind_refined/FeaturizeMisato%a.err
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=2
-#SBATCH --array=0-6%6
+#SBATCH --cpus-per-task=5
+#SBATCH --array=0-4%4
 
 # TODO: manually set the task count and task id for testing
-# export SLURM_ARRAY_TASK_COUNT=1
-# export SLURM_ARRAY_TASK_ID=0
+export SLURM_ARRAY_TASK_COUNT=${SLURM_ARRAY_TASK_COUNT:-1}
+export SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID:-0}
 
 echo "Total number of tasks: ${SLURM_ARRAY_TASK_COUNT}"
 echo "The task index of this job: ${SLURM_ARRAY_TASK_ID}"
@@ -27,8 +27,27 @@ micromamba activate nearl_dev
 # outdir="/Matter/nearl_training_data/train1"
 # pdbcodes="/MieT5/BetaPose/data/misato_train.txt"
 
-outdir="/Matter/nearl_training_data/test1"
-pdbcodes="/MieT5/BetaPose/data/misato_test.txt"
+# outdir="/Matter/nearl_training_data/test1"
+# pdbcodes="/MieT5/BetaPose/data/misato_test.txt"
+
+
+#### Misato dataset for general set 
+outdir=/Matter/nearl_training_data/misato_pdbbind_general
+prefix="train"
+pdbcodes=/MieT5/BetaPose/data/train_general.txt
+
+# outdir=/Matter/nearl_training_data/misato_pdbbind_general
+# prefix="test"
+# pdbcodes=/MieT5/BetaPose/data/test_general.txt
+
+#### Misato dataset for refined set
+# outdir=/Matter/nearl_training_data/misato_pdbbind_refined
+# prefix="train"
+# pdbcodes=/MieT5/BetaPose/data/train_refined.txt
+
+# outdir=/Matter/nearl_training_data/misato_pdbbind_refined
+# prefix="test"
+# pdbcodes=/MieT5/BetaPose/data/test_refined.txt
 
 
 ################################################################################
@@ -36,6 +55,7 @@ misatodir="/Matter/misato_database/"
 python3 /MieT5/BetaPose/scripts/featurize_misato.py \
   --pdbcodes    ${pdbcodes} \
   --misato_dir  ${misatodir} \
+  --h5prefix  ${prefix} \
   --task_nr     ${SLURM_ARRAY_TASK_COUNT} \
   --task_index  ${SLURM_ARRAY_TASK_ID} \
   --output_dir  ${outdir}

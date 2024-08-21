@@ -1,4 +1,4 @@
-import os
+import os, sys
 
 import h5py
 import numpy as np
@@ -97,7 +97,10 @@ class Trajectory(pt.Trajectory):
 
     elif isinstance(traj_src, (pt.Trajectory, self.__class__)):
       # Pytraj or self-based trajectory initialization
-      tmptraj = traj_src[mask]
+      if mask is not None: 
+        tmptraj = traj_src[mask]
+      else:
+        tmptraj = traj_src
       timeinfo = tmptraj.time
       boxinfo = tmptraj._boxes
 
@@ -114,6 +117,8 @@ class Trajectory(pt.Trajectory):
     #   tmptraj = tmptraj[mask]
     top = tmptraj.top
     xyz = tmptraj.xyz
+    printit(tmptraj.xyz.shape)
+    assert tmptraj.top.n_atoms == tmptraj.xyz.shape[1], f"The number of atoms in the topology and the coordinates should be the same, rather than {tmptraj.top.n_atoms} and {tmptraj.xyz.shape[1]}"
 
     # Set basic attributes for pytraj.Trajectory;
     super().__init__(xyz=xyz, top=top, velocity=tmptraj.velocities, force=tmptraj.forces)
@@ -126,6 +131,12 @@ class Trajectory(pt.Trajectory):
     self.top_filename = pdb_src
     self.traj_filename = traj_src
     self.mask = mask
+    if "identity" in kwarg.keys():
+      self.identity_ = kwarg["identity"]
+    else:
+      self.identity_ = None
+
+    print("ideneity is ", self.identity, file=sys.stderr)
 
     # Prepare the per-atom/per-residue index for the further trajectory processing;
     self.atoms = None
@@ -144,6 +155,7 @@ class Trajectory(pt.Trajectory):
       self._life_holder.make_index()
     return self._life_holder
   
+  @property
   def identity(self):
     """
     Return the identity of the trajectory used for metadata retrieval. 
@@ -153,7 +165,10 @@ class Trajectory(pt.Trajectory):
     str
       By default, it returns the trajectory file name
     """
-    return self.traj_filename
+    if self.identity_ is not None: 
+      return self.identity_
+    else: 
+      return self.traj_filename
 
   def copy_traj(self):
     """
@@ -339,6 +354,8 @@ class MisatoTraj(Trajectory):
     
     # NOTE: Get the PDB code in the standard format, lowercase and replace superceded PDB codes
     self.pdbcode = pdbcode
+    if config.verbose():
+      printit(f"{self.__class__.__name__}: Loading trajectory {pdbcode} with topology {self.topfile}")
 
     top = pt.load_topology(self.topfile)
     # ! IMPORTANT: Remove water and ions to align the coordinates with the topology
@@ -350,10 +367,15 @@ class MisatoTraj(Trajectory):
     if "Na+" in res:
       top.strip(":Na+")
 
+    if config.verbose():
+      printit(f"{self.__class__.__name__}: Topology loaded with {top.n_atoms} atoms")
+
     with h5py.File(self.trajfile, "r") as hdf:
       keys = hdf.keys()
       if pdbcode.upper() in keys:
         coord = hdf[f"/{pdbcode.upper()}/trajectory_coordinates"]
+        if config.verbose():
+          printit(f"{self.__class__.__name__}: Trajectory loaded with {coord.shape[0]} frames and {coord.shape[1]} atoms")
         # Parse frames (Only one from stride and frame_indices will take effect) and masks
         if "stride" in kwarg.keys() and kwarg["stride"] is not None:
           slice_frame = np.s_[::int(kwarg["stride"])]
@@ -378,6 +400,11 @@ class MisatoTraj(Trajectory):
         printit(f"{self.__class__.__name__}: Superpose the trajectory with default mask @CA")
         pt.superpose(ret_traj, mask="@CA")
     
+    
+    printit(ret_traj.xyz.shape)   # DEBUG
+    assert ret_traj.xyz.shape.__len__() == 3 , f"What? Shape of the trajectory is {ret_traj.xyz.shape}"
+    printit("Result traj: ", ret_traj)
+
     # Pytraj trajectory-based initialization
     super().__init__(ret_traj)
 
