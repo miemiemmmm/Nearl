@@ -110,12 +110,8 @@ def evaluate_residues(traj_list, focused_res, results_array, resnames):
 
 
 if __name__ == '__main__':
-  nearl.update_config(
-    verbose = False, 
-    debug = False,
-    # verbose = True, 
-    # debug = True,
-  )
+  nearl.update_config(verbose = False, debug = False)
+  # nearl.update_config(verbose = True, debug = True)
 
   args = parser()
   args = vars(args)

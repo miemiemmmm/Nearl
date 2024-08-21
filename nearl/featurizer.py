@@ -1,4 +1,4 @@
-import time
+import time, json
 
 import numpy as np
 from tqdm import tqdm
@@ -341,6 +341,11 @@ class Featurizer:
       self.FOCALPOINTS_TYPE = "function"
       self.FOCALPOINTS = None
 
+    elif format == "json": 
+      self.FOCALPOINTS_PROTOTYPE = focus
+      self.FOCALPOINTS_TYPE = "json"
+      self.FOCALPOINTS = None
+
     else: 
       raise ValueError(f"Unexpected focus format: {format}. Please choose from 'mask', 'absolute', 'index', 'function'")
 
@@ -382,6 +387,15 @@ class Featurizer:
         for idx, frame in enumerate(self.traj.xyz[::self.time_window]):
           self.FOCALPOINTS[idx, focusidx] = focus
       
+    elif self.FOCALPOINTS_TYPE == "json":
+      with open(self.FOCALPOINTS_PROTOTYPE, "r") as f:
+        focus = json.load(f)
+        indices = focus[utils.get_pdbcode(self.traj.identity)]
+      indices = np.array(indices, dtype=int)
+      for idx, frame in enumerate(self.traj.xyz[::self.time_window]):
+        focus = np.mean(frame[indices], axis=0)
+        self.FOCALPOINTS[0, idx] = focus
+
     else:
       raise ValueError(f"Unexpected focus format: {self.FOCALPOINTS_TYPE}")
 
@@ -408,8 +422,6 @@ class Featurizer:
         self.parse_focus()
         if config.verbose() or config.debug():
           printit(f"{self.__class__.__name__}: Re-parsing of focal points on trajectory ({tid}/{self.traj.identity}) yeield the shape: {self.FOCALPOINTS.shape}. ")
-        
-        print(f"==========> Parsing of the focal points yields the shape: {self.FOCALPOINTS.shape}, {np.sum(self.FOCALPOINTS)}")
 
       tasks = []
       feature_map = []

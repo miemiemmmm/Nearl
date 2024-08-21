@@ -76,8 +76,14 @@ def console_interface():
   input_file = settings["input_file"]
   exit_point = settings["exit_point"]
   print(json.dumps(settings, indent=2))
+  if input_file.endswith(".h5") is True: 
+    files = [input_file]
+  else: 
+    with open(input_file, "r") as f: 
+      files = f.read().strip("\n").split("\n")
+  print(f"Files: {files}")
 
-  dset = Dataset([input_file], feature_keys = settings["tags_list"], label_key = settings["label_tag"])
+  dset = Dataset(files, feature_keys = settings["tags_list"], label_key = settings["label_tag"])
 
   benchmark_dataset_method(dset, batch_size=batch_size, process_nr=workernr, exit_point=exit_point, tocuda=settings["tocuda"], verbose=settings["verbose"])
 

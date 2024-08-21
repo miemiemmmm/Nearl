@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "nearl"  # as it would appear on PyPI
 version = "0.0.1"
-description = "Nearl Package Installation"
+description = "Nearl: A generalizable framework for 3D dynamic feature extraction"
 authors = [
     {name = "Yang Zhang", email = "y.zhang@bioc.uzh.ch"},
 ]

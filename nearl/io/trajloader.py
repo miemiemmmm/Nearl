@@ -49,7 +49,7 @@ class TrajectoryLoader:
       print(traj)  # Print the trajectory information
 
   """
-  def __init__(self, trajs = None, trajtype = None, **kwarg):
+  def __init__(self, trajs = None, trajtype = None, trajid = None, **kwarg):
     self.trajs = []
     if isinstance(trajs, (list, tuple)):
       for traj in trajs:
@@ -70,6 +70,14 @@ class TrajectoryLoader:
     else: 
       self.OUTPUT_TYPE = []
 
+    self.i_ = 0
+    if trajid is not None:
+      self.trajids = trajid
+      if len(trajid) != len(self.trajs):
+        raise ValueError(f"The number of trajectory ids {len(trajid)} does not match the number of trajectories {len(self.trajs)}")
+    else: 
+      self.trajids = None
+
     # Remember the user's configuration
     self.__loading_options = {"stride": None, "frame_indices": None, "mask": None, "superpose": False }
     self.loading_options = kwarg
@@ -79,7 +87,11 @@ class TrajectoryLoader:
     """
     Get the loading options (stride, frame_indices, mask)
     """
-    return {key: value for key, value in self.__loading_options.items() if value is not None}
+    options = {key: value for key, value in self.__loading_options.items() if value is not None}
+    if self.trajids is not None: 
+      options["identity"] = self.trajids[self.i_]
+    return options
+  
   @loading_options.setter
   def loading_options(self, kwargs):
     """
@@ -106,6 +118,7 @@ class TrajectoryLoader:
     """
     options = self.loading_options
     for i in range(len(self)): 
+      self.i_ = i
       yield self.OUTPUT_TYPE[i](*self.trajs[i], **options)
 
   def __len__(self):
