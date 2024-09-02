@@ -38,11 +38,11 @@ class PafnucyNetwork(nn.Module):
     conv_layers = OrderedDict()
     for i in range(len(conv_channels)):
       if i == 0:
-        conv_layers[f"conv3d_{i}"] = nn.Conv3d(input_channels, conv_channels[i], kernel_size=conv_patch, padding=(conv_patch//2))
+        conv_layers[f"conv{i}"] = nn.Conv3d(input_channels, conv_channels[i], kernel_size=conv_patch, padding=(conv_patch//2))
       else:
-        conv_layers[f"conv3d_{i}"] = nn.Conv3d(conv_channels[i-1], conv_channels[i], kernel_size=conv_patch, padding=(conv_patch//2))
-      conv_layers[f"relu_{i}"] = nn.ReLU(inplace=True)
-      conv_layers[f"pool_{i}"] = nn.MaxPool3d(kernel_size=pool_patch, stride=pool_patch)
+        conv_layers[f"conv{i}"] = nn.Conv3d(conv_channels[i-1], conv_channels[i], kernel_size=conv_patch, padding=(conv_patch//2))
+      conv_layers[f"relu{i}"] = nn.ReLU(inplace=True)
+      conv_layers[f"pool{i}"] = nn.MaxPool3d(kernel_size=pool_patch, stride=pool_patch)
     self.conv_blocks = nn.Sequential(conv_layers)
     
     dummpy_out = self.conv_blocks(torch.rand(1, input_channels, *self.input_shape))
@@ -51,11 +51,11 @@ class PafnucyNetwork(nn.Module):
     fc_layers = OrderedDict()
     for i in range(len(dense_sizes)):
       if i == 0:
-        fc_layers[f"fc_{i}"] = nn.Linear(size, dense_sizes[i])
+        fc_layers[f"fc{i}"] = nn.Linear(size, dense_sizes[i])
       else:
-        fc_layers[f"fc_{i}"] = nn.Linear(dense_sizes[i-1], dense_sizes[i])
-      fc_layers[f"relu_{i}"] = nn.ReLU(inplace=True)
-      fc_layers[f"dropout_{i}"] = nn.Dropout(p=drop_prob)
+        fc_layers[f"fc{i}"] = nn.Linear(dense_sizes[i-1], dense_sizes[i])
+      fc_layers[f"relu{i}"] = nn.ReLU(inplace=True)
+      fc_layers[f"dropout{i}"] = nn.Dropout(p=drop_prob)
     self.fc_layers = nn.Sequential(fc_layers)
     
     self.output_layer = nn.Linear(dense_sizes[-1], output_dimension)

@@ -95,22 +95,23 @@ if __name__ == "__main__":
   features["S_"] = nearl.features.AtomType(selection=":MOL", focus_element=16, outkey="static_S_lig", cutoff=6)
 
   # Static features
-  # features["lig_annotation"] = nearl.features.Selection(selection=":MOL", selection_type="mask", outkey = "ligand_annotation")
-  # features["prot_annotation"] = nearl.features.Selection(selection="!:MOL", selection_type="mask", outkey = "protein_annotation")
-  # features["mass_lig"] = nearl.features.Mass( selection=":MOL", outkey="mass_lig" )
-  # features["mass_prot"] = nearl.features.Mass( selection="!:MOL", outkey="mass_prot" )
-  # features["arom_lig"] = nearl.features.Aromaticity( selection=":MOL", outkey="arom_lig" )
-  # features["arom_prot"] = nearl.features.Aromaticity( selection="!:MOL", outkey="arom_prot" )
-  # features["positive_lig"] = nearl.features.PartialCharge(selection=":MOL", keep_sign = "p", outkey="charge_positive_lig")
-  # features["negative_lig"] = nearl.features.PartialCharge(selection=":MOL", keep_sign = "n", outkey="charge_negative_lig")
-  # features["positive_prot"] = nearl.features.PartialCharge(selection="!:MOL", keep_sign = "p", outkey = "charge_positive_prot" )
-  # features["negative_prot"] = nearl.features.PartialCharge(selection="!:MOL", keep_sign = "n", outkey = "charge_negative_prot" )
-  # features["donor_prot"] = nearl.features.HBondDonor(selection="!:MOL", outkey="prot_donor" )
-  # features["acceptor_prot"] = nearl.features.HBondAcceptor(selection="!:MOL", outkey="prot_acceptor" )
-  # features["donor_lig"] = nearl.features.HBondDonor(selection=":MOL", outkey="prot_donor" )
-  # features["acceptor_lig"] = nearl.features.HBondAcceptor(selection=":MOL", outkey="prot_acceptor" )
-  # features["ring_lig"] = nearl.features.Ring(selection=":MOL", outkey="ring_lig")
-  # features["ring_prot"] = nearl.features.Ring(selection="!:MOL", outkey="ring_prot")
+  features["lig_annotation"] = nearl.features.Selection(selection=":MOL", selection_type="mask", outkey = "ligand_annotation", cutoff=6)
+  features["prot_annotation"] = nearl.features.Selection(selection="!:MOL", selection_type="mask", outkey = "protein_annotation", cutoff=6)
+  features["mass_lig"] = nearl.features.Mass( selection=":MOL", outkey="mass_lig", cutoff=6)
+  features["mass_prot"] = nearl.features.Mass( selection="!:MOL", outkey="mass_prot", cutoff=6)
+
+  features["arom_lig"] = nearl.features.Aromaticity( selection=":MOL", outkey="lig_arom", cutoff=6)
+  features["arom_prot"] = nearl.features.Aromaticity( selection="!:MOL", outkey="prot_arom", cutoff=6)
+  features["positive_lig"] = nearl.features.PartialCharge(selection=":MOL", keep_sign = "p", outkey="charge_positive_lig", cutoff=6)
+  features["negative_lig"] = nearl.features.PartialCharge(selection=":MOL", keep_sign = "n", outkey="charge_negative_lig", cutoff=6)
+  features["positive_prot"] = nearl.features.PartialCharge(selection="!:MOL", keep_sign = "p", outkey = "charge_positive_prot", cutoff=6)
+  features["negative_prot"] = nearl.features.PartialCharge(selection="!:MOL", keep_sign = "n", outkey = "charge_negative_prot", cutoff=6)
+  features["donor_prot"] = nearl.features.HBondDonor(selection="!:MOL", outkey="prot_donor", cutoff=6)
+  features["acceptor_prot"] = nearl.features.HBondAcceptor(selection="!:MOL", outkey="prot_acceptor", cutoff=6)
+  features["donor_lig"] = nearl.features.HBondDonor(selection=":MOL", outkey="lig_donor", cutoff=6)
+  features["acceptor_lig"] = nearl.features.HBondAcceptor(selection=":MOL", outkey="lig_acceptor", cutoff=6)
+  features["ring_lig"] = nearl.features.Ring(selection=":MOL", outkey="lig_ring", cutoff=6)
+  features["ring_prot"] = nearl.features.Ring(selection="!:MOL", outkey="prot_ring", cutoff=6)
 
 
   ##############################################################################
@@ -119,22 +120,6 @@ if __name__ == "__main__":
   # features["feat_sidechain"] = nearl.features.Backbone( selection=":MOL", outkey="sidechain", reverse=True )
   # features["feat_heavyatom"] = nearl.features.HeavyAtom( outkey="heavy_atom" )
   # features["feat_electronegativity"] = nearl.features.Electronegativity( outkey="electronegativity" )
-  ##############################################################################
-
-  
-         
-  # Static atom types 
-  # features["type_H_Lig"] = nearl.features.AtomType(selection=":MOL", focus_element=1, outkey="lig_type_H")
-  # features["type_C_Lig"] = nearl.features.AtomType(selection=":MOL", focus_element=6, outkey="lig_type_C")
-  # features["type_N_Lig"] = nearl.features.AtomType(selection=":MOL", focus_element=7, outkey="lig_type_N")
-  # features["type_O_Lig"] = nearl.features.AtomType(selection=":MOL", focus_element=8, outkey="lig_type_O")
-  # features["type_S_Lig"] = nearl.features.AtomType(selection=":MOL", focus_element=16, outkey="lig_type_S")
-
-  # features["type_H_Prot"] = nearl.features.AtomType(selection="!:MOL", focus_element=1, outkey="prot_type_H")
-  # features["type_C_Prot"] = nearl.features.AtomType(selection="!:MOL", focus_element=6, outkey="prot_type_C")
-  # features["type_N_Prot"] = nearl.features.AtomType(selection="!:MOL", focus_element=7, outkey="prot_type_N")
-  # features["type_O_Prot"] = nearl.features.AtomType(selection="!:MOL", focus_element=8, outkey="prot_type_O")
-  # features["type_S_Prot"] = nearl.features.AtomType(selection="!:MOL", focus_element=16, outkey="prot_type_S")
   ##############################################################################
 
   # Dynamic features

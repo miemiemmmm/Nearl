@@ -1,11 +1,5 @@
 """
 Perform benchmarking on the pre-trained models. 
-
-Example: 
-
-python3 /MieT5/MyRepos/FEater/feater/scripts/train_models.py --model convnext --optimizer adam --loss-function crossentropy \
-  --training-data /Matter/feater_train_1000/dual_hilbert.txt --test-data /Weiss/FEater_Dual_HILB/te.txt --output_folder /Weiss/benchmark_models/convnext_dual_hilb/ \
-  --test-number 4000 -e 120 -b 64 -w 12 --lr-init 0.0001 --lr-decay-steps 30 --lr-decay-rate 0.5 --data-type dual --cuda 1 --dataloader-type hilb --production 0
 """
 
 import os, sys, time, io
@@ -18,208 +12,20 @@ from PIL import Image
 
 import torch
 import torch.nn as nn
-import torch.optim as optim
-import torchvision
-import transformers
 
 from torch.utils.tensorboard import SummaryWriter
+from scipy.stats import pearsonr, spearmanr
 
-# Import models 
-from feater.models.pointnet import PointNetCls      
-from feater import dataloader, utils
-import feater
+# Import my models 
+import nearl
 
 tensorboard_writer = None 
 
-# For point cloud type of data, the input is in the shape of (B, 3, N)
-INPUT_POINTS = 0
-def update_pointnr(pointnr):
-  global INPUT_POINTS
-  INPUT_POINTS = pointnr
-DATALOADER_TYPE = ""
-def update_dataloader_type(dataloader_type):
-  global DATALOADER_TYPE
-  DATALOADER_TYPE = dataloader_type
-
-OPTIMIZERS = {
-  "adam": optim.Adam, 
-  "sgd": optim.SGD,
-  "adamw": optim.AdamW,
-}
 
 LOSS_FUNCTIONS = {
+  "mse": nn.MSELoss, 
   "crossentropy": nn.CrossEntropyLoss,
 }
-
-DATALOADER_TYPES = {
-  "pointnet": dataloader.CoordDataset,
-  "pointnet2": dataloader.CoordDataset,
-  "dgcnn": dataloader.CoordDataset,
-  "paconv": dataloader.CoordDataset,
-
-  
-  "voxnet": dataloader.VoxelDataset,
-  "deeprank": dataloader.VoxelDataset,
-  "gnina": dataloader.VoxelDataset,
-
-  
-  "resnet": dataloader.HilbertCurveDataset,
-  "convnext": dataloader.HilbertCurveDataset,
-  "convnext_iso": dataloader.HilbertCurveDataset,
-  "swintrans": dataloader.HilbertCurveDataset,
-  "ViT": dataloader.HilbertCurveDataset,
-
-  "coord": dataloader.CoordDataset, 
-  "surface": dataloader.SurfDataset, 
-}
-
-
-
-
-def get_model(model_type:str, output_dim:int): 
-  if model_type == "pointnet":
-    model = PointNetCls(output_dim)
-
-  elif model_type == "pointnet2":
-    from feater.models.pointnet2 import get_model as get_pointnet2_model
-    if DATALOADER_TYPE == "surface": 
-      rads = [0.35, 0.75]  # For surface-based training
-    elif DATALOADER_TYPE == "coord":
-      rads = [1.75, 3.60]  # For coordinate-based data
-    else: 
-      raise ValueError(f"Unexpected dataloader type {DATALOADER_TYPE} for PointNet2 model; Only surface and coord are supported")
-    print(f"Using the radii {rads} for the PointNet2 model")
-    model = get_pointnet2_model(output_dim, normal_channel=False, sample_nr = INPUT_POINTS, rads=rads)
-    
-  elif model_type == "dgcnn":
-    from feater.models.dgcnn import DGCNN_cls
-    args = {
-      "k": 20, 
-      "emb_dims": 1024,
-      "dropout" : 0.25,
-    }
-    model = DGCNN_cls(args, output_channels=output_dim)
-  elif model_type == "paconv":
-    # NOTE: This is a special case due to the special dependency of the PAConv !!!!
-    if "/MieT5/tests/PAConv/obj_cls" not in sys.path:
-      sys.path.append("/MieT5/tests/PAConv/obj_cls")
-    from feater.models.paconv import PAConv
-    config = {
-      "k_neighbors": 20, 
-      "output_channels": output_dim,
-      "dropout": 0.25,
-    }
-    model = PAConv(config)
-  elif model_type == "voxnet":
-    from feater.models.voxnet import VoxNet
-    model = VoxNet(output_dim)
-  elif model_type == "deeprank":
-    from feater.models.deeprank import DeepRankNetwork
-    model = DeepRankNetwork(1, output_dim, 32)
-  elif model_type == "gnina":
-    from feater.models.gnina import GninaNetwork
-    model = GninaNetwork(output_dim)
-  elif model_type == "resnet":
-    from feater.models.resnet import ResNet
-    model = ResNet(1, output_dim, "resnet18")
-  elif model_type == "convnext":
-    from feater.models.convnext import ConvNeXt
-    """
-      in_chans=3, num_classes=1000, 
-      depths=[3, 3, 9, 3], dims=[96, 192, 384, 768], 
-      drop_path_rate=0.,  layer_scale_init_value=1e-6, 
-      head_init_scale=1.,
-    """
-    model = ConvNeXt(1, output_dim)
-
-  elif model_type == "convnext_iso":
-    from feater.models.convnext import ConvNeXt, ConvNeXtIsotropic
-    model = ConvNeXtIsotropic(1, output_dim)
-
-  elif model_type == "swintrans":
-    from transformers import SwinForImageClassification, SwinConfig
-    configuration = SwinConfig(
-      image_size = 128, 
-      num_channels = 1,
-      num_labels = output_dim,
-      window_size=4, 
-    )
-    model = SwinForImageClassification(configuration)
-
-  elif model_type == "ViT":
-    from transformers import ViTConfig, ViTForImageClassification
-    configuration = ViTConfig(
-      image_size = 128, 
-      num_channels = 1, 
-      num_labels = output_dim, 
-      window_size=4, 
-    )
-    model = ViTForImageClassification(configuration)
-
-  else:
-    raise ValueError(f"Unexpected model type {model_type}; Only voxnet, pointnet, resnet, and deeprank are supported")
-  return model
-
-
-def match_data(pred, label):  
-  predicted_labels = torch.argmax(pred, dim=1)
-  plt.scatter(predicted_labels.cpu().detach().numpy(), label.cpu().detach().numpy(), s=4, c = np.arange(len(label))/len(label), cmap="inferno")
-  plt.xlabel("Predicted")
-  plt.ylabel("Actual")
-  plt.title("Predicted vs. Actual")
-  buf = io.BytesIO()
-  plt.savefig(buf, format="png")
-  buf.seek(0)
-  Image.open(buf)
-  image_tensor = torchvision.transforms.ToTensor()(Image.open(buf))
-  plt.clf()
-  buf.close()
-  return image_tensor
-
-
-def test_model(model, dataset, criterion, test_number, batch_size, use_cuda=1, process_nr=32):
-  test_loss = 0.0
-  correct = 0
-  c = 0
-  c_samples = 0
-  batch_nr = len(dataset) // batch_size
-  with torch.no_grad():
-    model.eval()
-    for data, target in dataset.mini_batches(batch_size=batch_size, process_nr=process_nr):
-      # Correct way to handle the input data
-      # For the PointNet, the data is in the shape of (B, 3, N)
-      # Important: Swap the axis to make the coordinate as 3 input channels of the data
-      # print(target.unique(return_counts=True))
-      if c % (batch_nr//10) == 0:
-        print(f"Testing: {c}/{batch_nr} at {time.ctime()}")
-
-      if isinstance(dataset, dataloader.CoordDataset) or isinstance(dataset, dataloader.SurfDataset):
-        data = data.transpose(2, 1)  
-      if use_cuda:
-        data, target = data.cuda(), target.cuda()
-
-      pred = model(data)
-
-      if isinstance(model, PointNetCls) or isinstance(pred, tuple):
-        pred = pred[0]
-      
-      # Get the logit if the huggingface models is used
-      if isinstance(pred, transformers.file_utils.ModelOutput): 
-        pred = pred.logits
-      
-      pred_choice = torch.argmax(pred, dim=1)
-      correct += pred_choice.eq(target.data).cpu().sum().item()
-      test_loss += criterion(pred, target).item()
-
-      # Increament the counter for test sample count
-      c_samples += len(data)
-      c += 1
-      # if c_samples >= test_number:
-      #   break
-    test_loss /= c
-    accuracy = correct / c_samples
-    
-    return test_loss, accuracy
 
 
 def parse_args():
@@ -258,59 +64,115 @@ def parse_args():
   return args
 
 
-def perform_testing(training_settings: dict): 
-  USECUDA = training_settings["cuda"]
-  MODEL_TYPE = training_settings["model"]
-  BATCH_SIZE = training_settings["batch_size"]
-  WORKER_NR = training_settings["data_workers"]
 
-  random.seed(training_settings["seed"])
-  torch.manual_seed(training_settings["seed"])
-  np.random.seed(training_settings["seed"])
+def perform_testing_API(settings: dict, return_model=False, silent=False): 
+  """
+  The variable "test_data" and "pretrained" should be in the settings.
+  """
+  if not settings.get("test_data", None):
+    raise ValueError("The test data file is not provided.")
+  elif not settings.get("pretrained", None):
+    raise ValueError("The pretrained model is not provided.") 
+  elif not settings.get("meta_information", None):
+    raise ValueError("The meta information file is not provided.")
 
-  ###################
-  # Load the datasets
-  trainingfiles = utils.checkfiles(training_settings["training_data"])
-  testfiles = utils.checkfiles(training_settings["test_data"])
-  if training_settings["dataloader_type"] in ("surface", "coord"):
-    training_data = DATALOADER_TYPES[training_settings["dataloader_type"]](trainingfiles, target_np=training_settings["pointnet_points"])
-    test_data = DATALOADER_TYPES[training_settings["dataloader_type"]](testfiles, target_np=training_settings["pointnet_points"])
-  elif MODEL_TYPE == "pointnet": 
-    training_data = DATALOADER_TYPES[MODEL_TYPE](trainingfiles, target_np=training_settings["pointnet_points"])
-    test_data = DATALOADER_TYPES[MODEL_TYPE](testfiles, target_np=training_settings["pointnet_points"])
-  else: 
-    training_data = DATALOADER_TYPES[MODEL_TYPE](trainingfiles)
-    test_data = DATALOADER_TYPES[MODEL_TYPE](testfiles)
-  print(f"Training data size: {len(training_data)}; Test data size: {len(test_data)}; Batch size: {BATCH_SIZE}; Worker number: {WORKER_NR}")
+  with open(settings["meta_information"], "r") as f:
+    meta_information = json.load(f)
+    print("The original model used the test dataset:", meta_information["test_data"])
+  
+  meta_information.update(settings)
 
-  ###################
-  # Load the model
-  classifier = get_model(MODEL_TYPE, training_settings["class_nr"])
-  print(f"Classifier: {classifier}")
+  USECUDA = meta_information["cuda"]
+  MODEL_TYPE = meta_information["model"]
+  BATCH_SIZE = meta_information["batch_size"]
+  WORKER_NR = meta_information["data_workers"]
+  DATATAGS = meta_information["datatags"]
+  LABELTAG = meta_information["labeltag"]
+  TESTNUMBER = meta_information["test_number"]
 
-  ###################
+  random.seed(meta_information["seed"])
+  torch.manual_seed(meta_information["seed"])
+  np.random.seed(meta_information["seed"])
+
+  testfiles = nearl.utils.check_filelist(meta_information["test_data"])
+  test_data = nearl.io.dataset.Dataset(testfiles, feature_keys = DATATAGS, label_key = LABELTAG)
+
+  model = nearl.utils.get_model(MODEL_TYPE, meta_information["input_channels"], meta_information["output_dimension"], meta_information["dimensions"])
+  print(f"Number of parameters: {sum([p.numel() for p in model.parameters()])}")
+  if not silent:
+    print(f"The model is: {model}")
+  if return_model: 
+    return model
+  
+  ###############################
   # Load the pretrained model
-  if training_settings["pretrained"] and len(training_settings["pretrained"]) > 0:
-    classifier.load_state_dict(torch.load(training_settings["pretrained"]))
+  if meta_information["pretrained"] and len(meta_information["pretrained"]) > 0:
+    model.load_state_dict(torch.load(meta_information["pretrained"]))
+    print(f"Pretrained model loaded from {meta_information['pretrained']}")
   else: 
-    raise ValueError(f"Unexpected pretrained model {training_settings['pretrained']}")
+    raise ValueError(f"Unexpected pretrained model {meta_information['pretrained']}")
   if USECUDA:
-    classifier.cuda()
+    model.cuda()
 
-  ###################
-  # Get loss function 
-  # The loss function in the original training
-  criterion = LOSS_FUNCTIONS.get(training_settings["loss_function"], nn.CrossEntropyLoss)()
-  print(f"Number of parameters: {sum([p.numel() for p in classifier.parameters()])}")
+  if meta_information["loss_function"] not in LOSS_FUNCTIONS.keys():
+    raise ValueError(f"Loss function {meta_information['loss_function']} is not supported.") 
+  else: 
+    criterion = LOSS_FUNCTIONS[meta_information["loss_function"]]()
 
-  ####################
-  test_number = training_settings["test_number"]
-  loss_on_train, accuracy_on_train = test_model(classifier, training_data, criterion, test_number, BATCH_SIZE, USECUDA, WORKER_NR)
-  loss_on_test, accuracy_on_test = test_model(classifier, test_data, criterion, test_number, BATCH_SIZE, USECUDA, WORKER_NR)
-  print(f"Checking the Performance on Loss: {loss_on_test}/{loss_on_train}; Accuracy: {accuracy_on_test}/{accuracy_on_train} at {time.ctime()}")
+  ret_pred, targets, ret_loss = nearl.utils.test_model(model, test_data, criterion, TESTNUMBER, BATCH_SIZE, USECUDA, WORKER_NR)
+  ret_pred = ret_pred.flatten()
+  targets = targets.flatten()
+  ret_loss = ret_loss.flatten()
 
-  return loss_on_train, accuracy_on_train, loss_on_test, accuracy_on_test
+  if meta_information["output_dimension"] > 1: 
+    accuracy = np.count_nonzero(ret_pred == targets) / len(ret_pred)
+    print(f"Accuracy: {accuracy}")
+  else: 
+    # RMSE between ret_pred, targets
+    rmse = np.sqrt(np.mean((ret_pred - targets)**2).sum())
+    R = pearsonr(ret_pred, targets)
+    rho = spearmanr(ret_pred, targets)
+    print(f"RMSE: {rmse}, Pearson R: {R}, Spearman Rho: {rho}")
+  
+  return ret_pred, targets
+  
 
+def perform_testing_CLI(): 
+  args = parse_args()
+  SETTINGS = vars(args)
+  print("Settings of this training:")
+  print(json.dumps(SETTINGS, indent=2))
+
+  with open(SETTINGS["meta_information"], "r") as f:
+    meta_information = json.load(f)
+  
+  meta_information.update(SETTINGS)
+
+  ret_pred, targets, ret_loss = perform_testing_API(meta_information)
+  ret_pred = ret_pred.flatten()
+  targets = targets.flatten()
+  ret_loss = ret_loss.flatten()
+  
+  if meta_information["output_dimension"] > 1: 
+    # Classification problem 
+    accuracy = np.count_nonzero(ret_pred == targets) / len(ret_pred)
+    print(f"Accuracy: {accuracy}")
+  else:
+    # Regression problem 
+    rmse = np.sqrt(np.mean((ret_pred - targets)**2).sum())
+    R = pearsonr(ret_pred, targets)
+    rho = spearmanr(ret_pred, targets)
+    print(f"RMSE: {rmse}, Pearson R: {R}, Spearman Rho: {rho}")
+    
+
+  # # Find matched model file and set the corresponding output column
+  # print(f"Updating the performance data in {SETTINGS['output_file']}, with the pretrained model {SETTINGS['pretrained']}")
+  # df = pd.read_csv(SETTINGS["output_file"], index_col=None)
+  # df.loc[df["param_path"] == SETTINGS["pretrained"], "acc_test"] = accuracy_on_test
+  # df.loc[df["param_path"] == SETTINGS["pretrained"], "loss_test"] = loss_on_test
+  # df.loc[df["param_path"] == SETTINGS["pretrained"], "acc_train"] = accuracy_on_train
+  # df.loc[df["param_path"] == SETTINGS["pretrained"], "loss_train"] = loss_on_train
+  # df.to_csv(SETTINGS["output_file"], index=False)
   
 
 if __name__ == "__main__":
@@ -318,43 +180,6 @@ if __name__ == "__main__":
   Test the model with 
 
   """
-
-  args = parse_args()
-  SETTINGS = vars(args)
-  _SETTINGS = json.dumps(SETTINGS, indent=2)
-  print("Settings of this training:")
-  print(_SETTINGS)
-
-  # with open(os.path.join(SETTINGS["output_folder"], "settings.json"), "w") as f:
-  #   f.write(_SETTINGS)
-
-  # Read the input meta-information 
-  with open(SETTINGS["meta_information"], "r") as f:
-    meta_information = json.load(f)
-    # del meta_information["training_data"]
-    del meta_information["test_data"]
-    del meta_information["pretrained"]
-
-    update_pointnr(meta_information["pointnet_points"])
-    update_dataloader_type(meta_information["dataloader_type"])
-
-  SETTINGS.update(meta_information)  # Update the settings with the requested meta-information 
-
-  print(SETTINGS)
-  
-  loss_on_train, accuracy_on_train, loss_on_test, accuracy_on_test = perform_testing(SETTINGS)
-
-
-  # Find matched model file and set the corresponding output column
-  print(f"Updating the performance data in {SETTINGS['output_file']}, with the pretrained model {SETTINGS['pretrained']}")
-  df = pd.read_csv(SETTINGS["output_file"], index_col=None)
-  df.loc[df["param_path"] == SETTINGS["pretrained"], "acc_test"] = accuracy_on_test
-  df.loc[df["param_path"] == SETTINGS["pretrained"], "loss_test"] = loss_on_test
-  df.loc[df["param_path"] == SETTINGS["pretrained"], "acc_train"] = accuracy_on_train
-  df.loc[df["param_path"] == SETTINGS["pretrained"], "loss_train"] = loss_on_train
-  df.to_csv(SETTINGS["output_file"], index=False)
-  
-
-
+  perform_testing_CLI()
 
 

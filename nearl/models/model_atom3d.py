@@ -42,14 +42,14 @@ class Atom3DNetwork(nn.Module):
     conv_layers = OrderedDict()
     for i in range(len(conv)): 
       if i == 0:
-        conv_layers[f'conv3d_{i:d}'] = nn.Conv3d(input_channel_number, conv[i], kernel_size=kernel_sizes[i], stride=strides[i], padding=paddings[i], bias=False)
+        conv_layers[f'conv{i:d}'] = nn.Conv3d(input_channel_number, conv[i], kernel_size=kernel_sizes[i], stride=strides[i], padding=paddings[i], bias=False)
       else:
-        conv_layers[f'conv3d_{i:d}'] = nn.Conv3d(conv[i-1], conv[i], kernel_size=kernel_sizes[i], stride=strides[i], padding=paddings[i], bias=False)
+        conv_layers[f'conv{i:d}'] = nn.Conv3d(conv[i-1], conv[i], kernel_size=kernel_sizes[i], stride=strides[i], padding=paddings[i], bias=False)
       
-      conv_layers[f'bn_{i:d}'] = nn.BatchNorm3d(conv[i])
-      conv_layers[f'relu_{i:d}'] = nn.ReLU(inplace=True)
+      conv_layers[f'bn{i:d}'] = nn.BatchNorm3d(conv[i])
+      conv_layers[f'relu{i:d}'] = nn.ReLU(inplace=True)
       if dropout > 0:
-        conv_layers[f'dropout_{i:d}'] = nn.Dropout(dropout)
+        conv_layers[f'dropout{i:d}'] = nn.Dropout(dropout)
     self.conv_blocks = nn.Sequential(conv_layers)
 
     final_kenel_size = self.input_shape[0] // 4

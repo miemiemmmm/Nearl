@@ -136,7 +136,8 @@ class Trajectory(pt.Trajectory):
     else:
       self.identity_ = None
 
-    print("ideneity is ", self.identity, file=sys.stderr)
+    if config.verbose() or config.debug():
+      printit(f"The identity of this trajectory is: {self.identity}", file=sys.stderr)
 
     # Prepare the per-atom/per-residue index for the further trajectory processing;
     self.atoms = None
