@@ -1,11 +1,11 @@
 #!/bin/bash -l
-#SBATCH --job-name=FeaturizeMisato                 # Correct the job name
-#SBATCH --output=/Matter/nearl_training_data/misato_pdbbind_refined/FeaturizeMisato%a.out     # Correct the log folder and file name 
-#SBATCH --error=/Matter/nearl_training_data/misato_pdbbind_refined/FeaturizeMisato%a.err
+#SBATCH --job-name=FeaturizeMisato_multistatic                 # Correct the job name
+#SBATCH --output=/Matter/training_logs/FeaturizeMisato_multistatic_%a.out     # Correct the log folder and file name 
+#SBATCH --error=/Matter/training_logs/FeaturizeMisato_multistatic_%a.err
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=5
-#SBATCH --array=0-4%4
+#SBATCH --cpus-per-task=4
+#SBATCH --array=0-3%4
 
 # TODO: manually set the task count and task id for testing
 export SLURM_ARRAY_TASK_COUNT=${SLURM_ARRAY_TASK_COUNT:-1}
@@ -32,11 +32,11 @@ micromamba activate nearl_dev
 
 
 #### Misato dataset for general set 
-outdir=/Matter/nearl_training_data/misato_pdbbind_general
+outdir=/Matter/nearl_training_data/misato_multi_static_props
 prefix="train"
 pdbcodes=/MieT5/BetaPose/data/train_general.txt
 
-# outdir=/Matter/nearl_training_data/misato_pdbbind_general
+# outdir=/Matter/nearl_training_data/misato_multi_static_props
 # prefix="test"
 # pdbcodes=/MieT5/BetaPose/data/test_general.txt
 

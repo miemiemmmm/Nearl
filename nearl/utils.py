@@ -1,6 +1,6 @@
 import os, time, re, hashlib, sys
 
-import h5py
+import h5py, torch
 import numpy as np 
 import pytraj as pt
 from scipy.spatial import distance_matrix
@@ -699,7 +699,7 @@ def check_filelist(training_set):
 
 # Available models:
 # Atom3D, DeepRank, Gnina2017, Gnina2017_, GninaDense, Gnina2018, KDeep, VoxNet, Pafnucy
-def get_model(name, in_channels, out_channels, box_size, **kwargs):
+def get_model(model_type:str, input_dim:int, output_dim:int, box_size, **kwargs):
   """
   A quick wrapper to get the model object
 
@@ -722,33 +722,103 @@ def get_model(name, in_channels, out_channels, box_size, **kwargs):
     The model object
 
   """
-  if name == "Atom3D":
-    import nearl.models.model_atom3d
-    return nearl.models.model_atom3d.Atom3DNetwork(in_channels, out_channels, box_size)
-  elif name == "DeepRank":
-    import nearl.models.model_deeprank
-    return nearl.models.model_deeprank.DeepRankNetwork(in_channels, out_channels, box_size)
-  elif name == "Gnina2017":
-    import nearl.models.model_gnina
-    return nearl.models.model_gnina.GninaNetwork2017(in_channels, out_channels, box_size)
-  elif name == "Gnina2017_":
-    import nearl.models.model_gnina
-    return nearl.models.model_gnina.GninaNetwork2017_(in_channels, out_channels, box_size)
-  elif name == "GninaDense":
-    import nearl.models.model_gnina
-    return nearl.models.model_gnina.GninaNetworkDense(in_channels, out_channels, box_size)
-  elif name == "Gnina2018":
-    import nearl.models.model_gnina
-    return nearl.models.model_gnina.GninaNetwork2018(in_channels, out_channels, box_size)
-  elif name == "KDeep":
-    import nearl.models.model_kdeep
-    return nearl.models.model_kdeep.KDeepNetwork(in_channels, out_channels, box_size)
-  elif name == "VoxNet":
+  # def get_model(model_type:str, input_dim:int, output_dim:int, box_size=None, **kwargs): 
+  channel_nr = input_dim
+  if model_type == "voxnet": 
     import nearl.models.model_voxnet
-    return nearl.models.model_voxnet.VoxNet(in_channels, out_channels, box_size)
-  elif name == "Pafnucy":
-    import nearl.models.model_pafnucy
-    return nearl.models.model_pafnucy.PafnucyNetwork(in_channels, out_channels, box_size, **kwargs)
-  else:
-    raise ValueError(f"Model {name} not found")
+    voxnet_parms = {
+      "input_channels": channel_nr,
+      "output_dimension": output_dim,
+      "input_shape": box_size,
+      "dropout_rates" : [0.2, 0.3, 0.4],   # 0.25, 0.25, 0.25
+    }
+    return nearl.models.model_voxnet.VoxNet(**voxnet_parms)
 
+  elif model_type == "deeprank":
+    import nearl.models.model_deeprank
+    return nearl.models.model_deeprank.DeepRankNetwork(channel_nr, output_dim, box_size)
+
+  elif model_type == "gnina2017":
+    import nearl.models.model_gnina
+    return nearl.models.model_gnina.GninaNetwork2017(channel_nr, output_dim, box_size)
+
+  elif model_type == "gnina2018":
+    import nearl.models.model_gnina
+    return nearl.models.model_gnina.GninaNetwork2018(channel_nr, output_dim, box_size)
+
+  elif model_type == "kdeep":
+    import nearl.models.model_kdeep
+    return nearl.models.model_kdeep.KDeepNetwork(channel_nr, output_dim, box_size)
+
+  elif model_type == "pafnucy":
+    import nearl.models.model_pafnucy
+    return nearl.models.model_pafnucy.PafnucyNetwork(channel_nr, output_dim, box_size, **kwargs)
+
+  elif model_type == "atom3d":
+    import nearl.models.model_atom3d
+    return nearl.models.model_atom3d.Atom3DNetwork(channel_nr, output_dim, box_size)
+
+  elif model_type == "resnet3d":
+    import nearl.models.model_resnet3d
+    return nearl.models.model_resnet3d.ResNet3D(channel_nr, output_dim, box_size, **kwargs)
+
+  elif model_type == "resnet":
+    from feater.models.resnet import ResNet
+    model = ResNet(channel_nr, output_dim, "resnet18")
+    return model
+
+  elif model_type == "convnext_iso":
+    from feater.models.convnext import ConvNeXtIsotropic
+    model = ConvNeXtIsotropic(in_chans = channel_nr, num_classes=output_dim)
+    return model
+
+  elif model_type == "ViT":
+    from transformers import ViTConfig, ViTForImageClassification
+    configuration = ViTConfig(
+      image_size = 128, 
+      num_channels = channel_nr, 
+      num_labels = output_dim, 
+      window_size=4, 
+    )
+    model = ViTForImageClassification(configuration)
+    return model
+
+  else: 
+    raise ValueError(f"Model type {model_type} is not supported")
+
+
+def test_model(model, dataset, criterion, test_number, batch_size, use_cuda=1, process_nr=24): 
+  tested_sample_nr = 0
+  predictions = []
+  targets = []
+  losses = []
+
+  with torch.no_grad():
+    model.eval()
+    for data, target in dataset.mini_batches(batch_size=batch_size, process_nr=process_nr):
+      if tested_sample_nr >= test_number:
+        break
+      if use_cuda:
+        data, target = data.cuda(), target.cuda()
+      output = model(data)
+      if "logits" in dir(output): 
+        output = output.logits
+      loss = criterion(output, target)
+      tested_sample_nr += len(data)
+
+      if output.shape[1] > 1: 
+        pred_choice = torch.argmax(output, dim=1)
+        correct = pred_choice.eq(target.data)
+        predictions.append(correct)
+      else: 
+        predictions.append(output)
+      
+      losses.append(loss.item())
+      targets.append(target)
+
+  if config.verbose or config.debug: 
+    printit(f"Tested {tested_sample_nr} samples")
+  predictions = torch.cat(predictions, dim=0).cpu().numpy()
+  targets = torch.cat(targets, dim=0).cpu().numpy()
+  losses = np.array(losses)
+  return predictions, targets, losses

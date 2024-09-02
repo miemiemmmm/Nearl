@@ -94,7 +94,7 @@ def split_array(input_array, batch_size):
 
 
 
-def data_augment(batch_array, translation_factor=0, add_noise=False): 
+def data_augment(batch_array, trans=0, add_noise=False): 
   """
   Batch data are in the shape of (batch_size:0, channel:1, x:2, y:3, z:4)
 
@@ -102,8 +102,8 @@ def data_augment(batch_array, translation_factor=0, add_noise=False):
   ----------
   batch_array : torch.Tensor
     The batch data to augment.
-  translation_factor : int
-    The factor of translation for data augmentation, defaults to 2.
+  trans : int
+    The distance of translation for data augmentation, default is 0.
   add_noise : bool
     Whether to add noise to the data or not, defaults to False.
   
@@ -127,16 +127,16 @@ def data_augment(batch_array, translation_factor=0, add_noise=False):
       k = np.random.choice([1, 2, 3])
       if axis == 0: 
         # Rotate along the X-axis
-        batch_array = torch.rot90(batch_array, k, [3, 4]) 
+        batch_array = torch.rot90(batch_array, k, dims=[3, 4]) 
       elif axis == 1:
         # Rotate along the Y-axis
-        batch_array = torch.rot90(batch_array, k, [2, 4]) 
+        batch_array = torch.rot90(batch_array, k, dims=[2, 4]) 
       else:
         # Rotate along the Z-axis
-        batch_array = torch.rot90(batch_array, k, [2, 3]) 
+        batch_array = torch.rot90(batch_array, k, dims=[2, 3]) 
   
-  if translation_factor > 0:
-    trans = rand_translate(factor=translation_factor)
+  if trans > 0:
+    trans = rand_translate(factor=trans)
     # Handling translation edge effects by filling the 'new' space with zeros
     for i, shift in enumerate(trans):
       if shift != 0:
@@ -156,7 +156,7 @@ def data_augment(batch_array, translation_factor=0, add_noise=False):
     
   if config.verbose() or config.debug():
     msg = f"Flipped axes: {flip_axes}; "
-    if translation_factor > 0:
+    if trans > 0:
       msg += "Translation: {trans}"
     printit(msg)
 
@@ -323,7 +323,7 @@ class Dataset:
     process_nr : int
       The number of processes to use for reading the data, defaults to 24.
     augment : bool
-      Whether to augment the data or not, defaults to False. TODO: Implement data augmentation.
+      Whether to augment the data or not, defaults to False. 
       If True is set, the following parameters are used.
     augment_translation : int
       The factor of translation for data augmentation, defaults to 0.
@@ -373,6 +373,5 @@ class Dataset:
         label = torch.from_numpy(labels_numpy)
 
         if augment: 
-          # TODO: implement it if data augment is needed 
-          data = data_augment(data, translation_factor=augment_translation, add_noise=augment_add_noise)
+          data = data_augment(data, trans=augment_translation, add_noise=augment_add_noise)
         yield data, label

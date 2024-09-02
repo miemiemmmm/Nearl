@@ -28,11 +28,11 @@ class DeepRankNetwork(nn.Module):
     conv_layers = OrderedDict()
     for i in range(len(conv)):
       if i == 0:
-        conv_layers[f'conv3d_{i}'] = nn.Conv3d(input_channels, conv[i], kernel_size=2)
+        conv_layers[f'conv{i}'] = nn.Conv3d(input_channels, conv[i], kernel_size=2)
       else: 
-        conv_layers[f'conv3d_{i}'] = nn.Conv3d(conv[i-1], conv[i], kernel_size=2)
-      conv_layers[f'relu_{i}'] = nn.ReLU()  
-      conv_layers[f'pool_{i}'] = nn.MaxPool3d((2, 2, 2))
+        conv_layers[f'conv{i}'] = nn.Conv3d(conv[i-1], conv[i], kernel_size=2)
+      conv_layers[f'relu{i}'] = nn.ReLU()  
+      conv_layers[f'pool{i}'] = nn.MaxPool3d((2, 2, 2))
     self.conv_blocks = torch.nn.Sequential(conv_layers)
 
     dummpy_out = self.conv_blocks(torch.rand(1, input_channels, *self.input_shape))

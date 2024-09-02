@@ -1,3 +1,4 @@
+import sys
 import numpy as np
 from .traj import  Trajectory
 
@@ -119,6 +120,7 @@ class TrajectoryLoader:
     options = self.loading_options
     for i in range(len(self)): 
       self.i_ = i
+      print(f"Loading trajectory {i+1}/{len(self)}", file=sys.stderr)
       yield self.OUTPUT_TYPE[i](*self.trajs[i], **options)
 
   def __len__(self):
@@ -143,11 +145,14 @@ class TrajectoryLoader:
     """
     options = self.loading_options
     if isinstance(index, int):
+      self.i_ = index
       ret = self.OUTPUT_TYPE[index](*self.trajs[index], **options)
     elif isinstance(index, (list, tuple)):
+      self.i_ = index[0]
       tmpindices = np.array(index, dtype=int)
       ret = [self.OUTPUT_TYPE[i](*self.trajs[i], **options) for i in tmpindices]
     elif isinstance(index, (slice, np.ndarray)):
+      self.i_ = index.start
       tmpindices = np.arange(self.__len__())[index]
       ret = [self.OUTPUT_TYPE[i](*self.trajs[i], **options) for i in tmpindices]
     else: 
