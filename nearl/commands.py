@@ -175,3 +175,18 @@ def viewpoint_histogram_xyzr(xyzr_arr, viewpoint, bin_nr, write_ply=False, retur
   else:
     return hist / np.sum(hist)
 
+def discretize_coord(coords, weights, grid_dims, spacing): 
+  if coords.dtype != np.float32:
+    coords = coords.astype(np.float32)
+  if weights.dtype != np.float32:
+    weights = weights.astype(np.float32)
+  grid_orig = np.zeros(grid_dims, dtype=np.float32)
+  # mid = np.array(grid_dims) / 2
+  # coords -= mid   # align the center of coord to the center of the grid 
+  coord_transform = np.floor(coords / spacing).astype(np.int32)
+  for i in range(len(coords)): 
+    if np.any(coord_transform[i] < 0) or np.any(coord_transform[i] >= grid_dims):
+      continue
+    else: 
+      grid_orig[coord_transform[i][0], coord_transform[i][1], coord_transform[i][2]] += weights[i]
+  return grid_orig

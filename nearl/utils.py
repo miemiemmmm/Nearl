@@ -209,7 +209,9 @@ def get_pdbcode(pdbcode):
 
   """
   pdbcode = pdbcode.lower()
-  return constants.PDBCODE_SUPERCEDES.get(pdbcode, pdbcode)
+  if pdbcode in constants.PDBCODE_SUPERCEDES.keys():
+    pdbcode = constants.PDBCODE_SUPERCEDES[pdbcode]
+  return pdbcode
 
 def fetch(code):
   """
@@ -730,7 +732,7 @@ def get_model(model_type:str, input_dim:int, output_dim:int, box_size, **kwargs)
       "input_channels": channel_nr,
       "output_dimension": output_dim,
       "input_shape": box_size,
-      "dropout_rates" : [0.2, 0.3, 0.4],   # 0.25, 0.25, 0.25
+      "dropout_rates" : [0.25, 0.25, 0.25],   # 0.25, 0.25, 0.25
     }
     return nearl.models.model_voxnet.VoxNet(**voxnet_parms)
 

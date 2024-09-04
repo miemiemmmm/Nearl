@@ -1,6 +1,7 @@
 import sys
 import numpy as np
 from .traj import  Trajectory
+from .. import config, printit
 
 
 __all__ = [
@@ -89,6 +90,8 @@ class TrajectoryLoader:
     Get the loading options (stride, frame_indices, mask)
     """
     options = {key: value for key, value in self.__loading_options.items() if value is not None}
+    if config.verbose or config.debug:
+      printit(f"Loading the trajectory {self.i_} whose identity is {self.trajids[self.i_]}")
     if self.trajids is not None: 
       options["identity"] = self.trajids[self.i_]
     return options
@@ -143,18 +146,19 @@ class TrajectoryLoader:
     trajectory_like or list
       The trajectory object or a list of trajectory objects
     """
-    options = self.loading_options
     if isinstance(index, int):
+      if config.verbose or config.debug:
+        printit(f"Setting the trajectory index to {index}")
       self.i_ = index
-      ret = self.OUTPUT_TYPE[index](*self.trajs[index], **options)
+      ret = self.OUTPUT_TYPE[index](*self.trajs[index], **self.loading_options)
     elif isinstance(index, (list, tuple)):
       self.i_ = index[0]
       tmpindices = np.array(index, dtype=int)
-      ret = [self.OUTPUT_TYPE[i](*self.trajs[i], **options) for i in tmpindices]
+      ret = [self.OUTPUT_TYPE[i](*self.trajs[i], **self.loading_options) for i in tmpindices]
     elif isinstance(index, (slice, np.ndarray)):
       self.i_ = index.start
       tmpindices = np.arange(self.__len__())[index]
-      ret = [self.OUTPUT_TYPE[i](*self.trajs[i], **options) for i in tmpindices]
+      ret = [self.OUTPUT_TYPE[i](*self.trajs[i], **self.loading_options) for i in tmpindices]
     else: 
       raise IndexError("Index must be either an integer or a slice")
     return ret
