@@ -33,12 +33,35 @@ def find_files(pdbcodes, template):
       raise FileNotFoundError(f"Complex file {filename} does not exist.") 
   return complex_files
 
-def commandline_interface(args, trajlists): 
+def commandline_interface(args, trajlist, pdbids): 
 
-  VOX_cutoff = 4 
-  VOX_SIGMA = 0.25
+  VOX_cutoff = 2.5
+  VOX_SIGMA = 1.5
 
   featureset = OrderedDict()
+  featureset["all_ann"] = nearl.features.Selection(selection=":*", outkey="all_annotation", cutoff=VOX_cutoff, sigma=VOX_SIGMA)
+  featureset["lig_ann"] = nearl.features.Selection(selection="!:LIG", outkey="lig_annotation", cutoff=VOX_cutoff, sigma=VOX_SIGMA)
+  featureset["prot_ann"] = nearl.features.Selection(selection=":LIG", outkey="prot_annotation", cutoff=VOX_cutoff, sigma=VOX_SIGMA)
+
+
+  featureset["aromatic"] = nearl.features.Aromaticity(selection=":*", outkey="aromatic", cutoff=VOX_cutoff, sigma=VOX_SIGMA)
+  featureset["hb_donor"] = nearl.features.HBondDonor(selection=":*", outkey="hb_donor", cutoff=VOX_cutoff, sigma=VOX_SIGMA)
+  featureset["hb_acceptor"] = nearl.features.HBondAcceptor(selection=":*", outkey="hb_acceptor", cutoff=VOX_cutoff, sigma=VOX_SIGMA)
+  featureset["H"] = nearl.features.AtomType(selection=":*", focus_element=1, outkey="static_H", cutoff=VOX_cutoff, sigma=VOX_SIGMA)
+  featureset["C"] = nearl.features.AtomType(selection=":*", focus_element=6, outkey="static_C", cutoff=VOX_cutoff, sigma=VOX_SIGMA)
+  featureset["N"] = nearl.features.AtomType(selection=":*", focus_element=7, outkey="static_N", cutoff=VOX_cutoff, sigma=VOX_SIGMA)
+  featureset["O"] = nearl.features.AtomType(selection=":*", focus_element=8, outkey="static_O", cutoff=VOX_cutoff, sigma=VOX_SIGMA)
+  featureset["S"] = nearl.features.AtomType(selection=":*", focus_element=16, outkey="static_S", cutoff=VOX_cutoff, sigma=VOX_SIGMA)
+
+  # Aromaticity
+  featureset["aromatic"] = nearl.features.Aromaticity(selection="!:LIG", outkey="aromatic_prot", cutoff=VOX_cutoff, sigma=VOX_SIGMA)
+  featureset["aromatic_"] = nearl.features.Aromaticity(selection=":LIG", outkey="aromatic_lig", cutoff=VOX_cutoff, sigma=VOX_SIGMA)
+  # HB donor/acceptor
+  featureset["hb_donor"] = nearl.features.HBondDonor(selection="!:LIG", outkey="hb_donor_prot", cutoff=VOX_cutoff, sigma=VOX_SIGMA)
+  featureset["hb_donor_"] = nearl.features.HBondDonor(selection=":LIG", outkey="hb_donor_lig", cutoff=VOX_cutoff, sigma=VOX_SIGMA)
+  featureset["hb_acceptor"] = nearl.features.HBondAcceptor(selection="!:LIG", outkey="hb_acceptor_prot", cutoff=VOX_cutoff, sigma=VOX_SIGMA)
+  featureset["hb_acceptor_"] = nearl.features.HBondAcceptor(selection=":LIG", outkey="hb_acceptor_lig", cutoff=VOX_cutoff, sigma=VOX_SIGMA)
+
   featureset["H"] = nearl.features.AtomType(selection="!:LIG", focus_element=1, outkey="static_H_prot", cutoff=VOX_cutoff, sigma=VOX_SIGMA)
   featureset["C"] = nearl.features.AtomType(selection="!:LIG", focus_element=6, outkey="static_C_prot", cutoff=VOX_cutoff, sigma=VOX_SIGMA)
   featureset["N"] = nearl.features.AtomType(selection="!:LIG", focus_element=7, outkey="static_N_prot", cutoff=VOX_cutoff, sigma=VOX_SIGMA)
@@ -52,19 +75,44 @@ def commandline_interface(args, trajlists):
   featureset["pk"] = nearl.features.LabelAffinity(baseline_map=nearl.data.GENERAL_SET, outkey="pk_original")
 
 
+  # Simple discretization 
+  # featureset["H"] = nearl.features.Discretize(selection=":*", focus_element=1, outkey="disc_H")
+  # featureset["C"] = nearl.features.Discretize(selection=":*", focus_element=6, outkey="disc_C")
+  # featureset["N"] = nearl.features.Discretize(selection=":*", focus_element=7, outkey="disc_N")
+  # featureset["O"] = nearl.features.Discretize(selection=":*", focus_element=8, outkey="disc_O")
+  # featureset["S"] = nearl.features.Discretize(selection=":*", focus_element=16, outkey="disc_S")
+
+  # featureset["H_"] = nearl.features.Discretize(selection="!:LIG", focus_element=1, outkey="disc_H_prot")
+  # featureset["C_"] = nearl.features.Discretize(selection="!:LIG", focus_element=6, outkey="disc_C_prot")
+  # featureset["N_"] = nearl.features.Discretize(selection="!:LIG", focus_element=7, outkey="disc_N_prot")
+  # featureset["O_"] = nearl.features.Discretize(selection="!:LIG", focus_element=8, outkey="disc_O_prot")
+  # featureset["S_"] = nearl.features.Discretize(selection="!:LIG", focus_element=16, outkey="disc_S_prot")
+
+  # featureset["H__"] = nearl.features.Discretize(selection=":LIG", focus_element=1, outkey="disc_H_lig")
+  # featureset["C__"] = nearl.features.Discretize(selection=":LIG", focus_element=6, outkey="disc_C_lig")
+  # featureset["N__"] = nearl.features.Discretize(selection=":LIG", focus_element=7, outkey="disc_N_lig")
+  # featureset["O__"] = nearl.features.Discretize(selection=":LIG", focus_element=8, outkey="disc_O_lig")
+  # featureset["S__"] = nearl.features.Discretize(selection=":LIG", focus_element=16, outkey="disc_S_lig")
+  # featureset["pk"] = nearl.features.LabelAffinity(baseline_map=nearl.data.GENERAL_SET, outkey="pk_original")
+
+
   FEATURIZER_PARMS = {
-    "dimensions": 32, 
+    "dimensions": 41, 
     "lengths": 20, 
     "time_window": 1,    # Static structures only 
     # For default setting inference of registered features 
     # "sigma": 1.5, 
     "outfile": outputfile, 
   }
-  print(pdbids)
+
+  for i,j in zip(trajlist, pdbids): 
+    print(f"Traj file: {i} | PDB code: {j}")
+    if j not in i[0]: 
+      raise ValueError(f"The pdb code {j} is not in the trajectory file {i}")
 
   # Prepare components for featurization 
-  trajloader = nearl.io.TrajectoryLoader(trajlists, superpose=True, mask="!:T3P", trajid=pdbids)
-  featurizer  = nearl.featurizer.Featurizer(FEATURIZER_PARMS)
+  trajloader = nearl.io.TrajectoryLoader(trajlist, superpose=True, mask="!:T3P", trajid=pdbids)
+  featurizer = nearl.featurizer.Featurizer(FEATURIZER_PARMS)
   featurizer.register_trajloader(trajloader)
   featurizer.register_focus([":LIG"], "mask")
   featurizer.register_features(featureset)
@@ -73,7 +121,8 @@ def commandline_interface(args, trajlists):
 
 
 if __name__ == "__main__":
-  nearl.update_config(verbose = False, debug = False)
+  # nearl.update_config(verbose = False, debug = False)
+  nearl.update_config(verbose = True, debug = True)
 
   args = parser()
   args = vars(args)
@@ -98,4 +147,4 @@ if __name__ == "__main__":
     raise ValueError("The number of pdbids does not match the number of complex files")
   
 
-  commandline_interface(args, complex_files)
+  commandline_interface(args, complex_files, pdbids)

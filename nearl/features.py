@@ -3,6 +3,7 @@ import subprocess, json
 
 import h5py
 import numpy as np
+import pandas as pd
 import pytraj as pt
 from rdkit import Chem
 from scipy.spatial import KDTree
@@ -1440,14 +1441,15 @@ class LabelAffinity(Feature):
   base_value : float
     The base value for the affinity values, searched in the :func:`cache <nearl.features.LabelAffinity.cache>` and 
     :func:`search_baseline <nearl.features.LabelAffinity.search_baseline>` functions.
-
   
   """
-  def __init__(self, baseline_map, **kwargs):
-    import pandas as pd
+  def __init__(self, baseline_map, colname="pK", **kwargs):
     super().__init__(outshape=(None,), **kwargs)
     self.baseline_table = pd.read_csv(baseline_map, header=0, delimiter=",")
     self.base_value = None
+    self.colname = colname
+    if self.colname not in self.baseline_table.columns:
+      raise ValueError(f"The column name {self.colname} is not found in the baseline table")
 
   def search_baseline(self, pdbcode):
     """
@@ -1462,17 +1464,16 @@ class LabelAffinity(Feature):
       We recommend to use a map from the trajectory identity to the affinity values. 
 
     """
-    pdbcode = utils.get_pdbcode(pdbcode)
-    if pdbcode.lower() in self.baseline_table["pdbcode"].values:
-      return self.baseline_table.loc[self.baseline_table["pdbcode"] == pdbcode.lower()]["pK"].values[0]
+    pdbcode = utils.get_pdbcode(pdbcode) # This returns the pdbcode in lower case 
+    if pdbcode in self.baseline_table["pdbcode"].values: 
+      row = self.baseline_table.loc[self.baseline_table["pdbcode"] == pdbcode]
+      return row[self.colname].values[0]
     else:
       raise ValueError(f"Cannot find the baseline value for {pdbcode}")
   
   def cache(self, trajectory):
     """
-    Loop up the baseline values from a table and cache the pairwise closest distances. 
-
-    Trajectory specific value. 
+    Loop up the baseline values from the designated table and cache the pairwise closest distances. 
 
     Notes
     -----
@@ -1484,7 +1485,7 @@ class LabelAffinity(Feature):
     # IMPORTANT: Retrieve the base value based on the trajectory identity
     self.base_value = self.search_baseline(trajectory.identity)
     if config.verbose():
-      printit(f"{self.__class__.__name__}: Base value is {self.base_value}")
+      printit(f"{self.__class__.__name__}: Affinity value of {trajectory.identity} is {self.base_value}")
 
   def query(self, *args):
     """
@@ -1885,3 +1886,26 @@ class RFFeatures(Feature):
     return ret_arr
   
 
+class Discretize(AtomType): 
+  def __init__(self, **kwargs):
+    super().__init__(**kwargs)
+
+  def cache(self, trajectory):
+    super().cache(trajectory)
+    
+  def run(self, coords, weights):
+    if len(coords) == 0:
+      printit(f"{self.__class__.__name__}: Warning: The coordinates are empty")
+      return np.zeros(self.dims, dtype=np.float32)
+    
+    ret = commands.discretize_coord(coords, weights, self.dims, self.spacing)
+    
+    if np.sum(np.isnan(ret)) > 0:
+      printit(f"{self} Warning: The returned array has {np.isnan(ret).sum()} NaN values")
+    # Check the sum of the absolute values of the returned array
+    if config.verbose() or config.debug():
+      ret_sum = np.sum(np.abs(ret))
+      if np.isclose(ret_sum, 0):
+        printit(f"{self} Warning: The sum of the returned array is zero")
+    return ret
+  

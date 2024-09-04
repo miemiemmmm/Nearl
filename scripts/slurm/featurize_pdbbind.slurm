@@ -1,38 +1,47 @@
 #!/bin/bash -l
-#SBATCH --job-name=FeaturizeTrain                 # Correct the job name
-#SBATCH --output=/Matter/training_logs/FeaturizeTrain%a.out     # TODO: Correct the log folder and file name 
-#SBATCH --error=/Matter/training_logs/FeaturizeTrain%a.err
+#SBATCH --job-name=FeaturizeTest                               # Correct the job name
+#SBATCH --output=/Matter/training_logs/FeaturizeTest%a.out     # TODO: Correct the log folder and file name 
+#SBATCH --error=/Matter/training_logs/FeaturizeTest%a.err
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=4
+#SBATCH --cpus-per-task=2
 #SBATCH --array=0-3%4
 
 export SLURM_ARRAY_TASK_COUNT=${SLURM_ARRAY_TASK_COUNT:-1}
 export SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID:-0}
 
-# pdblist=/MieT5/BetaPose/data/train_refined.txt
-# prefix="train"
-# outdir=/Matter/nearl_training_data/static_pdbbind_refined/
 
-
-# pdblist=/MieT5/BetaPose/data/test_refined.txt
+# CASF2016 test set: 266 entries
+# pdblist=/MieT5/BetaPose/data/casf2016_test.txt
 # prefix="test"
-# outdir=/Matter/nearl_training_data/static_pdbbind_refined/
+# outdir=/Matter/nearl_training_data/static_casf
 
-
-# pdblist=/MieT5/BetaPose/data/train_general.txt
-# prefix="train"
-# outdir=/Matter/nearl_training_data/static_pdbbind_general/
-
-
-# pdblist=/MieT5/BetaPose/data/test_general.txt
+# Misato test set: 1357 entries 
+# pdblist=/MieT5/BetaPose/data/misato_test.txt
 # prefix="test"
-# outdir=/Matter/nearl_training_data/static_pdbbind_general/
+# outdir=/Matter/nearl_training_data/static_misato_test
 
-# Perform the test
-pdblist=/MieT5/BetaPose/data/train_general.txt
+
+# KDeep training set: 3759
+pdblist=/MieT5/BetaPose/data/kdeep_train.txt
 prefix="train"
-outdir="/Matter/tests/test_new_cutoff/"
+outdir="/Matter/nearl_training_data/static_kdeep_trainset"
+
+# Refined training set: 4162
+# pdblist=/MieT5/BetaPose/data/refined_train.txt
+# prefix="train"
+# outdir=/Matter/nearl_training_data/static_refined_train
+
+# Misato training set: 12804
+# pdblist=/MieT5/BetaPose/data/misato_train.txt
+# prefix="train"
+# outdir=/Matter/nearl_training_data/static_train_misato
+
+
+# Test an arbitrary set 
+# pdblist=/MieT5/BetaPose/data/train_general.txt 
+# prefix="train" 
+# outdir="/Matter/tests/test_new_cutoff/" 
 
 source /home/yzhang/mamba/bin/loadmamba
 micromamba activate nearl_dev

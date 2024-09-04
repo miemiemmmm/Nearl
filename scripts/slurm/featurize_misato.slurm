@@ -4,7 +4,7 @@
 #SBATCH --error=/Matter/training_logs/FeaturizeMisato_multistatic_%a.err
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=4
+#SBATCH --cpus-per-task=6
 #SBATCH --array=0-3%4
 
 # TODO: manually set the task count and task id for testing
@@ -16,29 +16,21 @@ echo "The task index of this job: ${SLURM_ARRAY_TASK_ID}"
 source /home/yzhang/mamba/bin/loadmamba
 micromamba activate nearl_dev
 
-# outdir="/Matter/nearl_training_data/prod_train"
-# outdir="/Matter/nearl_training_data/prod_test"
-# training_set="/MieT5/BetaPose/data/misato_train.txt"
-# training_set="/MieT5/BetaPose/data/misato_test.txt"
-
 # outdir="/Matter/nearl_training_data/testjob3"                  # TODO Correct the output directory before running
 # pdbcodes="/Matter/nearl_training_data/testjob3/noprot.txt"     # TODO Correct the pdbcode file before running
 
-# outdir="/Matter/nearl_training_data/train1"
-# pdbcodes="/MieT5/BetaPose/data/misato_train.txt"
-
-# outdir="/Matter/nearl_training_data/test1"
-# pdbcodes="/MieT5/BetaPose/data/misato_test.txt"
-
 
 #### Misato dataset for general set 
-outdir=/Matter/nearl_training_data/misato_multi_static_props
-prefix="train"
-pdbcodes=/MieT5/BetaPose/data/train_general.txt
+outdir=/Matter/nearl_training_data/ensemble_casf
+prefix="test"
+pdbcodes=/MieT5/BetaPose/data/casf2016_test.txt
+
 
 # outdir=/Matter/nearl_training_data/misato_multi_static_props
-# prefix="test"
-# pdbcodes=/MieT5/BetaPose/data/test_general.txt
+# prefix="train"
+# pdbcodes=/MieT5/BetaPose/data/train_general.txt
+
+
 
 #### Misato dataset for refined set
 # outdir=/Matter/nearl_training_data/misato_pdbbind_refined
@@ -51,7 +43,9 @@ pdbcodes=/MieT5/BetaPose/data/train_general.txt
 
 
 ################################################################################
-misatodir="/Matter/misato_database/"
+[ ! -d ${outdir} ] && mkdir -p ${outdir}
+# misatodir="/Matter/misato_database/"
+misatodir="/MieT5/DataSets/misato_database/"
 python3 /MieT5/BetaPose/scripts/featurize_misato.py \
   --pdbcodes    ${pdbcodes} \
   --misato_dir  ${misatodir} \

@@ -17,6 +17,9 @@ from sklearn.preprocessing import MinMaxScaler, StandardScaler
 import nearl
 from nearl.io.dataset import Dataset
 
+COLORS = ['#e41a1c','#377eb8','#4daf4a','#984ea3',
+          '#ff7f00','#999999','#a65628','#f781bf']
+
 # writer = SummaryWriter("/Matter/nearl_tensorboard")
 tensorboard_writer = None 
 
@@ -31,29 +34,42 @@ optim_kwargs = {
 }
 
 LOSS_FUNCTIONS = {
-  "crossentropy": nn.CrossEntropyLoss,
+  "crossentropy": nn.CrossEntropyLoss, 
   "mse": nn.MSELoss, 
   "mae": nn.L1Loss, 
   "l1": nn.L1Loss, 
+  "huber": nn.HuberLoss,
 }
 
 
-def draw_scatter(pred_data, target_data, figtype="scatter", title=""): 
+def draw_scatter(pred_data, target_data, figtype="scatter", title="", fig=None, color="blue"): 
+  """
+  Draw the scatter plot for the predicted and target data 
+  """
+  plt.close("all")
   plt.clf()
-  df = pd.DataFrame({"groundtruth": target_data, "predicted": pred_data})
-  f = sns.JointGrid(data = df, x="groundtruth", y="predicted", xlim=(1, 13), ylim=(1, 13))
-  if figtype == "scatter":
-    f.plot_joint(sns.scatterplot)
-  elif figtype == "kde":
-    f.plot_joint(sns.kdeplot, levels=11, cmap="inferno", thresh=0)
-  else: 
-    raise ValueError(f"Figure type {figtype} is not recognized") 
-  f.plot_marginals(sns.histplot, color="blue", kde=True)
-  sns.regplot(data=df, x="groundtruth", y="predicted", scatter=False, color="red", ax=f.ax_joint, ci=50)
+  # Compute the metrics 
   rmse = np.sqrt(np.mean((pred_data - target_data)**2).sum())
   R, rho = compute_correlations(target_data, pred_data)
   title += f"RMSE: {rmse:4.2f}; R: {R:4.2f}; rho: {rho:4.2f}"
-  f.fig.suptitle(title)
+
+  df = pd.DataFrame({"groundtruth": target_data, "predicted": pred_data})
+  if fig is None: 
+    f = sns.JointGrid(data = df, x="groundtruth", y="predicted", xlim=(1, 13), ylim=(1, 13))
+  else:
+    f = fig 
+  if figtype == "scatter":
+    f.ax_joint.scatter(df["groundtruth"], df["predicted"], color=color, label=title, marker="x", alpha=0.5)
+  elif figtype == "kde":
+    f.ax_joint.kdeplot(df["groundtruth"], df["predicted"], levels=11, cmap="inferno", thresh=0)
+  else: 
+    raise ValueError(f"Figure type {figtype} is not recognized") 
+  bins = np.linspace(1, 13, 15)
+  f.ax_marg_x.hist(df["groundtruth"], color=color, alpha=0.5, bins=bins, density=True, linewidth=1.5, edgecolor="black")
+  f.ax_marg_y.hist(df["predicted"], color=color, alpha=0.5, bins=bins, density=True, orientation="horizontal", linewidth=1.5, edgecolor="black")
+
+  sns.regplot(data=df, x="groundtruth", y="predicted", scatter=False, color=color, ax=f.ax_joint, ci=50)
+  f.ax_joint.legend(loc="lower right")
   return f 
 
 
@@ -231,7 +247,8 @@ def perform_training(training_settings: dict):
       train_data, train_label = train_data.to(device), train_label.to(device)
 
       #### TODO: In case of nan, replace nan with 0 
-      # if torch.isnan(train_data).any():
+      # if torch.isnan(train_data).any() or torch.isnan(train_label).any(): 
+      #   print(f"Warning: Found NaN in the training data")
       #   train_data[torch.isnan(train_data)] = 0
 
       optimizer.zero_grad()
@@ -243,11 +260,11 @@ def perform_training(training_settings: dict):
 
       loss = criterion(pred, train_label)
       loss.backward()
-      # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=10)
+      # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=50)
       optimizer.step()
 
       # Measure the RMSE of the training set and one batch of the test set
-      if (batch_idx+1) % (batch_nr // 5) == 0: 
+      if (batch_idx+1) % (batch_nr // 3) == 0: 
         preds_tr, targets_tr, losses_tr = nearl.utils.test_model(model, training_data, criterion, training_settings["test_number"], BATCH_SIZE, USECUDA, WORKER_NR)
         preds_te, targets_te, losses_te = nearl.utils.test_model(model, test_data, criterion, training_settings["test_number"], BATCH_SIZE, USECUDA, WORKER_NR)
         jobmsg = f"Processing the block {batch_idx:>5d}/{batch_nr:<5d}; Loss: {np.mean(losses_te):>6.4f}({np.mean(losses_tr):<6.4f}); "
@@ -265,7 +282,7 @@ def perform_training(training_settings: dict):
           jobmsg += f"RMSE: {rmse_te:>4.2f}({rmse_tr:<4.2f}); Pearson: {pearson_te:>4.2f}({pearson_tr:<4.2f}); spearman: {spearman_te:>4.2f}({spearman_tr:<4.2f}); "
 
         elif output_dims > 1:
-          # Accuracy
+          # Accuracy 
           accuracy_tr = np.count_nonzero(preds_tr == targets_tr) / len(preds_tr)
           accuracy_te = np.count_nonzero(preds_te == targets_te) / len(preds_te)
           jobmsg += f"Accuracy: {accuracy_te:>4.2f}/{accuracy_tr:<4.2f}; "
@@ -293,11 +310,10 @@ def perform_training(training_settings: dict):
             tensorboard_writer.add_scalar("Perf/Train", accuracy_tr, epoch*batch_nr+batch_idx)
             tensorboard_writer.add_scalar("Perf/Test", accuracy_te, epoch*batch_nr+batch_idx)
 
-          fig_te = draw_scatter(preds_te, targets_te, figtype="scatter", title="TestSet:")
-          tensorboard_writer.add_figure("Vis/Test", fig_te.fig, epoch*batch_nr+batch_idx)
-
-          fig_tr = draw_scatter(preds_tr, targets_tr, figtype="scatter", title="TrainSet:")
-          tensorboard_writer.add_figure("Vis/Train", fig_tr.fig, epoch*batch_nr+batch_idx)
+          fig_tr = draw_scatter(preds_tr, targets_tr, figtype="scatter", title="TrainSet:", color=COLORS[1])
+          fig_te = draw_scatter(preds_te, targets_te, figtype="scatter", title="TestSet:", fig=fig_tr, color=COLORS[0])
+          # tensorboard_writer.add_figure("Vis/Test", fig_te.fig, epoch*batch_nr+batch_idx)
+          tensorboard_writer.add_figure("Dist/Results", fig_te.fig, epoch*batch_nr+batch_idx)
 
           parmset = list(model.named_parameters())
           for idx, p in enumerate(parmset):
@@ -338,9 +354,9 @@ def perform_training(training_settings: dict):
     print(f"Saving the model to {modelfile_output} ...")
     torch.save(model.state_dict(), modelfile_output)
     # Save the figures 
-    fig_te, fig_tr = draw_scatter(preds_te, targets_te, figtype="scatter", title="TestSet:"), draw_scatter(preds_tr, targets_tr, figtype="scatter", title="TrainSet:")
-    fig_te.savefig(os.path.join(training_settings["output_folder"], f"TestResults_{epoch}.png"))
-    fig_tr.savefig(os.path.join(training_settings["output_folder"], f"TrainResults_{epoch}.png"))
+    fig_tr = draw_scatter(preds_tr, targets_tr, figtype="scatter", title="TrainSet:", color=COLORS[1])
+    fig_te = draw_scatter(preds_te, targets_te, figtype="scatter", title="TestSet:", fig=fig_tr, color=COLORS[0])
+    fig_te.savefig(os.path.join(training_settings["output_folder"], f"Results_{epoch}.png"))
 
 
     if (args.verbose > 0) or (not args.production): 
@@ -379,7 +395,10 @@ if __name__ == "__main__":
   if SETTINGS["model"] in ("resnet", "convnext_iso", "ViT"):
     SETTINGS["dimensions"] = None
   else:
-    SETTINGS["dimensions"] = 32  
+    with open(SETTINGS["training_data"], "r") as f:
+      hdffile = f.readline().strip()
+      with h5.File(hdffile, "r") as hdf:
+        SETTINGS["dimensions"] = int(hdf["featurizer_parms"]["dimensions"][0])
 
   _SETTINGS = json.dumps(SETTINGS, indent=2)
   print("Settings of this training:")

@@ -15,7 +15,7 @@ class VoxNet(nn.Module):
   The higgen layer in the fully connected layer is changed from 128 to 1280
   Default dropout rate changed from [0.2, 0.3, 0.4] to [0.1, 0.1, 0.1]
   """
-  def __init__(self, input_channels: int, output_dimension, input_shape, dropout_rates = [0.2, 0.3, 0.4]):
+  def __init__(self, input_channels: int, output_dimension, input_shape, dropout_rates = [0.25, 0.25, 0.25]):
     super(VoxNet, self).__init__()
     self.n_classes = output_dimension
     if isinstance(input_shape, int):
