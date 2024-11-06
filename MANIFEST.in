@@ -1,21 +1,11 @@
-recursive-include nearl *.py *.so
+recursive-include nearl *.py 
 recursive-include nearl/data *
-recursive-include external/pybind11 *
 
-include README.md
-include LICENSE
-include nearl/myconfig.json
-
-include src/CMakeLists.txt 
 include src/Makefile
 include src/*.cpp 
 include src/*.cu
 include src/*.h
 include src/*.cuh
 
-
-include nearl/*.so
-include CMakeLists.txt
-include test.cpp
-
-
+include README.rst
+include LICENSE

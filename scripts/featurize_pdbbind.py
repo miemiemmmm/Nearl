@@ -8,12 +8,21 @@ import nearl.data
 
 def parser(): 
   parser = argparse.ArgumentParser(description="Featurize the misato trajectories")
+  # Input and output settings
   parser.add_argument("-f", "--pdbcodes", type=str, required=True, help="The file containing the list of pdb codes")
   parser.add_argument("-t", "--complex_template", type=str, required=True, help="The template string to locate pdb file, e.g. {}_complex.pdb where {} is replaced by the pdb code listed in the --pdbcodes argument") 
-
   parser.add_argument("-o", "--output_dir", type=str, default="",help="The output directory")
+
+  # Featurization settings
+  parser.add_argument("-d", "--dimension", type=int, default=32, help="The dimension of the feature vector")
+  parser.add_argument("-l", "--length", type=int, default=20, help="The length of the bounding box")
+  parser.add_argument("-c", "--cutoff", type=float, default=2.5, help="The cutoff distance for the feature selection")
+  parser.add_argument("-s", "--sigma", type=float, default=1.5, help="The sigma value for the feature selection")
+
+  # Accessory settings 
   parser.add_argument("--task_nr", type=int, default=1, help="The task number to run")
   parser.add_argument("--task_index", type=int, default=0, help="The task index to run")
+  parser.add_argument("--cpu_nr", type=int, default=6, help="The number of CPUs to use")
   parser.add_argument("--h5prefix", type=str, default="Output", help="The prefix of the output h5 file")
   args = parser.parse_args()
   if not os.path.exists(args.output_dir):
@@ -21,7 +30,6 @@ def parser():
   return args
 
 def find_files(pdbcodes, template): 
-  
   codes = pdbcodes
   complex_files = []
   for p in codes: 
@@ -34,9 +42,18 @@ def find_files(pdbcodes, template):
   return complex_files
 
 def commandline_interface(args, trajlist, pdbids): 
+  VOX_length = args.get("length")
+  VOX_dim = args.get("dimension")
+  VOX_cutoff = args.get("cutoff")
+  VOX_SIGMA = args.get("sigma")
 
-  VOX_cutoff = 2.5
-  VOX_SIGMA = 1.5
+  FEATURIZER_PARMS = {
+    "dimensions": VOX_dim, 
+    "lengths": VOX_length, 
+    "time_window": 1,    # Static structures only 
+    "outfile": outputfile, 
+  }
+  print(f"Featurization follows: Length: {VOX_length} | Dimension: {VOX_dim} | Cutoff: {VOX_cutoff} | Sigma: {VOX_SIGMA}")
 
   featureset = OrderedDict()
   featureset["all_ann"] = nearl.features.Selection(selection=":*", outkey="all_annotation", cutoff=VOX_cutoff, sigma=VOX_SIGMA)
@@ -94,17 +111,7 @@ def commandline_interface(args, trajlist, pdbids):
   # featureset["O__"] = nearl.features.Discretize(selection=":LIG", focus_element=8, outkey="disc_O_lig")
   # featureset["S__"] = nearl.features.Discretize(selection=":LIG", focus_element=16, outkey="disc_S_lig")
   # featureset["pk"] = nearl.features.LabelAffinity(baseline_map=nearl.data.GENERAL_SET, outkey="pk_original")
-
-
-  FEATURIZER_PARMS = {
-    "dimensions": 41, 
-    "lengths": 20, 
-    "time_window": 1,    # Static structures only 
-    # For default setting inference of registered features 
-    # "sigma": 1.5, 
-    "outfile": outputfile, 
-  }
-
+  
   for i,j in zip(trajlist, pdbids): 
     print(f"Traj file: {i} | PDB code: {j}")
     if j not in i[0]: 
@@ -116,13 +123,12 @@ def commandline_interface(args, trajlist, pdbids):
   featurizer.register_trajloader(trajloader)
   featurizer.register_focus([":LIG"], "mask")
   featurizer.register_features(featureset)
-
-  featurizer.main_loop(8)
+  featurizer.main_loop(args.get("cpu_nr"))
 
 
 if __name__ == "__main__":
-  # nearl.update_config(verbose = False, debug = False)
-  nearl.update_config(verbose = True, debug = True)
+  nearl.update_config(verbose = False, debug = False)
+  # nearl.update_config(verbose = True, debug = True)
 
   args = parser()
   args = vars(args)
@@ -133,7 +139,7 @@ if __name__ == "__main__":
   prefix = args.get("h5prefix")
   outputfile = os.path.join(os.path.abspath(args["output_dir"]), f"{prefix}{task_index}.h5") 
 
-
+  # Find the complex files and their PDB code
   template = args.get("complex_template")
   pdbcodes = args.get("pdbcodes") 
   with open(pdbcodes, "r") as f: 
@@ -146,5 +152,5 @@ if __name__ == "__main__":
   if len(complex_files) != len(pdbids):
     raise ValueError("The number of pdbids does not match the number of complex files")
   
-
+  # Run the featurization 
   commandline_interface(args, complex_files, pdbids)

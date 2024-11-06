@@ -68,7 +68,7 @@ SUPPORTED_FEATURES = {
   "atomic_id": 1,       "residue_id": 2,  "atomic_number": 3, "hybridization": 4,
 
   "mass": 11, "radius": 12, "electronegativity": 13, "hydrophobicity": 14,
-  "partial_charge": 15,
+  "partial_charge": 15, "uniformed" : 16, 
 
   "heavy_atom": 21, "aromaticity": 22, "ring": 23, "hbond_donor": 24,
   "hbond_acceptor": 25, "backboneness": 26, "sidechainness": 27,  "atom_type": 28
@@ -813,13 +813,14 @@ class PartialCharge(Feature):
 
   Notes
   -----
+  # "qeq" -> "QEq_00_original"
   For more information about the charge types and parameters, please refer to the ChargeFW documentation with the url: 
   https://github.com/sb-ncbr/ChargeFW2
   """
   # The following types are supported by ChargeFW: 
   # [ "sqeqp",  "eem",  "abeem",  "sfkeem",  "qeq", "smpqeq",  "eqeq",  "eqeqc",  "delre",  "peoe", 
   #   "mpeoe",  "gdac",  "sqe",  "sqeq0",  "mgc", "kcm",  "denr",  "tsef",  "charge2",  "veem", "formal" ]
-  def __init__(self, charge_type="qeq", charge_parm="QEq_00_original", force_compute=False, keep_sign="both", **kwargs):
+  def __init__(self, charge_type="topology", charge_parm=None, force_compute=False, keep_sign="both", **kwargs):
     super().__init__(**kwargs)
     self.charge_type = charge_type
     self.charge_parm = charge_parm
@@ -1011,6 +1012,8 @@ def cache_properties(trajectory, property_type, **kwargs):
     +------------------------+------------------+
     | partial_charge         | float            |
     +------------------------+------------------+
+    | uniformed              | float            |
+    +------------------------+------------------+
     | heavy_atom             | boolean          |
     +------------------------+------------------+
     | aromaticity            | boolean          |
@@ -1074,6 +1077,10 @@ def cache_properties(trajectory, property_type, **kwargs):
     tmp_feat = PartialCharge()
     tmp_feat.cache(trajectory)
     cached_arr = tmp_feat.charge_values
+
+  elif property_type == 16:
+    weight_val = kwargs.get("manual_weight", 1)
+    cached_arr = np.full(len(atom_numbers), weight_val, dtype=np.float32)
 
   elif property_type == 21:
     # Heavy atom
@@ -1494,6 +1501,8 @@ class LabelAffinity(Feature):
     return (self.base_value, )
 
   def run(self, affinity_val):
+    if config.verbose() or config.debug():
+      printit(f"{self.__class__.__name__}: The affinity value is {affinity_val:4.2f}")
     return affinity_val
 
 class LabelStepping(LabelAffinity):
@@ -1505,7 +1514,6 @@ class LabelStepping(LabelAffinity):
 
   def query(self, *args):
     assert not (self.base_value is None), "The base value should be set before the query"
-      
     final_label = self.base_value // 2
     final_label = min(final_label, 5)
     return (final_label, )

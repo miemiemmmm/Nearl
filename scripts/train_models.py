@@ -42,12 +42,13 @@ LOSS_FUNCTIONS = {
 }
 
 
-def draw_scatter(pred_data, target_data, figtype="scatter", title="", fig=None, color="blue"): 
+def draw_scatter(pred_data, target_data, figtype="scatter", title="", fig=None, color="blue", clean=False): 
   """
   Draw the scatter plot for the predicted and target data 
   """
-  plt.close("all")
-  plt.clf()
+  if clean:
+    plt.close("all")
+    plt.clf()
   # Compute the metrics 
   rmse = np.sqrt(np.mean((pred_data - target_data)**2).sum())
   R, rho = compute_correlations(target_data, pred_data)
@@ -68,7 +69,13 @@ def draw_scatter(pred_data, target_data, figtype="scatter", title="", fig=None, 
   f.ax_marg_x.hist(df["groundtruth"], color=color, alpha=0.5, bins=bins, density=True, linewidth=1.5, edgecolor="black")
   f.ax_marg_y.hist(df["predicted"], color=color, alpha=0.5, bins=bins, density=True, orientation="horizontal", linewidth=1.5, edgecolor="black")
 
-  sns.regplot(data=df, x="groundtruth", y="predicted", scatter=False, color=color, ax=f.ax_joint, ci=50)
+  # determine the color of the regression line
+  import matplotlib.colors as mcolors
+  rgb_color = mcolors.to_rgb(color)
+  color_reg = np.array(rgb_color) + np.random.normal(scale=0.5, size=3)
+  # Limit to 0-1
+  color_reg = np.clip(color_reg, 0, 1)
+  sns.regplot(data=df, x="groundtruth", y="predicted", scatter=False, color=color_reg, ax=f.ax_joint, ci=50, line_kws=dict(linewidth=2))
   f.ax_joint.legend(loc="lower right")
   return f 
 
@@ -85,6 +92,7 @@ def compute_correlations(labels, pred):
       pred = pred.detach().cpu().numpy()
   labels = labels.flatten()
   pred = pred.flatten()
+  print(labels, pred)
   # Compute Pearson's R
   pearson_corr, _ = scipy.stats.pearsonr(labels, pred)
   # Compute Spearman's rho
@@ -269,6 +277,13 @@ def perform_training(training_settings: dict):
         preds_te, targets_te, losses_te = nearl.utils.test_model(model, test_data, criterion, training_settings["test_number"], BATCH_SIZE, USECUDA, WORKER_NR)
         jobmsg = f"Processing the block {batch_idx:>5d}/{batch_nr:<5d}; Loss: {np.mean(losses_te):>6.4f}({np.mean(losses_tr):<6.4f}); "
 
+        if True in np.isnan(preds_te):
+          print(f"Warning: Found NaN in the test prediction")
+          continue
+        elif True in np.isnan(preds_tr):
+          print(f"Warning: Found NaN in the training prediction")
+          continue
+
         if output_dims == 1: 
           # Metrics on the training set 
           preds_tr, targets_tr, losses_tr = preds_tr.flatten(), targets_tr.flatten(), losses_tr.flatten()
@@ -336,6 +351,13 @@ def perform_training(training_settings: dict):
     preds_te, targets_te, losses_te = preds_te.flatten(), targets_te.flatten(), losses_te.flatten()
     loss_on_train = np.mean(losses_tr)
     loss_on_test = np.mean(losses_te)
+
+    if True in np.isnan(preds_te):
+      print(f"Warning: Found NaN in the test prediction")
+      continue
+    elif True in np.isnan(preds_tr):
+      print(f"Warning: Found NaN in the training prediction")
+      continue
     
     if output_dims == 1:
       accuracy_on_train = np.sqrt(np.mean((preds_tr - targets_tr)**2).sum())

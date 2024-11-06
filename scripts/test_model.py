@@ -23,8 +23,11 @@ tensorboard_writer = None
 
 
 LOSS_FUNCTIONS = {
+  "crossentropy": nn.CrossEntropyLoss, 
   "mse": nn.MSELoss, 
-  "crossentropy": nn.CrossEntropyLoss,
+  "mae": nn.L1Loss, 
+  "l1": nn.L1Loss, 
+  "huber": nn.HuberLoss,
 }
 
 
@@ -36,16 +39,16 @@ def parse_args():
   parser.add_argument("-test",  "--test-data", type=str, required=True, help="The file writes all of the absolute path of h5 files of test data set")
   parser.add_argument("-p",     "--pretrained", type=str, required=True, help="Pretrained model path")
   parser.add_argument("-m",     "--meta-information", type=str, required=True, help="The meta information file for the pretrained model")
-  parser.add_argument("-o",     "--output-file", type=str, required=True, help="The output folder to store the model and performance data")
+  parser.add_argument("-o",     "--output_folder", type=str, default="/tmp/", help="The output folder to store the model and performance data")
   parser.add_argument("-w",     "--data-workers", type=int, default=12, help="Number of workers for data loading")
   
   # Miscellanenous
   parser.add_argument("--test-number", type=int, default=100_000_000, help="Number of test samples")
+  parser.add_argument("--test-robustness", type=int, default=0, help="Test the robustness of the model")
   parser.add_argument("-v", "--verbose", default=0, type=int, help="Verbose printing while training")
   parser.add_argument("-s", "--manualSeed", type=int, help="Manually set seed")
   parser.add_argument("--cuda", type=int, default=int(torch.cuda.is_available()), help="Use CUDA")
-  parser.add_argument("--production", type=int, default=0, help="Production mode")
-
+  parser.add_argument("--production", type=int, default=0, help="Production mode") 
 
   args = parser.parse_args()  
   # if not os.path.exists(args.training_data): 
@@ -178,7 +181,6 @@ def perform_testing_CLI():
 if __name__ == "__main__":
   """
   Test the model with 
-
   """
   perform_testing_CLI()
 
