@@ -401,9 +401,7 @@ class MisatoTraj(Trajectory):
         printit(f"{self.__class__.__name__}: Superpose the trajectory with default mask @CA")
         pt.superpose(ret_traj, mask="@CA")
     
-    
-    printit(ret_traj.xyz.shape)   # DEBUG
-    assert ret_traj.xyz.shape.__len__() == 3 , f"What? Shape of the trajectory is {ret_traj.xyz.shape}"
+    assert ret_traj.xyz.shape.__len__() == 3 , f"Fatal: The shape of the trajectory {self.identity} is {ret_traj.xyz.shape}!!! It should be (n_frames, n_atoms, 3). "
     printit("Result traj: ", ret_traj)
 
     # Pytraj trajectory-based initialization

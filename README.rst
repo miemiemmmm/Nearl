@@ -1,20 +1,10 @@
 Nearl
 =====
 
-.. |badge_license| image:: https://img.shields.io/badge/License-MIT-yellow.svg
-  :target: https://opensource.org/licenses/MIT
-
-.. |badge_python| image:: https://img.shields.io/badge/python-3.9-blue.svg
-  :target: https://www.python.org/downloads/release/python-3917/
-
-.. |badge_rtd| image:: https://readthedocs.org/projects/nearl/badge/?version=latest
-  :target: https://nearl.readthedocs.io/en/latest/
-  :alt: Documentation Status
-
-|badge_license| |badge_python| 
+|license| |pythonver|
 
 
-`Nearl <https://github.com/miemiemmmm/Nearl>`_ (pronounced /nɛ'ɑɹl/) is an open-source machine learning framework for mining protein dynamics from molecular dynamics trajectories. 
+`Nearl <https://github.com/miemiemmmm/Nearl>`_ is an open-source machine learning framework for mining protein dynamics from molecular dynamics trajectories. 
 In current release, featurization centers on 3D voxel-based representation for 3D-CNN-based frameworks. 
 
 
@@ -98,3 +88,16 @@ License
 
 This project is licensed under the MIT License - see the `LICENSE <LICENSE>`_ file for details.
 
+
+
+.. |license| image:: https://img.shields.io/badge/License-MIT-yellow.svg
+  :target: https://opensource.org/licenses/MIT
+  :alt: License
+
+.. |pythonver| image:: https://img.shields.io/badge/python-3.9-blue.svg
+  :target: https://www.python.org/downloads/release/python-3917/
+  :alt: Python 3.9
+
+.. |rtdlink| image:: https://readthedocs.org/projects/nearl/badge/?version=latest
+  :target: https://nearl.readthedocs.io/en/latest/
+  :alt: Documentation Status

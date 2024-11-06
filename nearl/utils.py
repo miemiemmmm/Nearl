@@ -789,7 +789,7 @@ def get_model(model_type:str, input_dim:int, output_dim:int, box_size, **kwargs)
     raise ValueError(f"Model type {model_type} is not supported")
 
 
-def test_model(model, dataset, criterion, test_number, batch_size, use_cuda=1, process_nr=24): 
+def test_model(model, dataset, criterion, test_number, batch_size, use_cuda=1, process_nr=24, test_robust=False): 
   tested_sample_nr = 0
   predictions = []
   targets = []
@@ -802,6 +802,16 @@ def test_model(model, dataset, criterion, test_number, batch_size, use_cuda=1, p
         break
       if use_cuda:
         data, target = data.cuda(), target.cuda()
+      if test_robust:
+        # Add some Gaussian noise to the data 
+        data += torch.normal(mean=5, std=2, size=data.shape).cuda() 
+        # Emulate the corrupted data: Set some channels to zero 
+        corrupted_count = batch_size // 8  # 1/8 of the batch size
+        # For each corrupted sample, set 1 channel to zero 
+        corrupted = np.random.choice(batch_size, corrupted_count, replace=False)
+        for i in corrupted: 
+          data[i, np.random.choice(data.shape[1])] = 0 
+        
       output = model(data)
       if "logits" in dir(output): 
         output = output.logits

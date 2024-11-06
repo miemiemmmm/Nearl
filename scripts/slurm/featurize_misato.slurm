@@ -1,7 +1,7 @@
 #!/bin/bash -l
-#SBATCH --job-name=FeaturizeMisato_multistatic                 # Correct the job name
-#SBATCH --output=/Matter/training_logs/FeaturizeMisato_multistatic_%a.out     # Correct the log folder and file name 
-#SBATCH --error=/Matter/training_logs/FeaturizeMisato_multistatic_%a.err
+#SBATCH --job-name=ensemble_mistrain                                # Correct the job name
+#SBATCH --output=/Matter/training_logs/ensemble_mistrain_%a.out     # Correct the log folder and file name 
+#SBATCH --error=/Matter/training_logs/ensemble_mistrain_%a.err
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=6
@@ -10,46 +10,68 @@
 # TODO: manually set the task count and task id for testing
 export SLURM_ARRAY_TASK_COUNT=${SLURM_ARRAY_TASK_COUNT:-1}
 export SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID:-0}
+export SLURM_CPUS_PER_TASK=${SLURM_CPUS_PER_TASK:-6}
+export PYTHONUNBUFFERED=1
 
 echo "Total number of tasks: ${SLURM_ARRAY_TASK_COUNT}"
 echo "The task index of this job: ${SLURM_ARRAY_TASK_ID}"
 source /home/yzhang/mamba/bin/loadmamba
 micromamba activate nearl_dev
 
-# outdir="/Matter/nearl_training_data/testjob3"                  # TODO Correct the output directory before running
-# pdbcodes="/Matter/nearl_training_data/testjob3/noprot.txt"     # TODO Correct the pdbcode file before running
 
-
-#### Misato dataset for general set 
-outdir=/Matter/nearl_training_data/ensemble_casf
-prefix="test"
-pdbcodes=/MieT5/BetaPose/data/casf2016_test.txt
-
-
-# outdir=/Matter/nearl_training_data/misato_multi_static_props
-# prefix="train"
-# pdbcodes=/MieT5/BetaPose/data/train_general.txt
-
-
-
-#### Misato dataset for refined set
-# outdir=/Matter/nearl_training_data/misato_pdbbind_refined
-# prefix="train"
-# pdbcodes=/MieT5/BetaPose/data/train_refined.txt
-
-# outdir=/Matter/nearl_training_data/misato_pdbbind_refined
+# CASF2016 test set: 266 entries
+# pdblist=/MieT5/BetaPose/data/casf2016_test.txt
 # prefix="test"
-# pdbcodes=/MieT5/BetaPose/data/test_refined.txt
+# outdir=/Matter/nearl_training_data/ensemble_casf
 
+# Misato test set: 1357 entries 
+# pdblist=/MieT5/BetaPose/data/misato_test.txt
+# prefix="test"
+# outdir=/Matter/nearl_training_data/ensemble_misato_test
+
+# Refined training set: 4162
+# pdblist=/MieT5/BetaPose/data/refined_train.txt
+# prefix="train"
+# outdir=/Matter/nearl_training_data/ensemble_refined_train
+
+# Misato training set: 12804
+# pdblist=/MieT5/BetaPose/data/misato_train.txt
+# prefix="train"
+# outdir=/Matter/nearl_training_data/ensemble_misato_train
+
+
+################################ Dynamic data ################################
+
+# pdblist=/MieT5/BetaPose/data/casf2016_test.txt
+# prefix="test"
+# outdir="/Matter/nearl_training_data/dynamic_casf"
+
+# pdblist=/MieT5/BetaPose/data/misato_test.txt
+# prefix="test"
+# outdir="/Matter/nearl_training_data/dynamic_misato_test"
+
+# pdblist=/MieT5/BetaPose/data/refined_train.txt
+# prefix="train"
+# outdir="/Matter/nearl_training_data/dynamic_refined_train"
+
+pdblist=/MieT5/BetaPose/data/misato_train.txt
+prefix="train"
+outdir="/Matter/nearl_training_data/dynamic_misato_train"
 
 ################################################################################
 [ ! -d ${outdir} ] && mkdir -p ${outdir}
+rm ${outdir}/*h5
 # misatodir="/Matter/misato_database/"
 misatodir="/MieT5/DataSets/misato_database/"
 python3 /MieT5/BetaPose/scripts/featurize_misato.py \
-  --pdbcodes    ${pdbcodes} \
+  --pdbcodes    ${pdblist} \
+  --dimension   32 \
+  --length      20 \
   --misato_dir  ${misatodir} \
-  --h5prefix  ${prefix} \
+  --h5prefix    ${prefix} \
   --task_nr     ${SLURM_ARRAY_TASK_COUNT} \
   --task_index  ${SLURM_ARRAY_TASK_ID} \
-  --output_dir  ${outdir}
+  --output_dir  ${outdir} \
+  --cpu_nr      ${SLURM_CPUS_PER_TASK}
+
+realpath ${outdir}/*h5 > ${outdir}/$(echo ${prefix} | cut -c1-2).txt

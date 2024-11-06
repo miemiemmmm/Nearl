@@ -1,4 +1,4 @@
-import time, json
+import time, json, sys
 
 import numpy as np
 from tqdm import tqdm
@@ -160,11 +160,12 @@ class Featurizer:
 
     if "outfile" in parms.keys():
       # Dump the parm dict to that hdf file
+      # TODO: Check why the parmameter dictionary is not successfully dumped into the output file in the Misato featurization. 
       tmpdict = {**parms, **kwargs}
-      {'dimensions': 10, 'lengths': 16, 'time_window': 10, 'sigma': 1.5, 'cutoff': 2.55, 'outfile': '/tmp/test.h5', 'progressbar': True}
       tmpdict["dimensions"] = [int(i) for i in self.dims]
       tmpdict["lengths"] = [float(i) for i in self.lengths]
-      print(tmpdict) # TODO
+      printit(f"{self.__class__.__name__}: Dumping the parameters to the file: {parms['outfile']}")
+      printit(f"{self.__class__.__name__}: Parameters are: {parms}")
       utils.dump_dict(parms["outfile"], "featurizer_parms", tmpdict)
 
   def __str__(self):
@@ -372,20 +373,25 @@ class Featurizer:
       # Get the center of geometry for the frames with self.interval
       for midx, mask in enumerate(self.FOCALPOINTS_PROTOTYPE): 
         selection = self.traj.top.select(mask)
+        if len(selection) == 0:
+          printit(f"{self.__class__.__name__} Warning: The trajectory {self.traj.identity} does not have any atoms in the selection {mask}")
+          return False
         for fidx in range(self.SLICENUMBER):
           frame = self.traj.xyz[fidx*self.time_window]
           self.FOCALPOINTS[fidx, midx] = np.mean(frame[selection], axis=0)
-
+      return 1
     elif self.FOCALPOINTS_TYPE == "index":
       for midx, mask in enumerate(self.FOCALPOINTS_PROTOTYPE): 
         for idx, frame in enumerate(self.traj.xyz[::self.time_window]):
           self.FOCALPOINTS[idx, midx] = np.mean(frame[mask], axis=0)
+      return 1
 
     elif self.FOCALPOINTS_TYPE == "absolute":
       for focusidx, focus in enumerate(self.FOCALPOINTS_PROTOTYPE): 
         assert len(focus) == 3, "The focus should be a 3D coordinate"
         for idx, frame in enumerate(self.traj.xyz[::self.time_window]):
           self.FOCALPOINTS[idx, focusidx] = focus
+      return 1
       
     elif self.FOCALPOINTS_TYPE == "json":
       with open(self.FOCALPOINTS_PROTOTYPE, "r") as f:
@@ -395,6 +401,7 @@ class Featurizer:
       for idx, frame in enumerate(self.traj.xyz[::self.time_window]):
         focus = np.mean(frame[indices], axis=0)
         self.FOCALPOINTS[0, idx] = focus
+      return 1
 
     else:
       raise ValueError(f"Unexpected focus format: {self.FOCALPOINTS_TYPE}")
@@ -410,18 +417,21 @@ class Featurizer:
       printit(f"{self.__class__.__name__}: {msg:=^80}")
       st = time.perf_counter()
 
+      if self.FOCALPOINTS_PROTOTYPE is not None:
+        # NOTE: Re-parse the focal points for each trajectory
+        # Expected output shape is (self.SLICENUMBER, self.FOCALNUMBER, 3) array 
+        focus_state = self.parse_focus()
+        if focus_state == 0:
+          printit(f"{self.__class__.__name__} Warning: Skipping the trajectory {self.traj.identity}(traj {tid}) because focal points parsing is failed. ")
+          continue 
+        if config.verbose() or config.debug():
+          printit(f"{self.__class__.__name__}: Parsing of focal points on trajectory ({tid}/{self.traj.identity}) yeield the shape: {self.FOCALPOINTS.shape}. ")
+
       # Cache the weights for each atoms in the trajectory (run once for each trajectory)
       for feat in self.FEATURESPACE:
         if config.verbose(): 
           printit(f"{self.__class__.__name__}: Caching the weights of feature {feat.__class__.__name__} for the trajectory {tid}")
         feat.cache(self.traj)
-
-      if self.FOCALPOINTS_PROTOTYPE is not None:
-        # NOTE: Re-parse the focal points for each trajectory
-        # Expected output shape is (self.SLICENUMBER, self.FOCALNUMBER, 3) array 
-        self.parse_focus()
-        if config.verbose() or config.debug():
-          printit(f"{self.__class__.__name__}: Re-parsing of focal points on trajectory ({tid}/{self.traj.identity}) yeield the shape: {self.FOCALPOINTS.shape}. ")
 
       tasks = []
       feature_map = []
