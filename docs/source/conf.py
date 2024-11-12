@@ -46,6 +46,7 @@ extensions = [
 ]
 
 autodoc_member_order = 'bysource'
+# autodoc_mock_imports = ["nearl.features", "nearl.commands", "nearl.io.trajloader", "nearl.io.traj", "nearl.featurizer"]
 numpydoc_show_class_members = False
 myst_heading_anchors = 3  
 
