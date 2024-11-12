@@ -12,6 +12,8 @@ build:
     python: "3.9"
     conda: "latest"
   
+
+build:
   commands:
     - conda install -y -c conda-forge ambertools
 
