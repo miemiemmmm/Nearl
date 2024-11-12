@@ -11,11 +11,8 @@ build:
   tools:
     python: "3.9"
     conda: "latest"
-  
-
-build:
   commands:
-    - conda install -y -c conda-forge ambertools
+    - conda install -y -c conda-forge ambertools  
 
 
 # Build documentation in the "docs/" directory with Sphinx
