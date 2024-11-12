@@ -1,52 +1,52 @@
 Nearl
 =====
 
-|license| |pythonver|
+|pythonver| |license| |rtdlink|
 
+⚠️ Under construction ⚠️
 
-`Nearl <https://github.com/miemiemmmm/Nearl>`_ is an open-source machine learning framework for mining protein dynamics from molecular dynamics trajectories. 
+`Nearl <https://github.com/miemiemmmm/Nearl>`_ is an open-source machine learning framework for mining protein dynamics from molecular dynamics (MD) trajectories. 
 In current release, featurization centers on 3D voxel-based representation for 3D-CNN-based frameworks. 
 
 
 Key Features
 ------------
-- Multiple pre-defined true 3D features including 2 dynamic features and 14 static features 
+- Automated pipeline for the featurization of MD trajectories 
 - Flexible definition of features and trajectory container 
-- Automated pipeline for featurization 
-- User-friendly API for the customization of features, trajectory suppliers 
+- User-friendly API for the customization of featurization workflow
+- Multiple true 3D features including 2 dynamic features and 14 static features 
 - Pre-built 3D-CNN models for training and development 
 
-.. - Embed molecule blocks from 3D molecular structures
-.. ###################################################################
+.. ###############################################
 .. Upon changing the installation guide, sync here
 
 Installation
 ------------
 
-The development and tests are performed on Linux(Ubuntu), and the software is not tested on other operating systems. 
-Since the software is still under development and not yet uploaded to PyPI, the installation can be done via direct installation from GitHub repository. 
+It is recommended to install the package via the direct installation from GitHub repository. 
+The development and tests are performed on Linux(Ubuntu), and the software is not guaranteed to work on other platforms. 
+.. Since the software is still under development and not yet uploaded to PyPI, 
+
 
 .. code-block:: bash
 
   micromamba create -n nearl_env python=3.9.17 AmberTools=23 openbabel=3.1.1
   micromamba activate nearl_env
-  pip install git+https://github.com/miemiemmmm/Nearl
+  pip install rdkit, pandas, torch, torchvision
+  pip install git+https://github.com/miemiemmmm/Nearl.git   # Install the main package
   pip install git+https://github.com/miemiemmmm/SiESTA.git
 
 .. note:: 
 
   To correctly compile the GPU code, the older device have to adjust the ``CUDA_COMPUTE_CAPABILITY`` accordingly, to match the `CUDA architecture <https://developer.nvidia.com/cuda-gpus>`_. The current default value is ``sm_80``.
 
-Install from source: 
+To install the package from source with test data, run the following commands:  
 
 .. code-block:: bash
 
   git clone https://github.com/miemiemmmm/Nearl
   cd Nearl
   pip install . 
-
-
-
 
 Verify installation
 -------------------
@@ -101,3 +101,4 @@ This project is licensed under the MIT License - see the `LICENSE <LICENSE>`_ fi
 .. |rtdlink| image:: https://readthedocs.org/projects/nearl/badge/?version=latest
   :target: https://nearl.readthedocs.io/en/latest/
   :alt: Documentation Status
+  

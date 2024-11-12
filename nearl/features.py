@@ -3,7 +3,6 @@ import subprocess, json
 
 import h5py
 import numpy as np
-import pandas as pd
 import pytraj as pt
 from rdkit import Chem
 from scipy.spatial import KDTree
@@ -1452,6 +1451,10 @@ class LabelAffinity(Feature):
   """
   def __init__(self, baseline_map, colname="pK", **kwargs):
     super().__init__(outshape=(None,), **kwargs)
+    try: 
+      import pandas as pd
+    except ImportError as e:
+      raise ImportError("The pandas module is required for the LabelAffinity feature")
     self.baseline_table = pd.read_csv(baseline_map, header=0, delimiter=",")
     self.base_value = None
     self.colname = colname
