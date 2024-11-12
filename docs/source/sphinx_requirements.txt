@@ -6,3 +6,12 @@ sphinx-book-theme
 myst_parser
 sphinx_copybutton
 sphinx_togglebutton
+
+
+# Nearl's dependencies
+h5py
+numpy<2.0.0
+rdkit
+scipy
+torch
+openbabel
