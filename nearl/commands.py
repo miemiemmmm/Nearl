@@ -2,7 +2,11 @@ import os
 
 import numpy as np 
 
-from . import all_actions, printit, utils
+from . import printit, utils
+try: 
+  from . import all_actions
+except ImportError:
+  printit("Warning: Could not import all_actions submodule. Please check if the package is compiled correctly.") 
 
 __all__ = [
   "voxelize_trajectory",
