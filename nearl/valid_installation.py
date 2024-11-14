@@ -11,26 +11,26 @@ try:
   import nearl.tests.test_training
 except ImportError as e:
   import_fail = True
-  error_msg = str(e)
-
-
-modules_to_test = [
-  nearl.tests.test_actions,
-  nearl.tests.test_features,
-  nearl.tests.test_trajectory,
-  nearl.tests.test_visualization,
-  nearl.tests.test_training
-]
+  error_msg = str(e) 
 
 
 def main(): 
   if import_fail:
-    print("Error: ", error_msg, file=sys.stderr)
+    print("ImportError: ", error_msg, file=sys.stderr)
     print("Please check if the package is installed correctly.", file=sys.stderr)
     sys.exit(1)
   
   print(f"Nearl version {nearl.__version__}")
   print("Testing the installation...")
+
+  modules_to_test = [
+    nearl.tests.test_actions,
+    nearl.tests.test_features,
+    nearl.tests.test_trajectory,
+    nearl.tests.test_visualization,
+    nearl.tests.test_training, 
+  ]
+
   c = 0
   fname = ""
   module = ""
