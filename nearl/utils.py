@@ -1,10 +1,10 @@
 import os, time, re, hashlib, sys
+from itertools import groupby
 
 import h5py, torch
 import numpy as np 
 import pytraj as pt
 from scipy.spatial import distance_matrix
-from itertools import groupby
 
 from . import constants
 from . import printit, config

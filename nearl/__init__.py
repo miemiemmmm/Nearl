@@ -129,8 +129,8 @@ def draw_call_stack():
 
 
 # from nearl import io, features, models, utils, data, commands
-from . import features, featurizer, io, utils
-from .features import Feature
-from .featurizer import Featurizer
-from .io import Dataset, Trajectory, TrajectoryLoader
+# from . import features, featurizer, io, utils
+# from .features import Feature
+# from .featurizer import Featurizer
+# from .io import Dataset, Trajectory, TrajectoryLoader
 

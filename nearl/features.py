@@ -1,11 +1,8 @@
-import sys, tempfile, os
-import subprocess, json
+import sys, tempfile, os, subprocess
 
 import h5py
 import numpy as np
 import pytraj as pt
-from rdkit import Chem
-from scipy.spatial import KDTree
 
 from . import utils, commands, constants, chemtools   # local modules 
 from . import printit, config   # local static methods/objects
@@ -133,6 +130,7 @@ def crop(points, upperbound, padding):
 
 
 def selection_to_mol(traj, frameidx, selection):
+  from rdkit import Chem
   atom_sel = np.array(selection)
   try: 
     rdmol = utils.traj_to_rdkit(traj, atom_sel, frameidx)
@@ -1868,6 +1866,7 @@ class RFFeatures(Feature):
     -----
     Nine atom types are considered: C, N, O, F, P, S, Cl, Br, I in the ligand part, and four atom types are considered in the protein part: C, N, O, S. Hence the output array contains explicitly 36 features. 
     """
+    from scipy.spatial import KDTree
     if len(frames.shape) == 3:
       frames = frames[0]
 
