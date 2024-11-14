@@ -1,7 +1,6 @@
 import time, json, sys
 
 import numpy as np
-from tqdm import tqdm
 
 from . import utils, constants
 from . import printit, config
@@ -458,10 +457,7 @@ class Featurizer:
 
       printit(f"{self.__class__.__name__}: Tasks are ready for the trajectory {tid} with {len(tasks)} tasks")
       
-      if self.OTHER_PARMS.get("progressbar", False):
-        results = [wrapper_runner(*task) for task in tqdm(tasks)]
-      else:
-        results = [wrapper_runner(*task) for task in tasks]
+      results = [wrapper_runner(*task) for task in tasks]
       # Run the actions in the process pool
       # _tasks = [pool.apply_async(wrapper_runner, task) for task in tasks]
       # results = [task.get() for task in _tasks]
@@ -545,10 +541,7 @@ class Featurizer:
       printit(f"{self.__class__.__name__}: Task set containing {len(tasks)} tasks are created for the trajectory {tid}; ")
       ######################################################
       # TODO: Find a proper way to parallelize the CUDA function. 
-      if self.OTHER_PARMS.get("progressbar", False):
-        results = [wrapper_runner(*task) for task in tqdm(tasks)]
-      else:
-        results = [wrapper_runner(*task) for task in tasks]
+      results = [wrapper_runner(*task) for task in tasks]
       
       ######################################################
       # Run the actions in the process pool 
