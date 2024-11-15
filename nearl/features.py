@@ -810,10 +810,11 @@ class PartialCharge(Feature):
 
   Notes
   -----
-  # "qeq" -> "QEq_00_original"
   For more information about the charge types and parameters, please refer to the ChargeFW documentation with the url: 
   https://github.com/sb-ncbr/ChargeFW2
+
   """
+  # "qeq" -> "QEq_00_original"
   # The following types are supported by ChargeFW: 
   # [ "sqeqp",  "eem",  "abeem",  "sfkeem",  "qeq", "smpqeq",  "eqeq",  "eqeqc",  "delre",  "peoe", 
   #   "mpeoe",  "gdac",  "sqe",  "sqeq0",  "mgc", "kcm",  "denr",  "tsef",  "charge2",  "veem", "formal" ]
@@ -1140,19 +1141,24 @@ class DynamicFeature(Feature):
     The aggregation function for the dynamic feature. 
 
   Notes
-  -----
-
-  .. note::
-
-    Aggregation types: 
-
-    - mean 1 
-    - standard_deviation 2 
-    - median 3
-    - variance 4
-    - max 5
-    - min 6
-    - information_entropy 7
+  -----    
+  +------------------------+------------------+
+  | Aggregation Type       | Aggregation Type |
+  +========================+==================+
+  | mean                   | 1                |
+  +------------------------+------------------+
+  | standard_deviation     | 2                |
+  +------------------------+------------------+
+  | median                 | 3                |
+  +------------------------+------------------+
+  | variance               | 4                |
+  +------------------------+------------------+
+  | max                    | 5                |
+  +------------------------+------------------+
+  | min                    | 6                |
+  +------------------------+------------------+
+  | information_entropy    | 7                |
+  +------------------------+------------------+
     
   """
 
@@ -1306,27 +1312,40 @@ class MarchingObservers(DynamicFeature):
 
   Notes
   -----
-  .. note::
+  Observation types: 
+  Direct Count-based Observables
 
-    Observation types: 
-      Direct Count-based Observables
+  +------------------------+------------------+
+  | Property Name          | Property Type    |
+  +========================+==================+
+  | particle_existance     | 1                |
+  +------------------------+------------------+
+  | direct_count           | 2                |
+  +------------------------+------------------+
+  | distinct_count         | 3                |
+  +------------------------+------------------+
 
-        - existence 1
-        - direct_count 2
-        - distinct_count 3
-      
-      Weight-based Observables
+  Weight-based Observables
 
-        - mean_distance 11
-        - cumulative_weight 12
-        - density  13
-        - dispersion  14
-        - eccentricity  15
-        - radius_of_gyration  16
+  +------------------------+------------------+
+  | Property Name          | Property Type    |
+  +========================+==================+
+  | mean_distance          | 11               |
+  +------------------------+------------------+
+  | cumulative_weight      | 12               |
+  +------------------------+------------------+
+  | density                | 13               |
+  +------------------------+------------------+
+  | dispersion             | 14               |
+  +------------------------+------------------+
+  | eccentricity           | 15               |
+  +------------------------+------------------+
+  | radius_of_gyration     | 16               |
+  +------------------------+------------------+
+  
+  For weight types, please refer to the :func:`nearl.features.cache_properties` function.
 
-    For weight types, please refer to the :func:`nearl.features.cache_properties` function.
-
-    For aggregation types, please refer to the :class:`nearl.features.DynamicFeature` .
+  For aggregation types, please refer to the :class:`nearl.features.DynamicFeature` .
   
   """
   def __init__(self, obs="particle_existance", **kwargs): 
@@ -1401,11 +1420,9 @@ class LabelIdentity(Feature):
 
   Notes
   -----
-  .. note:: 
+  In default Trajectory type, the identity is the file name
 
-    In default Trajectory type, the identity is the file name
-
-    In MisatoTraj Trajectory type, the identity is the PDB code
+  In MisatoTraj Trajectory type, the identity is the PDB code
   
   """
   def __init__(self, **kwargs):
@@ -1465,11 +1482,10 @@ class LabelAffinity(Feature):
 
     Notes
     -----
-    .. tip::
-      The default implementation here is to read the csv from PDBBind dataset and search through the PDB code. 
-      Override this function to customize the search method for baseline affinity.
+    The default implementation here is to read the csv from PDBBind dataset and search through the PDB code. 
+    Override this function to customize the search method for baseline affinity.
 
-      We recommend to use a map from the trajectory identity to the affinity values. 
+    We recommend to use a map from the trajectory identity to the affinity values. 
 
     """
     pdbcode = utils.get_pdbcode(pdbcode) # This returns the pdbcode in lower case 
@@ -1485,9 +1501,8 @@ class LabelAffinity(Feature):
 
     Notes
     -----
-    .. tip::
-      In this base type, it does not 
-      the super.cache() is not needed.
+    In this base type, it does not 
+    the super.cache() is not needed.
 
     """
     # IMPORTANT: Retrieve the base value based on the trajectory identity

@@ -12,8 +12,6 @@ authors = [
 # Reconsider dependencies when publishing the package
 # Ambertools and Openbabel should be installed separately
 dependencies = [
-    "numpy (>=1.24, <2.0)",
-    "h5py",
 ]
 requires-python = ">=3.7"
 readme = "README.md"

@@ -1,8 +1,5 @@
-2. Load customized trajectories
+Load customized trajectories
 ===============================
-
-
-
 
 General concept
 ---------------
@@ -146,3 +143,6 @@ To view the trajectory, try with the following commands in Jupyter Notebook:
 
 
 
+.. TODO
+.. Add the tutorial index when appropriate
+.. Add script download link when appropriate

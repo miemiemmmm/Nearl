@@ -75,18 +75,15 @@ class Featurizer:
 
   Notes
   -----
-
-  .. note::
-
-    Required parameters:
+  Required parameters:
 
     - **dimensions**: the dimensions of the 3D grid
-    - lengths: the lengths of the 3D grid (optinal)
-    - spacing: the spacing of the 3D grid (optinal)
+    - lengths: the lengths of the 3D grid (optional)
+    - spacing: the spacing of the 3D grid (optional)
     - time_window: the time window for the trajectory (default is 1), Simple integer.
-    
-    The following are optional parameters for features. 
-    If the initialization of the feature did not explicit define the following parameters, the following parameters will be inherited from the featurizer: 
+  
+  The following are optional parameters for features. 
+  If the initialization of the feature did not explicitly define the following parameters, the following parameters will be inherited from the featurizer: 
 
     - outfile: The output file to dump the parameters and the results
     - sigma: The smoothness of the Gaussian-based feature distribution
@@ -305,9 +302,7 @@ class Featurizer:
 
     Notes
     -----
-    .. note::
-
-      Definition of focus follows the following formats:
+    Definition of focus follows the following formats:
 
       - "mask": provide a selection of atoms (Amber's selection convention)
       - "absolute": provide a list of 3D coordinates

@@ -1,60 +1,63 @@
 Start your first featurization
 ==============================
 
-
-
 .. TODO: Check other formats e.g. XTC and TRR
 
-After installing Nearl, the following steps will guide you through the process of loading a trajectory, initializing a featurizer, registering features, and starting the featurization.
-For the consistent import convention, all Nearl-related modules will be imported as shown in the following code: 
+After installing Nearl, the following steps will guide you through the key stages of feature extraction, including: 
+  - Construct a trajectory loader
+  - Build a featurizer 
+  - Initialize and register features to the featurizer  
+  - Start the featurization process
+
+Run the following code to automatically download the example data used in this documentation. 
+You can set the target folder (e.g. ``/tmp/nearl_test``) to any writable directory on your system. 
 
 .. code-block:: python
 
   import nearl
-  import nearl.data
+  EXAMPLE_DATA = nearl.get_example_data("/tmp/nearl_test") 
+  print(EXAMPLE_DATA.keys()) 
+  # Outputs: dict_keys(['MINI_TRAJSET', 'MINI_PDBSET', 'PDBBIND_REFINED', 'PDBBIND_GENERAL'])
 
-You could follow the following code blocks one-by-one or download the :download:`script <_static/quick_start.py>` and directly run it locally.
-
+.. _ref_quick_start_trajloader: 
 
 Load trajectories
 -----------------
 
-The `pytraj.Trajectory <https://amber-md.github.io/pytraj/latest/index.html>`_ in `Pytraj <https://amber-md.github.io/pytraj/latest/trajectory.html>`_ is the backend for trajectory processing. 
-Trajectory loader currently supports the following formats: **NetCDF**, **PDB**, **DCD**.
-By default, the `Trajectory` object one or two arguments marking the trajectory and/or topology as the first and second arguments. 
-In the distribution of Nearl, there is a small trajectory for testing purposes in ``nearl.data.MINI_TRAJ``. 
-Here is a simple example of how to load the trajectory and visualize it in Jupyter notebook.
+The Nearl trajectory loader supports commonly used MD trajectory formats, such as **NetCDF**, **XTC**, and **DCD** (also **PDB**, though multi-model PDB is space-inefficient). 
+It uses `PyTraj <https://amber-md.github.io/pytraj/latest/_api/pytraj.trajectory.html>`_ as the backend for trajectory handling.  
+For more details about supported trajectory formats, refer to the `CPPTRAJ documentation <https://amberhub.chpc.utah.edu/cpptraj/trajectory-file-commands/>`_. 
+The default :class:`Trajectory <nearl.io.traj.Trajectory>` object requires the correct trajectory and topology arguments for loading. 
+The ``MINI_TRAJSET`` keyword from the ``EXAMPLE_DATA`` contains a minimal set of trajectories and topologies to get started.
+Here’s how to load a trajectory and visualize it in a Jupyter Notebook. 
 
 .. code-block:: python
 
-  print(type(nearl.data.MINI_TRAJ))  #  <class 'tuple'>
-  traj = nearl.Trajectory(nearl.data.MINI_TRAJ[0], nearl.data.MINI_TRAJ[1]) 
-  traj.visualize() 
+  import nearl.io
+  print(type(EXAMPLE_DATA["MINI_TRAJSET"])) 
+  # Outputs: <class 'list'> -> a list of tuples 
+
+  traj = nearl.io.Trajectory(*EXAMPLE_DATA["MINI_TRAJSET"][0])  
+  traj.visualize()    # Display the trajectory 
 
 
-
-The :class:`TrajectoryLoader<nearl.io.trajloader.TrajectoryLoader>` could take arbitrary number of trajectories for the following featurization.
-This can be done by providing a list of tuples, where each tuple contains the path to the trajectory and the topology file respectively. 
-A trajectory list of tuples, which contains the correct way to initialize the `nearl.Trajectory` object. 
-As a quick start, the following code initializes a simple  trajectory loader and repeatatively put the short demo trajectory in the trajectory loader.
+The :class:`TrajectoryLoader<nearl.io.trajloader.TrajectoryLoader>` is the major component for batch processing of large-scale MD datasets and allows you to register multiple trajectories. 
+It accepts a list of tuples, where each tuple specifies the paths to a trajectory file and its corresponding topology file. 
+Each tuple should contain the correct sequence to initialize the :class:`Trajectory <nearl.io.traj.Trajectory>` object properly. 
+Below is an example of initializing a simple trajectory loader: 
 
 .. code-block:: python
 
-  trajs = [
-    nearl.data.MINI_TRAJ, 
-    nearl.data.MINI_TRAJ, 
-    nearl.data.MINI_TRAJ, 
-    nearl.data.MINI_TRAJ, 
-  ]
-  loader = nearl.TrajectoryLoader(trajs)
-  print(f"{len(loader)} trajectories detected")  # 4 trajectories detected
+  loader = nearl.io.TrajectoryLoader(EXAMPLE_DATA["MINI_TRAJSET"])
+  print(f"{len(loader)} trajectories detected") 
 
 
 .. tip:: 
 
-  The input tuple only describes how to initialize the ``nearl.Trajectory`` object and does not load the trajectory into memory until it is needed. 
-  This avoids loading all the trajectories into memory at once, which is useful when dealing with large trajectories or a large number of trajectories. 
-  **Direct trajectory-based loader initialization is doable but strongly discouraged.** 
+  The ``TrajectoryLoader`` does not immediately load trajectories upon initialization. 
+  Instead, the list of tuples (input arguments for :class:`Trajectory <nearl.io.traj.Trajectory>` instantiation) is registered and trajectories are loaded only when needed
+  This behavior is useful when dealing with large datasets, as it avoids overloading memory. 
+  While it is possible to directly use a list of trajectories for trajectory loader initialization, it is not recommended unless you fully understand the implications. 
 
   .. code-block:: python
 
@@ -65,53 +68,49 @@ As a quick start, the following code initializes a simple  trajectory loader and
       ..., 
       (trajn, topn)
     ]
-    trajloader = nearl.TrajectoryLoader(traj_list, **kwarg)
+    trajloader = nearl.TrajectoryLoader(traj_list)
 
 
+.. Some examples of link to API document
 .. See :class:`nearl.io.trajloader` for more details.
 .. see :ref:`nearl.io.trajloader` here
 .. see :class:`This is a class <nearl.features.DensityFlow>` here
 .. see :func:`here <nearl.features.DensityFlow>` for feature i
 
 
+.. _ref_quick_start_featurizer:
+
 Initialize a featurizer
 -----------------------
-Featurizer is the core component of Nearl which store the blueprint of the featurization, and is responsible for controlling the featurization process. 
 
-(mainly features and trajectories)
-
+Featurizer is the core component to control the featurization process, namely coordinate the information flow between trajectories and features. 
 The following code initializes a simple featurizer with the following parameters: 
-
-.. _ref_quick_start_featurizer:
 
 .. code-block:: python
 
   FEATURIZER_PARMS = {
-    "dimensions": 32,       # Dimension of the 3D grid
-    "lengths": 16,          # Length of the 3D grid in Angstrom, it yields 0.5 resolution
-    "time_window": 10,      # Number of frames to slice each trajectory
-    "sigma": 1.5,
-    "cutoff": 3.5,
-    "outfile": "/tmp/features.h5",
+    "dimensions": 32,       # Dimension of the 3D grid 
+    "lengths": 16,          # Length of the 3D grid in Angstrom, it yields 0.5 resolution 
+    "time_window": 10,      # Number of frames to slice each trajectory 
+    "sigma": 1.5, 
+    "cutoff": 3.5, 
+    "outfile": "/tmp/features.h5",   # Output structured HDF file 
   }
   featurizer = nearl.featurizer.Featurizer(FEATURIZER_PARMS)
 
+For more featurizer configurations, check the class methods of :class:`nearl.featurizer.Featurizer`. 
 
-Register featurizers
---------------------
-For more featurizer settings, check the class methods of :class:`nearl.featurizer.Featurizer`. 
-The argument ``outkey`` should be defined separately for the dump of the features.
+.. _ref_quick_start_features:
 
-.. tip::
-  There are 3 major ways to register one or more features into the featurizer.
+Register features
+-----------------
+The following code demonstrates the 3 major ways to register one or more features into the featurizer. 
+All resulting features will be put to the ``FEATURIZER_PARMS["outfile"]`` to align the features in the same HDF5 file. 
+The argument ``outkey`` for each individual feauture should be defined separately because it is used to identify the feature tag when supplying the desired feature during training. 
 
-  1. Register a list: Typical way to register features
-  2. Register individually: Convenient when the number of features is small 
-  3. Register an ordered dictionary: Useful when there are many similar features and the tag could be used to distinguish them
+1. **Register a list of features:** Typical way to register features
 
 .. code-block:: python
-
-  from collections import OrderedDict
   
   # Use a simple list of features
   features_list = [
@@ -120,38 +119,55 @@ The argument ``outkey`` should be defined separately for the dump of the feature
   ]
   featurizer.register_features(features_list)
 
+1. **Register features individually:** Convenient when the number of features is small
+
+.. code-block:: python
+
   # Register features individually
   featurizer.register_feature(nearl.features.Mass(selection=":LIG", outkey="lig_annotation"))
   featurizer.register_feature(nearl.features.Mass(selection="!:LIG,T3P", outkey="prot_annotation"))  # Append another feature
 
+
+3. **Register via ordered dictionary:** Useful when there are many similar features and setting tags helps the readability of the code
+
+.. code-block:: python
+
+  from collections import OrderedDict
   # Use a dictionary of features
   feature_dict = OrderedDict()
   feature_dict["obs_density_lig"] = nearl.features.MarchingObservers(selection=":LIG", obs="density", agg="mean", weight_type="mass", outkey="obs_density_lig")
   feature_dict["obs_density_prot"] = nearl.features.MarchingObservers(selection="!(:LIG,T3P)", obs="density", agg="mean", weight_type="mass", outkey="obs_density_prot")
   feature_dict["df_mass_std_lig"] = nearl.features.DensityFlow(selection=":LIG", agg="standard_deviation", weight_type="mass", outkey="df_mass_std_lig")
   feature_dict["df_mass_std_prot"] = nearl.features.DensityFlow(selection="!(:LIG,T3P)", agg="standard_deviation", weight_type="mass", outkey="df_mass_std_prot")
-
   featurizer.register_features(feature_dict)
 
+
+.. _ref_quick_start_featurization:
 
 Start featurization
 -------------------
 After registering the features, trajectory loader and substructure of interest has to be registered before starting the featurization. 
-All of the features will be put into the output file defined in ``FEATURIZER_PARMS["outfile"]``
+
 
 .. code-block:: python
 
-  featurizer.register_trajloader(loader)  # Register the trajectory loader in the first step
-  featurizer.register_focus([":LIG"], "mask")  # focus on the ligand
+  # Register the trajectory loader in the first step
+  featurizer.register_trajloader(loader) 
+  # focus on the protein-ligand binding site 
+  featurizer.register_focus([":LIG"], "mask")  
   featurizer.main_loop()
+
+
+.. _ref_quick_start_viewoutput:
 
 Check output file
 -----------------
-The ``ncdump`` program (might need to install netcdf-bin) could be used to check the output file. 
+If the featurization process is successful, all features are stored in the HDF5 output file defined by ``FEATURIZER_PARMS["outfile"]``. 
+The ``ncdump`` program (requires the installation of `NetCDF <https://www.unidata.ucar.edu/software/netcdf/>`_) is a simple tool to check the output. 
+Running the command `ncdump -h /tmp/features.h5``, you should see the following output: 
 
 .. code-block:: bash 
 
-  $ ncdump -h /tmp/features.h5  # outfile defined in FEATURIZER_PARMS
   netcdf features {
   dimensions:
     phony_dim_0 = UNLIMITED ; // (40 currently)
@@ -179,3 +195,7 @@ The ``ncdump`` program (might need to install netcdf-bin) could be used to check
     } // group featurizer_parms
   }
 
+
+.. note:: 
+
+  :download:`Download Python source code for local execution <_static/quick_start.py>` 
