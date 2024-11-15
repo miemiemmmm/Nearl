@@ -1,12 +1,10 @@
-6. Batch PDB structure loading
+Batch PDB structure loading
 ==============================
 Since meaningful large-scale MD trajectories are not always easily accessible, 
 Nearl provides a way to use static structures for the generation of various pre-defined static features. 
 In this tutorial, we will go through the steps to use the static structures (like PDBBind dataset) for the generation of static features. 
 
-.. tip::
 
-  Click :download:`HERE <_static/static_pdb_featurization.py>` to download the script used in this tutorial.
 
 Load PDB structures
 -------------------
@@ -66,15 +64,18 @@ Register features and run
   featurizer.main_loop()
   
 
-Result visualization
---------------------
+.. Result visualization
+.. --------------------
+
+.. .. code-block:: bash 
+
+..   pass
 
 
-.. code-block:: bash 
+.. note::
 
-  pass
+  :download:`Download Python source code for local execution <_static/static_pdb_featurization.py>`
 
-
-
-
-
+.. TODO
+.. Add the tutorial index when appropriate
+.. Add script download link when appropriate

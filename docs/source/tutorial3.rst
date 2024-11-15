@@ -1,11 +1,13 @@
-3. Register focused substructure
+Register focused substructure
 ================================
 
 
 .. code-block:: python
 
-  feat.register_focus([":MOL"],  "mask")
-
   TO BE ADDED
 
 
+
+.. TODO
+.. Add the tutorial index when appropriate
+.. Add script download link when appropriate

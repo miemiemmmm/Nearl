@@ -128,6 +128,51 @@ def draw_call_stack():
   printit(f"{'End Drawing Calling Stack':=^100s}")
 
 
+def get_example_data(path="./"): 
+  """
+  Download the example data from the data repository to the target folder. 
+
+  Notes
+  -----
+  Keywords of the returned dictionary: 
+  MINI_TRAJSET, MINI_PDBSET, PDBBIND_REFINED, PDBBIND_GENERAL
+  
+  """
+  if not os.path.exists(path):
+    raise OSError(f"Path {path} does not exist")
+  elif not os.path.isdir(path):
+    raise OSError(f"Path {path} is not a directory")
+  elif not os.access(path, os.W_OK):
+    raise OSError(f"Path {path} is not writable")
+  else:
+    import subprocess 
+    os.chdir(path)
+
+    # Download the example data 
+    # TODO: Add the link to the example data
+    if not os.path.exists("example_data.tar.gz"):
+      printit(f"Downloading example data to {path}")
+      datafile_url = "https://miemiemmmm.b-cdn.net/shared_files/example_data.tar.gz" 
+      subprocess.run(["wget", "--directory-prefix", path, datafile_url]) 
+    else: 
+      printit("The example data (example_data.tar.gz) already exists! Skip downloading...") 
+    
+    # Extract the compressed file 
+    if os.path.exists("example_data"):
+      printit("The example data folder already exists! Skip extracting...")
+    else:
+      printit("Extracting the example data...")
+      subprocess.run(["tar", "-xf", "example_data.tar.gz"], cwd=path) 
+    
+    # Obtain the data paths as a dictionary 
+    os.chdir("example_data")
+    if not os.path.exists("data.py"):
+      raise OSError(f"Data index file not found in the extracted folder {os.getcwd()}")
+    import data
+    paths = data.get_data()
+
+    return paths
+
 # from nearl import io, features, models, utils, data, commands
 # from . import features, featurizer, io, utils
 # from .features import Feature

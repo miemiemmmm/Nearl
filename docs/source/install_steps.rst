@@ -21,13 +21,13 @@ Install Nearl
 The development and tests are performed on Linux(Ubuntu), and the software is not guaranteed to work on other operating systems. 
 You can install Nearl using one of the following methods:
 
-**Installation from GitHub**: Install directly from the repository
+**Installation from GitHub**: Install directly from the repository. 
 
 .. code-block:: bash
 
   pip install git+https://github.com/miemiemmmm/Nearl
 
-**Installation from Source**: Clone the repository and install Nearl from the source
+**Installation from Source**: Clone the repository and install Nearl from the source. 
 
 .. code-block:: bash
 

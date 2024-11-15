@@ -20,19 +20,21 @@ Welcome to Nearl's documentation!
 
    installation
    quick_start
-   visualization
+   intro_visual
    intro_dynfeat
+
+.. TODO: tutorial2   Add back this section after the publication of the paper
 
 .. toctree::
    :maxdepth: 2
    :caption: Tutorials
    
    tutorial1
-   tutorial2
    tutorial3
    tutorial4
    tutorial5
    tutorial6
+
 
 .. toctree::
    :maxdepth: 0

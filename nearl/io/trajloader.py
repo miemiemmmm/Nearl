@@ -78,7 +78,7 @@ class TrajectoryLoader:
       if len(trajid) != len(self.trajs):
         raise ValueError(f"The number of trajectory ids {len(trajid)} does not match the number of trajectories {len(self.trajs)}")
     else: 
-      self.trajids = None
+      self.trajids = [i[0] if isinstance(i, (list, tuple)) else None for i in trajs]
 
     # Remember the user's configuration
     self.__loading_options = {"stride": None, "frame_indices": None, "mask": None, "superpose": False }

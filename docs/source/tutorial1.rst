@@ -1,4 +1,4 @@
-1. Feature customization
+Feature customization
 ========================
 
 Feature engineering is a crucial step in machine learning. 
@@ -28,9 +28,9 @@ When defining a new feature, you need to inherit the base class Features and imp
       # this example is to generate a random number for each atom
       self.cached_props = np.random.rand(trajectory.n_atoms)
 
-    def query(self, topology, frames, focual_point):
+    def query(self, topology, frames, focus):
       frame = frames[0]
-      mask_inbox = super().query(topology, frame, focual_point)
+      mask_inbox = super().query(topology, frame, focus)
       coords = frame.xyz[mask_inbox]
       weights = self.cached_props[mask_inbox]
       return coords, weights
@@ -47,14 +47,10 @@ When defining a new feature, you need to inherit the base class Features and imp
                             chunks=True, compression="gzip", compression_opts=4)
 
 
-
-
-.. _RFScore: https://doi.org/10.1093/bioinformatics/btq112
-
 Case study: RFScore features
 ----------------------------
 
-The orignal paper of `RFScore`_ is as follows:  
+The detailed description of `RFScore <https://doi.org/10.1093/bioinformatics/btq112>`_ is noted in its orignal paper:  
 Ballester, P.J. and Mitchell, J.B., 2010. A machine learning approach to predicting protein–ligand binding affinity with applications to molecular docking. Bioinformatics, 26(9), pp.1169-1175.
 
 
@@ -68,11 +64,26 @@ In this tutorial, we will see how to customize the featurization used in RFScore
   from nearl.features import Feature
   from nearl.features import RFScore
 
+  class RFScoreFeat(Feature): 
+    def __init__(self, *args, **kwargs):
+      super().__init__(*args, **kwargs)
+      
+    def run(self, coords, weights):
+      feature_vector = RFScore(coords, weights, self.dims, self.spacing, self.cutoff, self.sigma)
+      return feature_vector
 
+
+Feature generation
+^^^^^^^^^^^^^^^^^^
+
+.. code-block:: python
+
+  pass
 
 
 Model training
 ^^^^^^^^^^^^^^
+Using random forest regressor as am example with our implementation of ``RFScore`` features. 
 
 .. code-block:: python
   
@@ -90,9 +101,6 @@ Model training
 
 
 
-
-
-
-
-
-
+.. TODO
+.. Add the tutorial index when appropriate
+.. Add script download link when appropriate
