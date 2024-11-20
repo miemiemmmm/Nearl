@@ -41,8 +41,9 @@ In the test case, the MISATO dataset is organized in the following structure:
 
 .. code-block:: bash 
 
-  $ tree /path/to/misato_database
-  /path/to/misato_database
+  $ tree /path/to/misato_dataset
+  # Outputs: 
+  /path/to/misato_dataset
   ├── MD.hdf5
   ├── parameter_restart_files_MD
   │   ├── 10gs

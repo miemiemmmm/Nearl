@@ -1,5 +1,4 @@
-import os, sys
-from time import perf_counter
+import os, sys, time
 from datetime import datetime
 from inspect import stack as __call_stack
 from builtins import print as __builtinprint
@@ -35,13 +34,6 @@ class config:
   def reportdatetime():
     return CONFIG.get("reportdatetime", False)
 
-# "SEGMENT_LIMIT" : 6,
-# "VIEWPOINT_STANDPOINT": "self",
-# "VIEWPOINT_BINS" : 24,
-# "DOWN_SAMPLE_POINTS" : 1000,
-# "SEGMENT_CMAP" : "inferno",
-# PACKAGE_DIR = os.path.dirname(os.path.abspath(__file__))
-
 def update_config(dict_to_update:dict={}, **kwargs):
   for key, value in dict_to_update.items():
     if key in CONFIG:
@@ -55,13 +47,13 @@ def update_config(dict_to_update:dict={}, **kwargs):
     else:
       raise KeyError(f"Key {key} is not in the configuration file")
 
-_start_time = perf_counter()
+_start_time = time.perf_counter()
 
 def loginfo_runtime():
   """
   Simply adding a timestamp to the log message
   """
-  timestamp = perf_counter() - _start_time
+  timestamp = time.perf_counter() - _start_time
   log_message = f"Running {timestamp:8.2f}: " 
   return log_message
 

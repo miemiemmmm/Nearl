@@ -1,3 +1,5 @@
+.. _ref_quick_start:
+
 Start your first featurization
 ==============================
 
@@ -119,7 +121,7 @@ The argument ``outkey`` for each individual feauture should be defined separatel
   ]
   featurizer.register_features(features_list)
 
-1. **Register features individually:** Convenient when the number of features is small
+2. **Register features individually:** Convenient when the number of features is small
 
 .. code-block:: python
 

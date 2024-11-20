@@ -278,7 +278,7 @@ class Feature:
       if config.verbose():
         printit(f"{self.__class__.__name__}: Warning: The spacing is not a valid number, setting to None")
       self.__spacing = None
-    if self.__dims is not None:
+    if self.__dims is not None and self.__spacing is not None:
       self.__center = np.array(self.__dims * self.spacing, dtype=np.float32) / 2
     if self.__dims is not None and self.__spacing is not None:
       self.__lengths = self.__dims * self.__spacing
@@ -311,9 +311,11 @@ class Feature:
     If the following attributes are not set manually, hook function will try to inherit them from the featurizer object: 
     sigma, cutoff, outfile, outkey, padding, byres
     """
-    print("Hooking features: ", featurizer.dims, featurizer.spacing)
-    self.dims = featurizer.dims
-    self.spacing = featurizer.spacing
+    printit(f"{self.__class__.__name__}: Using features: ", featurizer.dims, featurizer.spacing)
+    if self.dims is None and featurizer.dims is not None:
+      self.dims = featurizer.dims
+    if self.spacing is None and featurizer.spacing is not None:
+      self.spacing = featurizer.spacing
     # Update this upon adding more variables to the feature
     for key in constants.COMMON_FEATURE_PARMS:
       if getattr(self, key, None) is None: 
@@ -389,31 +391,31 @@ class Feature:
       else:
         self.cache(pt.Trajectory(xyz=frame_coords, top=topology))
 
-    # In-place translation of the coordinates to the center of the box
-    # frame_coords[:] = frame_coords - focal_point + self.center  
-    # mask = crop(frame_coords, self.lengths, self.padding)
-
-    coord_trans = frame_coords - focal_point + self.center  
-    mask = crop(coord_trans, self.lengths, self.padding)
-    
-    if np.count_nonzero(mask) == 0:
-      printit(f"{self} Warning: Found 0 atoms in the bounding box near the focal point {np.round(focal_point,1)}")
-    elif config.verbose() or config.debug(): 
-      printit(f"{self}: Found {np.count_nonzero(mask)} atoms in the bounding box near the focal point {np.round(focal_point,1)}")
-
-    # Get the boolean array of residues within the bounding box
-    if self.byres:
-      res_inbox = np.unique(self.resids[mask])
-      final_mask = np.full(len(self.resids), False)
-      for res in res_inbox:
-        final_mask[np.where(self.resids == res)] = True
+    if self.center is None or self.lengths is None or self.padding is None:
+      printit(f"{self} Skipping the coordinates cropping due to the missing center, lengths or padding information") 
+      return np.full(topology.n_atoms, True, dtype=bool), frame_coords
     else: 
-      final_mask = mask
-    # Apply the selected atoms
-    if self.selection is not None:
-      final_mask = final_mask * self.selected
-    final_coords = np.ascontiguousarray(coord_trans[final_mask])
-    return final_mask, final_coords
+      coord_trans = frame_coords - focal_point + self.center  
+      mask = crop(coord_trans, self.lengths, self.padding)
+      
+      if np.count_nonzero(mask) == 0:
+        printit(f"{self} Warning: Found 0 atoms in the bounding box near the focal point {np.round(focal_point,1)}")
+      elif config.verbose() or config.debug(): 
+        printit(f"{self}: Found {np.count_nonzero(mask)} atoms in the bounding box near the focal point {np.round(focal_point,1)}")
+
+      # Get the boolean array of residues within the bounding box
+      if self.byres:
+        res_inbox = np.unique(self.resids[mask])
+        final_mask = np.full(len(self.resids), False)
+        for res in res_inbox:
+          final_mask[np.where(self.resids == res)] = True
+      else: 
+        final_mask = mask
+      # Apply the selected atoms
+      if self.selection is not None:
+        final_mask = final_mask * self.selected
+      final_coords = np.ascontiguousarray(coord_trans[final_mask])
+      return final_mask, final_coords
 
   def run(self, coords, weights):
     """
@@ -470,6 +472,9 @@ class Feature:
           utils.append_hdf_data(self.outfile, self.outkey, np.array([result], dtype=np.float32), dtype=np.float32, maxshape=(None, *self.dims), chunks=(1, *self.dims))
         else: 
           utils.append_hdf_data(self.outfile, self.outkey, np.array([result], dtype=np.float32), dtype=np.float32, maxshape=(None, *self.dims), chunks=(1, *self.dims), **self.hdf_dump_opts)
+    else: 
+      printit(f"{self.__class__.__name__}: Warning: The outfile and outkey are not set, the result is not dumped to the disk")
+      
 
 
 class AtomicNumber(Feature):
