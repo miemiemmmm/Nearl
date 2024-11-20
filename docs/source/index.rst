@@ -23,17 +23,19 @@ Welcome to Nearl's documentation!
    intro_visual
    intro_dynfeat
 
-.. TODO: tutorial2   Add back this section after the publication of the paper
+.. TODO: Add back this section after the publication of the paper
+.. tutorial2 
+.. tutorial3
+.. tutorial4
+.. tutorial5
+.. tutorial6
 
 .. toctree::
    :maxdepth: 2
    :caption: Tutorials
    
    tutorial1
-   tutorial3
-   tutorial4
-   tutorial5
-   tutorial6
+   tutorial_tba
 
 
 .. toctree::

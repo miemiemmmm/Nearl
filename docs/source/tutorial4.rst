@@ -1,5 +1,5 @@
 Manual focus parser
-======================
+===================
 
 .. code-block:: python
 

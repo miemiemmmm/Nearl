@@ -95,12 +95,13 @@ class Featurizer:
     Initialize the featurizer with the given parameters
     """
     # Check the essential parameters for the featurizer
-    assert "dimensions" in parms, "Please define the 'dimensions' in the parameter set"
-    assert ("lengths" in parms) or ("spacing" in parms), "Please define the 'lengths' or 'spacing' in the parameter set"
+    # assert "dimensions" in parms, "Please define the 'dimensions' in the parameter set"
+    # assert ("lengths" in parms) or ("spacing" in parms), "Please define the 'lengths' or 'spacing' in the parameter set"
 
     # Basic parameters for the featurizer to communicate with cuda code
     self.__lengths = None
-    self.dims = parms.get("dimensions", 32)   # Set the dimensions of the 3D grid
+    self.__dims = parms.get("dimensions", None)   # Set the dimensions of the 3D grid
+    self.__spacing = None
     if "lengths" in parms:
       self.lengths = parms.get("lengths", 16)   # Set the lengths of the 3D grid
       self.__spacing = np.mean(self.__lengths / self.__dims)
@@ -134,6 +135,7 @@ class Featurizer:
 
     # Derivative parameters from trajectory 
     self._traj = None
+    self.frame_slice = None 
     self.FRAMENUMBER = 0
     self.FRAMESLICENUMBER = 0
     self.FRAMESLICES = []
@@ -158,8 +160,8 @@ class Featurizer:
       # Dump the parm dict to that hdf file
       # TODO: Check why the parmameter dictionary is not successfully dumped into the output file in the Misato featurization. 
       tmpdict = {**parms, **kwargs}
-      tmpdict["dimensions"] = [int(i) for i in self.dims]
-      tmpdict["lengths"] = [float(i) for i in self.lengths]
+      # tmpdict["dimensions"] = [int(i) for i in self.dims]
+      # tmpdict["lengths"] = [float(i) for i in self.lengths]
       printit(f"{self.__class__.__name__}: Dumping the parameters to the file: {parms['outfile']}")
       printit(f"{self.__class__.__name__}: Parameters are: {parms}")
       utils.dump_dict(parms["outfile"], "featurizer_parms", tmpdict)
@@ -170,13 +172,16 @@ class Featurizer:
       finalstr += f"Feature: {feat.__str__()}\n"
     return finalstr
 
+  def __dict__(self):
+    return {**self.FEATURE_PARMS, **self.OTHER_PARMS}
+
   # The most important attributes to determine the size of the 3D grid
   @property
   def dims(self):
     """
     The 3 dimensions of the 3D grid
     """
-    return np.array(self.__dims)
+    return np.array(self.__dims) if self.__dims is not None else None
   @dims.setter
   def dims(self, newdims):
     if isinstance(newdims, (int, float, np.float32, np.float64, np.int32, np.int64)): 
@@ -347,7 +352,7 @@ class Featurizer:
   def parse_focus(self): 
     """
     Parse the focal points to the correct format after the active trajectories are registered. 
-    This will be run in the main_loop method. 
+    This will be run in the ``run`` method. 
 
     Notes
     -----
@@ -400,7 +405,7 @@ class Featurizer:
     else:
       raise ValueError(f"Unexpected focus format: {self.FOCALPOINTS_TYPE}")
 
-  def main_loop(self, process_nr=20): 
+  def run(self, process_nr=20): 
     """
 
     """
@@ -431,6 +436,7 @@ class Featurizer:
       feature_map = []
       # Pool the actions for each trajectory
       for bid in range(self.SLICENUMBER): 
+        self.frame_slice = self.FRAMESLICES[bid]
         frames = self.traj.xyz[self.FRAMESLICES[bid]]
         if self.FOCALNUMBER > 0:
           # After determineing each focus point, run the featurizer for each focus point
@@ -465,6 +471,7 @@ class Featurizer:
       # Dump to file for each feature
       for feat_meta, result in zip(feature_map, results):
         tid, bid, fidx = feat_meta
+        print(result, result.shape)
         self.FEATURESPACE[fidx].dump(result)
 
       msg = f"Finished the trajectory {tid+1} / {self.TRAJECTORYNUMBER} with {len(tasks)} tasks in {time.perf_counter() - st:.2f} seconds"
