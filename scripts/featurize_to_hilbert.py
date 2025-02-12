@@ -207,4 +207,4 @@ def console_interface():
 if __name__ == "__main__":
   console_interface()
   
-  # lap t[er]*[nt][0-9].h5 | while read i; do python /MieT5/BetaPose/scripts/featurize_to_hilbert.py -i ${i} -o $(basename $i | sed 's|.h5|hilb.h5|g') -f 1; done
+  # lap t[er]*[nt][0-9].h5 | while read i; do python /MieT5/Nearl/scripts/featurize_to_hilbert.py -i ${i} -o $(basename $i | sed 's|.h5|hilb.h5|g') -f 1; done

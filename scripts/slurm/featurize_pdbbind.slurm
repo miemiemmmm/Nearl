@@ -14,41 +14,41 @@ export SLURM_CPUS_PER_TASK=${SLURM_CPUS_PER_TASK:-6}
 
 
 # CASF2016 test set: 266 entries
-# pdblist=/MieT5/BetaPose/data/casf2016_test.txt
+# pdblist=/MieT5/Nearl/data/casf2016_test.txt
 # prefix="test"
 # outdir=/Matter/nearl_training_data/static_casf_dim32
 
 # Misato test set: 1357 entries 
-# pdblist=/MieT5/BetaPose/data/misato_test.txt
+# pdblist=/MieT5/Nearl/data/misato_test.txt
 # prefix="test"
 # outdir=/Matter/nearl_training_data/static_misato_test_dim32
 
 
 # KDeep training set: 3759
-# pdblist=/MieT5/BetaPose/data/kdeep_train.txt
+# pdblist=/MieT5/Nearl/data/kdeep_train.txt
 # prefix="train"
 # outdir="/Matter/nearl_training_data/static_kdeep_trainset"
 
 # Refined training set: 4162
-# pdblist=/MieT5/BetaPose/data/refined_train.txt
+# pdblist=/MieT5/Nearl/data/refined_train.txt
 # prefix="train"
 # outdir=/Matter/nearl_training_data/static_refined_train_dim32
 
 # Misato training set: 12804
-# pdblist=/MieT5/BetaPose/data/misato_train.txt
+# pdblist=/MieT5/Nearl/data/misato_train.txt
 # prefix="train"
 # outdir=/Matter/nearl_training_data/static_misato_trainset_dim32
 
 
 # Test an arbitrary set 
-# pdblist=/MieT5/BetaPose/data/train_general.txt 
+# pdblist=/MieT5/Nearl/data/train_general.txt 
 # prefix="train" 
 # outdir="/Matter/tests/test_new_cutoff/" 
 
 source /home/yzhang/mamba/bin/loadmamba
 micromamba activate nearl_dev
 
-python /MieT5/BetaPose/scripts/featurize_pdbbind.py \
+python /MieT5/Nearl/scripts/featurize_pdbbind.py \
   -f ${pdblist} \
   --dimension 32 \
   --length 20 \

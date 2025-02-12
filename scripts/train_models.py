@@ -72,11 +72,12 @@ def draw_scatter(pred_data, target_data, figtype="scatter", title="", fig=None, 
   # determine the color of the regression line
   import matplotlib.colors as mcolors
   rgb_color = mcolors.to_rgb(color)
-  color_reg = np.array(rgb_color) + np.random.normal(scale=0.5, size=3)
+  color_reg = np.array(rgb_color)   # + np.random.normal(scale=0.5, size=3)
   # Limit to 0-1
   color_reg = np.clip(color_reg, 0, 1)
   sns.regplot(data=df, x="groundtruth", y="predicted", scatter=False, color=color_reg, ax=f.ax_joint, ci=50, line_kws=dict(linewidth=2))
   f.ax_joint.legend(loc="lower right")
+  # Set the 
   return f 
 
 

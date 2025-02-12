@@ -1,6 +1,6 @@
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
-from BetaPose import data_io
+from Nearl import data_io
 import numpy as np 
 
 # %matplotlib qt
@@ -16,10 +16,10 @@ def density(coords, weights, showall=False):
   None
   """
   # Extract the x, y, and z coordinates of the points
-  x_coords = coords[:, 0];
-  y_coords = coords[:, 1];
-  z_coords = coords[:, 2];
-  weights = weights.ravel(); 
+  x_coords = coords[:, 0]
+  y_coords = coords[:, 1]
+  z_coords = coords[:, 2]
+  weights = weights.ravel()
   if showall: 
     deviation = np.percentile(weights[weights-1e-6 > 0], 15)
     weight_final = np.asarray(weights)+deviation
@@ -63,7 +63,7 @@ def boxinfo_to_coord(theboxinfo):
   return np.column_stack((mesh[0].ravel(), mesh[1].ravel(), mesh[2].ravel()));
 
 idx = 17
-with data_io.hdf_operator("/media/yzhang/MieT5/BetaPose/data/trainingdata/test_3d_data.h5", "r") as f: 
+with data_io.hdf_operator("/media/yzhang/MieT5/Nearl/data/trainingdata/test_3d_data.h5", "r") as f: 
 #   f.draw_structure()
   boxinfo = f.data("box")[idx]
   coord = boxinfo_to_coord(boxinfo)

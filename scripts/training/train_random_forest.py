@@ -7,18 +7,18 @@ from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
 from scipy import stats
 
-from BetaPose import utils, data_io, models, printit
+from Nearl import utils, data_io, models, printit
 
 
-st = time.perf_counter();
+st = time.perf_counter() 
 printit("Loading data...")
 
 input_files = [
-  "/media/yzhang/MieT5/BetaPose/data/trainingdata/misato_trainset_randomforest.h5",
-  # "/media/yzhang/MieT5/BetaPose/data/trainingdata/misato_randomforest.h5",
-  # "/media/yzhang/MieT5/BetaPose/data/trainingdata/pdbbindrefined_v2016_randomforest.h5",
-  # "/media/yzhang/MieT5/BetaPose/data/trainingdata/misato_randomforest_step10.h5",
-  # "/media/yzhang/MieT5/BetaPose/data/trainingdata/misato_testset_randomforest.h5",
+  "/MieT5/Nearl/data/trainingdata/misato_trainset_randomforest.h5",
+  # "/MieT5/Nearl/data/trainingdata/misato_randomforest.h5",
+  # "/MieT5/Nearl/data/trainingdata/pdbbindrefined_v2016_randomforest.h5",
+  # "/MieT5/Nearl/data/trainingdata/misato_randomforest_step10.h5",
+  # "/MieT5/Nearl/data/trainingdata/misato_testset_randomforest.h5",
 ]
 
 rf_data = [];
@@ -32,13 +32,13 @@ label_training_data = np.concatenate(label_data, axis=0)
 print(f"Training dataset: {rf_training_data.shape} ; Label number: {len(label_training_data)}");
 
 # Load test dataset;
-testset_file = "/media/yzhang/MieT5/BetaPose/data/trainingdata/misato_testset_randomforest.h5"
+testset_file = "/MieT5/Nearl/data/trainingdata/misato_testset_randomforest.h5"
 with data_io.hdf_operator(testset_file, "r") as h5file:
   h5file.draw_structure()
   rf_testset = h5file.data("rf")
   label_testset = h5file.data("label").ravel()
 
-printit("Data loaded!!! Good luck!!!");
+printit("Data loaded!!! Good luck!!!")
 
 # Split your data into training and testing sets.
 # E.G. 75% training, 25% testing.

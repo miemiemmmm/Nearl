@@ -1,6 +1,6 @@
 // Function for voxelization of atomic coordinates and weights
-
-#define DEFAULT_COORD_PLACEHOLDER 99999.0f
+#ifndef VOXELIZE_INCLUDE
+#define VOXELIZE_INCLUDE
 
 void voxelize_host(
   float *interpolated, 
@@ -26,3 +26,4 @@ void trajectory_voxelization_host(
   const int type_agg
 );
 
+#endif

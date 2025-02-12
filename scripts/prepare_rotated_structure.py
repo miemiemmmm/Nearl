@@ -7,7 +7,7 @@ import sys, time
 
 import numpy as np
 import pytraj as pt
-from BetaPose import utils
+from Nearl import utils
 import dask
 from dask.distributed import Client
 from dask.diagnostics import ProgressBar
@@ -45,7 +45,7 @@ if __name__ == "__main__":
   # For each degree of freedom, how many steps to take for one full rotation
   # rotation_steps = int(sys.argv[2]);
 
-  file = "/media/yzhang/MieT5/BetaPose/data/complexes/2rkm_complex.pdb"
+  file = "/media/yzhang/MieT5/Nearl/data/complexes/2rkm_complex.pdb"
   rotation_steps = 20    # For each degree of freedom, how many steps to take for one full rotation
   translate = [0, 0, 0]  # By default, there is no translation, modify the script if translation is needed
   to_origin = True       # Put the center of the structure to the origin point

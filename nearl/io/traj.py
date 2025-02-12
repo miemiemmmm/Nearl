@@ -55,6 +55,8 @@ class Trajectory(pt.Trajectory):
   2. Pytraj-based trajectory initialization (traj_src is pytraj.Trajectory)
   3. Self-based trajectory initialization (traj_src is self)
 
+  All structures are regarded as trajectories (static PDB is view as a trajectory with only 1 frame). 
+
   Examples
   --------
   >>> from nearl.io import Trajectory
@@ -117,7 +119,6 @@ class Trajectory(pt.Trajectory):
     #   tmptraj = tmptraj[mask]
     top = tmptraj.top
     xyz = tmptraj.xyz
-    printit(tmptraj.xyz.shape)
     assert tmptraj.top.n_atoms == tmptraj.xyz.shape[1], f"The number of atoms in the topology and the coordinates should be the same, rather than {tmptraj.top.n_atoms} and {tmptraj.xyz.shape[1]}"
 
     # Set basic attributes for pytraj.Trajectory;
@@ -144,17 +145,17 @@ class Trajectory(pt.Trajectory):
     self.residues = None
     self.make_index()
 
-  def __getitem__(self, index):
-    # Get the return from its parent pt.Trajectory;
-    self._life_holder = super().__getitem__(index)
-    if isinstance(self._life_holder, pt.Frame):
-      pass
-    else:
-      self._life_holder.top_filename = self.top_filename
-      self._life_holder.traj_filename = self.traj_filename
-      self._life_holder.mask = self.mask
-      self._life_holder.make_index()
-    return self._life_holder
+  # def __getitem__(self, index):
+  #   # Get the return from its parent pt.Trajectory;
+  #   self._life_holder = super().__getitem__(index)
+  #   if isinstance(self._life_holder, pt.Frame):
+  #     pass
+  #   else:
+  #     self._life_holder.top_filename = self.top_filename
+  #     self._life_holder.traj_filename = self.traj_filename
+  #     self._life_holder.mask = self.mask
+  #     self._life_holder.make_index()
+  #   return self._life_holder
   
   @property
   def identity(self):
@@ -250,6 +251,7 @@ class Trajectory(pt.Trajectory):
       The frame index to add the dummy points
     outfile : str
       The file name to save the new trajectory
+    
     """
     if elements is None:
       elements = ["H"] * len(coordinates)

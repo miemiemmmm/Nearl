@@ -18,6 +18,7 @@ from scipy.stats import pearsonr, spearmanr
 
 # Import my models 
 import nearl
+import nearl.utils, nearl.io, nearl.models
 
 tensorboard_writer = None 
 

@@ -166,7 +166,7 @@ The following code snippet retrieves the feature vectors under ``rf_feature`` we
 
 .. note:: 
 
-  :download:`Download Python source code for local execution <_static/quick_start.py>` 
+  :download:`Download Python source code for local execution <_static/tutorial1_feature_customize.py>` 
 
 
 .. TODO

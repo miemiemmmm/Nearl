@@ -1,6 +1,7 @@
 #include <iostream>
 
-#include "gpuutils.cuh"  // For hard-coded BLOCK_SIZE and device functions: mean_device, mean_device, standard_deviation_device
+#include "constants.h"              // For hard-coded variables: BLOCK_SIZE, MAX_FRAME_NUMBER      
+#include "gpuutils.cuh"             // For hard-coded BLOCK_SIZE and device functions: mean_device, mean_device, standard_deviation_device
 #include "marching_observers.cuh"   // For the hard coded MAX_FRAME_NUMBER
 
 // TODO: need a throughout check on the observation functions. 
@@ -340,7 +341,7 @@ __device__ float radius_of_gyration_device(const float *coord, const float *coor
 /**
  * @brief The device function to calculate the observable in frame i
  */
-__device__ float observe_device(const float *coord, const float *coord_framei, 
+__device__ float make_observation_device(const float *coord, const float *coord_framei, 
   const int atomnr, const float cutoff, const int type_obs){
   // Does not consider the weight of the particles
   float ret_framei = 0.0f;
@@ -355,8 +356,8 @@ __device__ float observe_device(const float *coord, const float *coord_framei,
 
 /**
  * @brief The device function to calculate the observable in frame i
-*/
-__device__ float observe_device(const float *coord, const float *coord_framei, const float *weight_framei,
+ */
+__device__ float make_observation_device(const float *coord, const float *coord_framei, const float *weight_framei,
   const int atomnr, const float cutoff, const int type_obs){
   float ret_framei = 0.0f;
   if (type_obs == 3){
@@ -383,21 +384,22 @@ __device__ float observe_device(const float *coord, const float *coord_framei, c
 __device__ float result_aggregation_device(float *series, const int frame_number, const int type_aggregation){
   float ret_series; 
   if (type_aggregation == 1){
-    ret_series = mean_device(series, frame_number);
+    ret_series = mean_device(series, frame_number); 
   } else if (type_aggregation == 2){
-    ret_series = standard_deviation_device(series, frame_number);
+    ret_series = standard_deviation_device(series, frame_number); 
   } else if (type_aggregation == 3){
     ret_series = median_device(series, frame_number); 
   } else if (type_aggregation == 4){
-    ret_series = variance_device(series, frame_number);
+    ret_series = variance_device(series, frame_number); 
   } else if (type_aggregation == 5){
     ret_series = static_cast<float>(max_device(series, frame_number)); 
   } else if (type_aggregation == 6){
-    ret_series = static_cast<float>(min_device(series, frame_number));
+    ret_series = static_cast<float>(min_device(series, frame_number)); 
   } else if (type_aggregation == 7){
+    // TODO: determine which information entropy to use 
     ret_series = information_entropy_device(series, frame_number); 
-    // TODO: replace with this line 
-    // ret_series = information_entropy_histogram_device(series, frame_number);
+  } else if (type_aggregation == 8){
+    ret_series = slope_device(series, frame_number); 
   }
   return ret_series;
 }
@@ -410,62 +412,46 @@ __device__ float result_aggregation_device(float *series, const int frame_number
  * @brief The global kernel function to calculate the observable in a grid point
  */
 __global__ void marching_observer_global(
-  float *result, const float *coord_frames, const float *weight_frames,
+  float *mobs_ret, const float *coord_frame, const float *weight_frame,
   const int *dims, const float spacing, 
   const int frame_number, const int atomnr, 
-  const float cutoff, const int type_observable, const int type_aggregation
+  const float cutoff, const int type_observable
+  // , const int type_aggregation
 ){ 
   unsigned int index = blockIdx.x * blockDim.x + threadIdx.x;
   unsigned int grid_size = dims[0] * dims[1] * dims[2];
-  if (index < grid_size){
-    float series[MAX_FRAME_NUMBER]; 
+  if (index >= grid_size) return; 
 
-    // Get the coordinate of the grid point 
-    float coord[3] = {
-      static_cast<float>(index / dims[0] / dims[1]) * spacing,
-      static_cast<float>(index / dims[0] % dims[1]) * spacing,
-      static_cast<float>(index % dims[0]) * spacing
-    }; 
-    
-    // Iterate over each frames to calculate the observable
-    int coord_offset, weight_offset; 
-    float ret_framei;
-    int count = 0; 
-    // for (int i = 0; i < frame_number; ++i){
-    while (count < frame_number){
-      coord_offset  = count * atomnr * 3;
-      weight_offset = count * atomnr;
-      // Calculate the observable in the frame
-      if (type_observable == 1 or type_observable == 2){
-        // Hard-coded for the direct count-based observables 
-        ret_framei = observe_device(coord, coord_frames + coord_offset, atomnr, cutoff, type_observable);
-      } else {
-        ret_framei = observe_device(coord, coord_frames + coord_offset, weight_frames + weight_offset, atomnr, cutoff, type_observable);
-      }
-      series[count] = ret_framei; 
-      // Skip the frame if the number of frames exceed the maximum number of frames allowed
-      if (count+1 >= MAX_FRAME_NUMBER){ 
-        continue; 
-      }
-      count += 1;
-    }
-    
-    // Formulate the return value from the time series of the observer
-    int series_length = frame_number > MAX_FRAME_NUMBER ? MAX_FRAME_NUMBER : frame_number; 
-    if (count == 0){
-      result[index] = 0.0;
-    } else {
-      result[index] = result_aggregation_device(series, series_length, type_aggregation);
-    }
+  // Get the coordinate of the grid point (Observer) in real space 
+  float coord[3] = {
+    static_cast<float>(index / dims[0] / dims[1]) * spacing,
+    static_cast<float>(index / dims[0] % dims[1]) * spacing,
+    static_cast<float>(index % dims[0]) * spacing
+  }; 
+
+  // Calculate the observable of grid point at index in the given frame
+  if (type_observable == 1 or type_observable == 2){
+    // Hard-coded for the direct count-based observables 
+    mobs_ret[index] = make_observation_device(coord, coord_frame, atomnr, cutoff, type_observable); 
+  } else {
+    mobs_ret[index] = make_observation_device(coord, coord_frame, weight_frame, atomnr, cutoff, type_observable); 
   }
 }
+
+// Formulate the return value from the time series of the observer
+// int series_length = frame_number > MAX_FRAME_NUMBER ? MAX_FRAME_NUMBER : frame_number; 
+// if (count == 0){
+//   result[index] = 0.0;
+// } else {
+//   result[index] = result_aggregation_device(series, series_length, type_aggregation);
+// }
 
 
 /**
  * @brief The host function to perform the marching observer algorithm
  */
 void marching_observer_host(
-  float *grid_return, 
+  float *mobs_dynamics, 
   const float *coord, 
   const float *weights,
   const int *dims, 
@@ -476,58 +462,87 @@ void marching_observer_host(
   const int type_obs, 
   const int type_agg
 ){
-  // Determine the number of observers
-  const int observer_number = dims[0] * dims[1] * dims[2];
+  unsigned int observer_number = dims[0] * dims[1] * dims[2];
+  unsigned int grid_size = (observer_number + BLOCK_SIZE - 1) / BLOCK_SIZE;
+  float _partial_sums[grid_size]; 
 
-  // Set all numbers in the return array to 0
-  float *ret_arr; 
-  cudaMalloc(&ret_arr, observer_number * sizeof(float));
-  cudaMemset(ret_arr, 0, observer_number * sizeof(float));
+  // The (frame_number, observer_number) observed trajectory 
+  float *mobs_traj; 
+  cudaMalloc(&mobs_traj, frame_number * observer_number * sizeof(float));
+  cudaMemset(mobs_traj, 0, frame_number * observer_number * sizeof(float));
 
-  float *coord_device;
-  cudaMalloc(&coord_device, atom_per_frame * frame_number * 3 * sizeof(float));
-  cudaMemcpy(coord_device, coord, atom_per_frame * frame_number * 3 * sizeof(float), cudaMemcpyHostToDevice);
+  // The resultant aggregated mobs feature (Initialize all digits in the return array to 0)
+  float *tmp_mobs_gpu; 
+  cudaMalloc(&tmp_mobs_gpu, observer_number * sizeof(float));
+  cudaMemset(tmp_mobs_gpu, 0, observer_number * sizeof(float));
 
+  // The atomic coordinates and weights of the frame i in the device memory
+  float *coords_device;  
+  cudaMalloc(&coords_device, frame_number * atom_per_frame * 3 * sizeof(float));
   float *weights_device;
-  cudaMalloc(&weights_device, atom_per_frame * frame_number * sizeof(float));
-  cudaMemcpy(weights_device, weights, atom_per_frame * frame_number * sizeof(float), cudaMemcpyHostToDevice);
+  cudaMalloc(&weights_device, frame_number * atom_per_frame * sizeof(float));
 
   int *dims_device;
   cudaMalloc(&dims_device, 3 * sizeof(int));
   cudaMemcpy(dims_device, dims, 3 * sizeof(int), cudaMemcpyHostToDevice);
 
+  float *partial_sums; 
+  cudaMallocManaged(&partial_sums, grid_size * sizeof(float)); 
+
   // NOTE: The coordinate should be uniformed meaning each frame have the same number of atoms
-  int grid_size = (observer_number + BLOCK_SIZE - 1) / BLOCK_SIZE;
-  marching_observer_global<<<grid_size, BLOCK_SIZE>>>(
-    ret_arr, coord_device, weights_device, 
-    dims_device, spacing, 
-    frame_number, atom_per_frame, 
-    cutoff, type_obs, type_agg
-  );
-  cudaDeviceSynchronize();
-  cudaMemcpy(grid_return, ret_arr, observer_number * sizeof(float), cudaMemcpyDeviceToHost);
-  
-  // NOTE: Currently, normalize the return by the number of atoms in the frame
-  // TODO: Find a better way to normalize the return
-  // IMPORTANT: NEED normalization since the high-diversity of observables and aggregation methods
-  float sum_return = 0.0;
-  for (int i = 0; i < observer_number; i++){ 
-    sum_return += grid_return[i]; 
-  }
-  if (sum_return != 0.0){
-    for (int i = 0; i < observer_number; i++){
-      grid_return[i] = grid_return[i] * atom_per_frame / sum_return; 
-    }
-  } else {
-    for (int i = 0; i < observer_number; i++){
-      grid_return[i] = 0.0; 
+  for (int frame_idx = 0; frame_idx < frame_number; ++frame_idx) {
+    // Perform the observation of all the grid points (observers) in the frame i 
+    marching_observer_global<<<grid_size, BLOCK_SIZE>>>(
+      tmp_mobs_gpu, 
+      coords_device + frame_idx * atom_per_frame * 3, 
+      weights_device + frame_idx * atom_per_frame, 
+      dims_device, spacing, 
+      frame_number, atom_per_frame, 
+      cutoff, type_obs
+    ); 
+    cudaDeviceSynchronize();
+
+    // After calculating the frame i, copy the result to the frame-wise array 
+    cudaMemcpy(mobs_traj + frame_idx * observer_number, tmp_mobs_gpu, observer_number * sizeof(float), cudaMemcpyDeviceToDevice);
+
+    // Skip the frames if their index exceeds the maximum number of frames allowed due to the GPU-based aggregation
+    if (frame_idx+1 >= MAX_FRAME_NUMBER){ 
+      continue; 
     }
   }
 
-  cudaFree(ret_arr);
-  cudaFree(coord_device);
+  // Perform frame-wise aggregation on the voxelized trajectory 
+  unsigned int _frame_number = frame_number > MAX_FRAME_NUMBER ? MAX_FRAME_NUMBER : frame_number; 
+  cudaMemset(tmp_mobs_gpu, 0, observer_number * sizeof(float)); 
+  gridwise_aggregation_global<<<grid_size, BLOCK_SIZE>>>(mobs_traj, tmp_mobs_gpu, _frame_number, observer_number, type_agg);
+
+
+  // TODO: Find a better way to normalize the return
+  // TODO: Check if it is needed or not 
+  // NOTE: Currently, normalize the return by the number of atoms in the frame
+  // IMPORTANT: NEED normalization since the high-diversity of observables and aggregation methods
+
+  // Perform the normalization if needed 
+  float tmp_sum = 0.0f;
+  sum_reduction_global<<<grid_size, BLOCK_SIZE>>>(tmp_mobs_gpu, partial_sums, observer_number);
+  cudaDeviceSynchronize();
+  cudaMemcpy(_partial_sums, partial_sums, grid_size * sizeof(float), cudaMemcpyDeviceToHost);
+  for (int i = 0; i < grid_size; ++i) tmp_sum += partial_sums[i];
+
+  if (tmp_sum != 0.0){
+    normalize_array_global<<<grid_size, BLOCK_SIZE>>>(tmp_mobs_gpu, tmp_sum, 1.0f, observer_number); 
+  } 
+
+  // Copy the final result to the host memory
+  cudaMemcpy(mobs_dynamics, tmp_mobs_gpu, observer_number * sizeof(float), cudaMemcpyDeviceToHost); 
+
+  // Free the memory
+  cudaFree(mobs_traj);
+  cudaFree(tmp_mobs_gpu);
+  cudaFree(coords_device);
   cudaFree(weights_device);
   cudaFree(dims_device);
+  cudaFree(partial_sums);
 }
 
 

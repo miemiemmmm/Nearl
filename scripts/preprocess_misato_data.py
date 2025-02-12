@@ -4,7 +4,7 @@ import pytraj as pt
 import numpy as np 
 import pandas as pd
 
-# from BetaPose import utils, data_io
+# from Nearl import utils, data_io
 
 import nearl
 from feater import io
@@ -61,7 +61,7 @@ listtocheck = "/home/yzhang/Downloads/misato_database/all_misato_MD.txt"
 output_prefix = "/home/yzhang/Downloads/misato_database/all_misato_MD"
 
 table = pd.read_csv(
-  "/MieT5/BetaPose/data/PDBBind_general_v2020.csv",
+  "/MieT5/Nearl/data/PDBBind_general_v2020.csv",
   delimiter=",", header=0
 )
 pdblist = table.pdbcode.tolist(); 

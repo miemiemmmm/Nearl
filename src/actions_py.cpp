@@ -1,3 +1,11 @@
+//
+// Description: This file contains the python bindings for the actions implemented in the actions.cu file.
+// The actions implemented are:
+// 1. Voxelization of a trajectory
+// 2. Marching cubes algorithm to convert a slice of coordinates to a 3D grid
+// 3. Property density flow for a slice of frames in a trajectory 
+//
+
 #include <iostream>
 
 #include "pybind11/pybind11.h"
@@ -6,6 +14,7 @@
 #include "cpuutils.h"
 #include "voxelize.cuh"
 #include "marching_observers.cuh"
+#include "constants.h"
 
 namespace py = pybind11;
 

@@ -27,79 +27,97 @@ Key attributes
 
 - top (pytraj.Topology): The topology of the trajectory.
 - xyz (np.ndarray): The coordinates of the trajectory.
-- identity (any type): could be manually defined
+- identity (any type): Could be manually defined. Useful for manual cooperation with other types e.g. labeling of frame-slices. 
 
 
 Case study: MISATO trajectory dataset
 -------------------------------------
 
-The original paper of `MISATO <https://doi.org/10.1101/2023.05.24.542082>`_ trajectory dataset: 
-*Siebenmorgen, T., Menezes, F., Benassou, S., Merdivan, E., Kesselheim, S., Piraud, M., Theis, F.J., Sattler, M. and Popowicz, G.M., 2023. MISATO-Machine learning dataset of protein-ligand complexes for structure-based drug discovery. bioRxiv, pp.2023-05.* 
+File structure
+^^^^^^^^^^^^^^
 
-The MISATO data files are freely downloadable from `Zenodo <https://zenodo.org/records/7711953>`_. 
-In the test case, the MISATO dataset is organized in the following structure:
+The `MISATO <https://doi.org/10.1038/s43588-024-00627-2>`_ dataset (*Siebenmorgen, Till, et al. Nat. Comput. Sci. (2024): 1-12.*), is a massive simulation over PDBBind general set, containing over 13,000 short trajectories. 
+In this tutorial, we will use the ``MISATO`` dataset as a case study to demonstrate how to load a customized trajectory. 
+The associated data files are hosted on `Zenodo <https://zenodo.org/records/7711953>`_. 
+Let's assume that the ``MISATO`` dataset is stored in the directory ``/directory/of/misato_dataset`` and the organization of the topologies and trajectories are as follows: 
 
 .. code-block:: bash 
 
-  $ tree /path/to/misato_dataset
-  # Outputs: 
-  /path/to/misato_dataset
-  ├── MD.hdf5
+  $ tree /directory/of/misato_dataset
+  /directory/of/misato_dataset
+  ├── MD.hdf5                           # The non-canonical HDF5 trajectory file
   ├── parameter_restart_files_MD
   │   ├── 10gs
   │   │   ├── production.rst
-  │   │   └── production.top.gz
+  │   │   └── production.top.gz         # AMBER-style topology file 
   │   ├── 11gs
-  │   │   ├── production.rst
-  │   │   └── production.top.gz
-  │   ├── 13gs
   │   │   ├── production.rst
   │   │   └── production.top.gz
   ......
 
+  # The structure of the HDF trajectory is as follows: 
+  $ h5ls -r /directory/of/misato_dataset/MD.hdf5
+  /                        Group        # Root group
+  /10GS                    Group
+  /10GS/atoms_element      Dataset {6593}
+  /10GS/atoms_number       Dataset {6593}
+  /10GS/atoms_residue      Dataset {6593}
+  /10GS/atoms_type         Dataset {6593}
+  /10GS/frames_bSASA       Dataset {100}
+  /10GS/frames_distance    Dataset {100}
+  /10GS/frames_interaction_energy Dataset {100}
+  /10GS/frames_rmsd_ligand Dataset {100}
+  /10GS/molecules_begin_atom_index Dataset {3}
+  /10GS/trajectory_coordinates Dataset {100, 6593, 3}     # The trajectory of the PDB code 10gs 
+  /11GS                    Group
+  /11GS/atoms_element      Dataset {6600}
+  /11GS/atoms_number       Dataset {6600}
+  /11GS/atoms_residue      Dataset {6600}
+  /11GS/atoms_type         Dataset {6600}
+  /11GS/frames_bSASA       Dataset {100}
+  /11GS/frames_distance    Dataset {100}
+  /11GS/frames_interaction_energy Dataset {100}
+  /11GS/frames_rmsd_ligand Dataset {100}
+  /11GS/molecules_begin_atom_index Dataset {3}
+  /11GS/trajectory_coordinates Dataset {100, 6600, 3}
+  ......
 
-Definition of the MISATO trajectory
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-The ``__init__`` method is expected to take the arguments that is able to guide the loading of the trajectory. 
-In this case, a PDB code and the directory of the MISATO trajectory dataset are enough to correctly retrieve the trajectory information. 
+Definition of trajectory
+^^^^^^^^^^^^^^^^^^^^^^^^
 
-- Topology file: ``f"{misatodir}/parameter_restart_files_MD/{pdbcode.lower()}/production.top.gz"``
-- HDF trajectory dataset: ``f"{misatodir}/MD.hdf5"``
-- Coordinates: ``f"/{pdbcode.upper()}/trajectory_coordinates"`` tag in the HDF file
+With the PDB code (``pdbcode``) and the directory of the ``MISATO`` dataset (``misatodir``), we are able to correctly retrieve the trajectory information. 
+The topology can be found in ``f"{misatodir}/parameter_restart_files_MD/{pdbcode.lower()}/production.top.gz"`` and the coordinates can be found in the ``f"/{pdbcode.upper()}/trajectory_coordinates"`` tag in the HDF trajectory file ``f"{misatodir}/MD.hdf5"``. 
 
-The ``identity`` property is optional, but it is recommended to provide in the case that the identity of the trajectory is needed. 
+
+The ``identity`` attribute is optional, but it is recommended to manually set in the case that the identity of the trajectory is needed. 
 In this case, the protein identity is needed to connect to the pK values as labels for the following training. 
+
+.. The ``__init__`` method is expected to take the arguments that is able to guide the loading of the trajectory. 
 
 .. code-block:: python
 
+  import os, h5py
+  import numpy as np
+  import pytraj as pt
   from nearl.io import Trajectory
+  
   class MisatoTraj(Trajectory): 
     def __init__(self, pdbcode, misatodir, **kwarg): 
-      # Needs dbfile and parm_folder;
+      # Locate the topology and trajectory files based on the directory of MISATO dataset 
       self.topfile = f"{misatodir}/parameter_restart_files_MD/{pdbcode.lower()}/production.top.gz"
-      if not os.path.exists(self.topfile):
-        raise FileNotFoundError(f"The topology file of PDB {pdbcode} is not found ({self.topfile})")
-      
       self.trajfile = os.path.join(misatodir, f"MD.hdf5")
-      if not os.path.exists(self.trajfile):
-        raise FileNotFoundError(f"The trajectory file is not found ({self.trajfile})")
-      
-      # NOTE: Get the PDB code in the standard format, lowercase and replace superceded PDB codes
-      self.pdbcode = pdbcode
 
+      # IMPORTANT: Original topolgy contains water and ions 
+      # IMPORTANT: Remove them to align the coordinates with the topology 
       top = pt.load_topology(self.topfile)
-      # ! IMPORTANT: Remove water and ions to align the coordinates with the topology
-      res = set([i.name for i in top.residues])
-      if "WAT" in res:
-        top.strip(":WAT")
-      if "Cl-" in res:
-        top.strip(":Cl-")
-      if "Na+" in res:
-        top.strip(":Na+")
+      top.strip(":WAT")
+      try: top.strip(":Cl-") 
+      except: pass
+      try: top.strip(":Na+")
+      except: pass
 
       with h5py.File(self.trajfile, "r") as hdf:
-        keys = hdf.keys()
-        if pdbcode.upper() in keys:
+        if pdbcode.upper() in hdf.keys():
           coord = hdf[f"/{pdbcode.upper()}/trajectory_coordinates"]
           # Parse frames (Only one from stride and frame_indices will take effect) and masks
           if "stride" in kwarg.keys() and kwarg["stride"] is not None:
@@ -117,30 +135,58 @@ In this case, the protein identity is needed to connect to the pK values as labe
         else:
           raise ValueError(f"Not found the key for PDB code {pdbcode.upper()} in the HDF5 trajectory file.")
 
-      if kwarg.get("superpose", False): 
-        if kwarg.get("mask", None) is not None:
-          printit(f"{self.__class__.__name__}: Superpose the trajectory with mask {kwarg['mask']}")
-          pt.superpose(ret_traj, mask="@CA")
-        else:
-          printit(f"{self.__class__.__name__}: Superpose the trajectory with default mask @CA")
-          pt.superpose(ret_traj, mask="@CA")
+      # NOTE: Get the PDB code in the standard format, lowercase and replace superceded PDB codes
+      self.pdbcode = pdbcode.lower()
+      self.traj = ret_traj
+      pt.superpose(ret_traj, mask="@CA")
       
-      # Pytraj trajectory-based initialization
+      # Initialization the Trajectory object with Pytraj trajectory 
       super().__init__(ret_traj)
 
     @property
     def identity(self):
-      return utils.get_pdbcode(self.pdbcode)
+      return self.pdbcode
 
-To view the trajectory, try with the following commands in Jupyter Notebook: 
+In Jupyter Notebook, the following commands could be used to visualize the trajectory: 
 
 .. code-block:: python
 
   traj = MisatoTraj("10gs", "/path/to/misato")
   print(traj)
-  traj.visualize()
+  traj.traj.visualize()    # To visualize the trajectory 
 
 
+Featurize MISATO trajectories
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. code-block:: python
+
+  import nearl.io, nearl.featurizer, nearl.features 
+
+  misato_dir = "/directory/of/misato_dataset"
+  pdbs = ['1gpk', '1h23', '1k1i', '1nc3', '1o3f', '1p1q', '1pxn', '1r5y', '1ydr', '2c3i',
+          '2p4y', '2qbr', '2vkm', '2wn9', '2wvt', '2zcr', '3ag9', '3b1m', '3cj4', '3coz',
+          '3dxg', '3fv2', '3gbb', '3gc5', '3gnw', '3gr2', '3n86', '3nq9', '3pww', '3pxf',
+          '3qgy', '3ryj', '3u8n', '3uew', '3uex', '3uo4', '3wz8', '3zsx', '4cr9', '4crc',
+          '4ddh', '4de3', '4e5w', '4e6q', '4gkm', '4jia', '4k77', '4mme', '4ogj', '4qac']
+  trajlist = [(pdb, misato_dir) for pdb in pdbs]
+
+  FEATURIZER_PARMS = {"dimensions": [32, 32, 32], "lengths": 20, "time_window": 10, "outfile": "/tmp/example.h5"} 
+  loader = nearl.io.TrajectoryLoader(trajlist, trajtype=MisatoTraj, superpose=True, trajids = pdbs)
+  feat  = nearl.featurizer.Featurizer(FEATURIZER_PARMS)
+  feat.register_trajloader(loader)
+  feat.register_focus([":MOL"], "mask")
+
+  feat = nearl.features.Mass(selection="!:MOL", outkey="feat_static", cutoff=2.5, sigma=1.0)
+  feat.register_feature(feat)
+  print(len(feat.FEATURESPACE))
+  feat.run(8)
+
+
+
+.. note:: 
+
+  :download:`Download Python source code for local execution <_static/tutorial2_customize_traj.py>` 
 
 
 

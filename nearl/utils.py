@@ -732,7 +732,7 @@ def get_model(model_type:str, input_dim:int, output_dim:int, box_size, **kwargs)
       "input_channels": channel_nr,
       "output_dimension": output_dim,
       "input_shape": box_size,
-      "dropout_rates" : [0.25, 0.25, 0.25],   # 0.25, 0.25, 0.25
+      "dropout_rates" : [0.15, 0.15, 0.15],   # NOTE: Adjust here if needed
     }
     return nearl.models.model_voxnet.VoxNet(**voxnet_parms)
 

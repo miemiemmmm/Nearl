@@ -1,4 +1,4 @@
-import time, json, sys
+import time, json
 
 import numpy as np
 
@@ -32,34 +32,31 @@ class Featurizer:
   ----------
   parms : dict
     A dictionary of parameters for the featurizer
-  **kwargs : dict
-    A dictionary of parameters for the featurizer
-  
     
   Attributes
   ----------
-  dims : np.ndarray, default = [32, 32, 32]
+  traj : :class:`nearl.Trajectory <nearl.io.traj.Trajectory>` or pytraj.Trajectory
+    The trajectory to be processed
+  top : pytraj.Topology
+    The topology of the trajectory
+  dims : np.ndarray
     The dimensions of the 3D grid
-  lengths : np.ndarray, default = [16, 16, 16]
+  lengths : np.ndarray
     The lengths of the 3D grid
-  spacing : float, default = 0.5
+  spacing : float
     The spacing of the 3D grid
   time_window : int, default = 1
     The time window for the trajectory (default is 1), Simple integer.
+  frame_slice : slice
+    The frame-slice being processed in the trajectory 
 
-  traj : :class:`nearl.Trajectory <nearl.io.traj.Trajectory>` or pytraj.Trajectory
-    The trajectory to be processed
+  
   FRAMENUMBER : int
     The number of frames in the trajectory to be processed
   FRAMESLICENUMBER : int
     The number of slices of frames in the trajectory
   FRAMESLICES : list
     A list of slices of frames in the trajectory to be processed
-
-  TRAJLOADER : nearl.io.trajloader.TrajectoryLoader
-    A trajectory iterator for the featurizer
-  TRAJECTORYNUMBER : int
-    The number of trajectories to be processed
 
   FEATURESPACE : list
     A list of features to be processed
@@ -77,17 +74,17 @@ class Featurizer:
   -----
   Required parameters:
 
-    - **dimensions**: the dimensions of the 3D grid
-    - lengths: the lengths of the 3D grid (optional)
-    - spacing: the spacing of the 3D grid (optional)
-    - time_window: the time window for the trajectory (default is 1), Simple integer.
+  - **dimensions**: the dimensions of the 3D grid
+  - lengths: the lengths of the 3D grid (optional)
+  - spacing: the spacing of the 3D grid (optional)
+  - time_window: the time window for the trajectory (default is 1), Simple integer.
   
   The following are optional parameters for features. 
   If the initialization of the feature did not explicitly define the following parameters, the following parameters will be inherited from the featurizer: 
 
-    - outfile: The output file to dump the parameters and the results
-    - sigma: The smoothness of the Gaussian-based feature distribution
-    - cutoff: The cutoff distance for the grid-based feature calculation
+  - outfile: The output file to dump the parameters and the results
+  - sigma: The smoothness of the Gaussian-based feature distribution
+  - cutoff: The cutoff distance for the grid-based feature calculation
 
   """
   def __init__(self, parms={}, **kwargs):
@@ -157,14 +154,9 @@ class Featurizer:
       printit(f"{self.__class__.__name__}: Featurizer is initialized successfully with dimensions: {self.__dims} and lengths: {self.__lengths}")
 
     if "outfile" in parms.keys():
-      # Dump the parm dict to that hdf file
-      # TODO: Check why the parmameter dictionary is not successfully dumped into the output file in the Misato featurization. 
-      tmpdict = {**parms, **kwargs}
-      # tmpdict["dimensions"] = [int(i) for i in self.dims]
-      # tmpdict["lengths"] = [float(i) for i in self.lengths]
-      printit(f"{self.__class__.__name__}: Dumping the parameters to the file: {parms['outfile']}")
-      printit(f"{self.__class__.__name__}: Parameters are: {parms}")
-      utils.dump_dict(parms["outfile"], "featurizer_parms", tmpdict)
+      # Dump the parm dict to that hdf file 
+      printit(f"{self.__class__.__name__}: Dumping the parameters to {parms['outfile']} : {self.parms}")
+      utils.dump_dict(parms["outfile"], "featurizer_parms", self.parms)
 
   def __str__(self):
     finalstr = f"Feature Number: {self.FEATURENUMBER}; \n"
@@ -172,8 +164,12 @@ class Featurizer:
       finalstr += f"Feature: {feat.__str__()}\n"
     return finalstr
 
-  def __dict__(self):
-    return {**self.FEATURE_PARMS, **self.OTHER_PARMS}
+  @property
+  def parms(self):
+    """
+    Return the parameters of the featurizer
+    """
+    return {k:v if v is not None else 0 for k,v in {**self.FEATURE_PARMS, **self.OTHER_PARMS}.items()} 
 
   # The most important attributes to determine the size of the 3D grid
   @property
@@ -198,7 +194,7 @@ class Featurizer:
   @property
   def lengths(self):
     """
-    The lengths of the grid in 3 dimensions
+    The lengths of the 3D grid in Angstrom 
     """
     return self.__lengths
   @lengths.setter
@@ -216,21 +212,19 @@ class Featurizer:
   @property
   def spacing(self):
     """
-    The spacing between grid points, could also be understood as the **resolution** of the 3D grid
+    The spacing (also the resolution) between grid points of the 3D grid
     """
     return self.__spacing  
   
   @property
   def traj(self):
     """
-    Structures are regarded as trajectories (static PDB is view as a trajectory with only 1 frame). 
+    The trajectory being processed. 
+
     """
     return self._traj
   @traj.setter
   def traj(self, the_traj):
-    """
-    Set the trajectory and its related parameters
-    """
     self._traj = the_traj
     self.FRAMENUMBER = the_traj.n_frames
     self.SLICENUMBER = self.FRAMENUMBER // self.time_window
@@ -242,16 +236,19 @@ class Featurizer:
 
   @property
   def top(self):
+    """
+    The topology of the trajectory being processed. 
+    """
     return self.traj.top
 
   def register_feature(self, feature):
     """
-    Register a feature to the featurizer
+    Register a :class:`nearl.features.Feature` to the featurizer
     
     Parameters
     ----------
-    feature : nearl.features.Feature
-      A feature object
+    feature : :class:`nearl.features.Feature`
+    
     """
     feature.hook(self)  # Hook the featurizer to the feature
     self.FEATURESPACE.append(feature)
@@ -263,12 +260,12 @@ class Featurizer:
   
   def register_features(self, features):
     """
-    Register a list of features to the featurizer
+    Register multiple :class:`nearl.features.Feature` in a list or dictionary to the featurizer 
 
     Parameters
     ----------
-    features : list_like or dict_like 
-      A list or dictionary like object of a set of features (nearl.features.Feature) 
+    features : list-like or dict-like 
+    
     """
     if isinstance(features, (list, tuple)):
       for feature in features:
@@ -281,22 +278,21 @@ class Featurizer:
 
   def register_trajloader(self, trajloader):
     """
-    Register a trajectory iterator for future featurization
+    Register a trajectory loader to the featurizer for further processing 
 
     Parameters
     ----------
     trajloader : :class:`nearl.io.trajloader.TrajectoryLoader`
-      A trajectory iterator
     
     """
     self.TRAJLOADER = trajloader
     self.TRAJECTORYNUMBER = len(trajloader)
-    print(f"{self.__class__.__name__}: Registered {self.TRAJECTORYNUMBER} trajectories")
+    printit(f"{self.__class__.__name__}: Registered {self.TRAJECTORYNUMBER} trajectories")
 
 
   def register_focus(self, focus, format):
     """
-    Register the focal points to process in the featurization
+    Register a set of focal points to the featurizer for further processing
 
     Parameters
     ----------
@@ -307,15 +303,13 @@ class Featurizer:
 
     Notes
     -----
-    Definition of focus follows the following formats:
+    The following 4 formats of focuses are supported:
 
-      - "mask": provide a selection of atoms (Amber's selection convention)
-      - "absolute": provide a list of 3D coordinates
-      - "index": provide a list of atom indexes (int)
+    - **mask**: provide a selection of atoms (`Amber's selection convention <https://amberhub.chpc.utah.edu/atom-mask-selection-syntax/>`_)
+    - **index**: provide a list of atom indices (int)
+    - **absolute**: provide a list of 3D coordina tes
+    - **json**: provide a json file containing the indexes of the atoms for each trajectory (the key for each trajectory should match the ``feat.identity`` attribute)
 
-    Focal points are applied to each slice of the trajectory
-
-    For each trajectory, the parse of focal points should be re-done to match the trajectory
     """
     if format == "mask":
       self.FOCALPOINTS_PROTOTYPE = focus
@@ -334,13 +328,6 @@ class Featurizer:
       self.FOCALPOINTS_TYPE = "index"
       self.FOCALPOINTS = None
 
-    elif format == "function": 
-      if not callable(focus):
-        raise ValueError("The focus should be a callable function when the format is 'function'")
-      self.FOCALPOINTS_PROTOTYPE = focus
-      self.FOCALPOINTS_TYPE = "function"
-      self.FOCALPOINTS = None
-
     elif format == "json": 
       self.FOCALPOINTS_PROTOTYPE = focus
       self.FOCALPOINTS_TYPE = "json"
@@ -351,20 +338,10 @@ class Featurizer:
 
   def parse_focus(self): 
     """
-    Parse the focal points to the correct format after the active trajectories are registered. 
-    This will be run in the ``run`` method. 
-
-    Notes
-    -----
-    Prepare the focal points for each slice of the trajectory by slice_number * focus number 
+    After registering the active trajectory, parse the focal points for each frame-slice in the ``run`` method. 
+    The resulting shape will be a 3D array with the shape ``(slice_number, focus_number, 3)``  
 
     """
-    if self.FOCALPOINTS_TYPE == "function":
-      self.FOCALPOINTS = self.FOCALPOINTS_PROTOTYPE(self.traj)
-      assert self.FOCALPOINTS.shape.__len__() == 3, "The focal points should be a 3D array"
-      self.FOCALNUMBER = self.FOCALPOINTS.shape[1]
-      return 1
-
     # Parse the focus points to the correct format
     self.FOCALPOINTS = np.full((self.SLICENUMBER, len(self.FOCALPOINTS_PROTOTYPE), 3), 99999, dtype=np.float32)
     self.FOCALNUMBER = len(self.FOCALPOINTS_PROTOTYPE)
@@ -405,14 +382,25 @@ class Featurizer:
     else:
       raise ValueError(f"Unexpected focus format: {self.FOCALPOINTS_TYPE}")
 
-  def run(self, process_nr=20): 
+  def run(self, process_nr=0): 
     """
+    Run the featurization for each iteration over trajectory, frame-slice, focal-point, and feature. 
 
+    Parameters
+    ----------
+    process_nr : int, default = 0
+      The number of processes to run in parallel. If 0, run in serial mode. 
     """
+    import multiprocessing as mp
+    if process_nr > 0:
+      pool = mp.Pool(process_nr)
+    else:
+      pool = None
+
     for tid in range(self.TRAJECTORYNUMBER):
       # Setup the trajectory and its related parameters such as slicing of the trajectory
       self.traj = self.TRAJLOADER[tid]
-      msg = f"Processing traj {tid} ({self.traj.identity}) with {self.SLICENUMBER} frame slices"
+      msg = f"Processing the trajectory {tid+1} ({self.traj.identity}) with {self.SLICENUMBER} frame slices"
       printit(f"{self.__class__.__name__}: {msg:=^80}")
       st = time.perf_counter()
 
@@ -421,15 +409,15 @@ class Featurizer:
         # Expected output shape is (self.SLICENUMBER, self.FOCALNUMBER, 3) array 
         focus_state = self.parse_focus()
         if focus_state == 0:
-          printit(f"{self.__class__.__name__} Warning: Skipping the trajectory {self.traj.identity}(traj {tid}) because focal points parsing is failed. ")
+          printit(f"{self.__class__.__name__} Warning: Skipping the trajectory {self.traj.identity}(index {tid+1}) because focal points parsing is failed. ")
           continue 
         if config.verbose() or config.debug():
-          printit(f"{self.__class__.__name__}: Parsing of focal points on trajectory ({tid}/{self.traj.identity}) yeield the shape: {self.FOCALPOINTS.shape}. ")
+          printit(f"{self.__class__.__name__}: Parsing of focal points on trajectory ({tid+1}/{self.traj.identity}) yeield the shape: {self.FOCALPOINTS.shape}. ")
 
       # Cache the weights for each atoms in the trajectory (run once for each trajectory)
       for feat in self.FEATURESPACE:
         if config.verbose(): 
-          printit(f"{self.__class__.__name__}: Caching the weights of feature {feat.__class__.__name__} for the trajectory {tid}")
+          printit(f"{self.__class__.__name__}: Caching the weights of feature {feat.__class__.__name__} for the trajectory {tid+1}")
         feat.cache(self.traj)
 
       tasks = []
@@ -456,13 +444,16 @@ class Featurizer:
             tasks.append([self.FEATURESPACE[fidx].run, queried])
             feature_map.append((tid, bid, fidx))
 
-      printit(f"{self.__class__.__name__}: Tasks are ready for the trajectory {tid} with {len(tasks)} tasks")
+      printit(f"{self.__class__.__name__}: Trajectory {tid+1} yields {len(tasks)} frame-slices (tasks) for the featurization. ")
       
-      results = [wrapper_runner(*task) for task in tasks]
-      # Run the actions in the process pool
-      # _tasks = [pool.apply_async(wrapper_runner, task) for task in tasks]
-      # results = [task.get() for task in _tasks]
-
+      if pool is None: 
+        results = [wrapper_runner(*task) for task in tasks]
+      else: 
+        printit(f"{self.__class__.__name__}: Running the tasks in parallel with {process_nr} processes") 
+        results = pool.starmap(wrapper_runner, tasks)
+        # OR run the actions in the following way 
+        # _tasks = [pool.apply_async(wrapper_runner, task) for task in tasks]
+        # results = [task.get() for task in _tasks]
       printit(f"{self.__class__.__name__}: Tasks are finished, dumping the results to the feature space...")
 
       if config.verbose() or config.debug():
@@ -471,20 +462,23 @@ class Featurizer:
       # Dump to file for each feature
       for feat_meta, result in zip(feature_map, results):
         tid, bid, fidx = feat_meta
-        print(result, result.shape)
         self.FEATURESPACE[fidx].dump(result)
 
-      msg = f"Finished the trajectory {tid+1} / {self.TRAJECTORYNUMBER} with {len(tasks)} tasks in {time.perf_counter() - st:.2f} seconds"
-      printit(f"{self.__class__.__name__}: {msg:^^80}\n")
-    printit(f"{self.__class__.__name__}: All trajectories and tasks are finished")
+      msg = f"Finished the trajectory {tid+1} / {self.TRAJECTORYNUMBER} with {len(tasks)} tasks in {time.perf_counter() - st:.6f} seconds"
+      msg = f"{msg:=^80}"
+      if tid < self.SLICENUMBER - 1:
+        msg += "\n"
+      printit(f"{self.__class__.__name__}: {msg}")
+    printit(f"{self.__class__.__name__}: All trajectories and tasks are finished. \n")
 
   def loop_by_residue(self, restype, process_nr=20, tag_limit=0): 
     """
+    TO BE ADDED
     """
     for tid in range(self.TRAJECTORYNUMBER):
       # Setup the trajectory and its related parameters such as slicing of the trajectory
       self.traj = self.TRAJLOADER[tid]
-      printit(f"{self.__class__.__name__}: Start processing the trajectory {tid} with {self.SLICENUMBER} frames")
+      printit(f"{self.__class__.__name__}: Start processing the trajectory {tid+1} with {self.SLICENUMBER} frames")
 
       # Cache the weights for each atoms in the trajectory (run once for each trajectory)
       for feat in self.FEATURESPACE:
@@ -540,7 +534,7 @@ class Featurizer:
                   tasks.append([self.FEATURESPACE[fidx].run, queried])
                   feature_map.append((tid, bid, fidx, label))
       
-      printit(f"{self.__class__.__name__}: Task set containing {len(tasks)} tasks are created for the trajectory {tid}; ")
+      printit(f"{self.__class__.__name__}: Task set containing {len(tasks)} tasks are created for the trajectory {tid+1}; ")
       ######################################################
       # TODO: Find a proper way to parallelize the CUDA function. 
       results = [wrapper_runner(*task) for task in tasks]
@@ -574,6 +568,6 @@ class Featurizer:
           utils.append_hdf_data(self.FEATURE_PARMS["outfile"], "label", labels[:int(len(feature_map)/len(self.FEATURESPACE))], dtype=int, maxshape=(None, ), chunks=True)
       
       if config.verbose() or config.debug():
-        printit(f"{self.__class__.__name__}: Finished the trajectory {tid} with {len(tasks)} tasks")
+        printit(f"{self.__class__.__name__}: Finished the trajectory {tid+1} with {len(tasks)} tasks")
     printit("f{self.__class__.__name__}: All trajectories and tasks are finished")
 

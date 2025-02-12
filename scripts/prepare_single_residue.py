@@ -75,7 +75,7 @@ def parallelize_traj(traj_list, focused_res):
 
 if __name__ == '__main__':
   st = time.perf_counter()
-  complex_folder = "/MieT5/BetaPose/data/complexes/"
+  complex_folder = "/MieT5/Nearl/data/complexes/"
   complex_file_list = "complex_filelist.txt"
   with open(os.path.join(complex_folder, complex_file_list), 'r') as f:
     complex_files = [i for i in f.read().strip("\n").split("\n") if i != ""]

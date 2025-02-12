@@ -83,7 +83,7 @@ def generate_features(settings):
   features["feat_backbone"] = nearl.features.Mass(outkey="mass")
   features["feat_dyna"] = nearl.features.MarchingObservers(weight_type="atom_type", obs="distinct_count", agg = "standard_deviation", outkey="lig_CCount_obs", element_type=6)
 
-  # features[""]
+  
 
 
   feat.register_features(features)
@@ -100,12 +100,8 @@ if __name__ == "__main__":
   args = vars(args)
   print(args)
 
-  # misatodir = 
-  # training_set = 
-  # training_set = "/MieT5/BetaPose/data/misato_test.txt"
-
   settings = {
-    "pdbcodes": "/MieT5/BetaPose/data/misato_train.txt",
+    "pdbcodes": "/MieT5/Nearl/data/misato_train.txt",
     "misato_dir": "/Matter/misato_database/",
     "output_dir": "/tmp/",
   }
