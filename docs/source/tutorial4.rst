@@ -16,7 +16,7 @@ Manual focus parser
 
 ..   def manual_focal_parser(traj): 
 ..     # The reference json file to map the indices to track
-..     ligandmap = "/MieT5/BetaPose/data/misato_ligand_indices.json"
+..     ligandmap = "/MieT5/Nearl/data/misato_ligand_indices.json"
 ..     # The sliding time window has to match the one put in the featurizer
 ..     timewindow = 10
 ..     with open(ligandmap, "r") as f:

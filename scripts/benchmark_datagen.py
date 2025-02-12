@@ -1,3 +1,9 @@
+"""
+Benchmark the 3 modes: 
+1. Static feature: AtomType
+2. Marching Observers
+3. Probability Density Flow 
+"""
 import os, argparse, time, json
 
 import h5py as h5 
@@ -7,7 +13,7 @@ import pytraj as pt
 from collections import OrderedDict
 
 import nearl 
-# import nearl.data
+import nearl.features, nearl.featurizer, nearl.io
 # from nearl.io import Trajectory
 
 def parser(): 
@@ -41,17 +47,15 @@ def parser():
 
 def get_features(feattype): 
   features = OrderedDict()
-  # nearl.features.AtomType(selection="!:LIG", focus_element=1, outkey="lig_type_H")
+  # Modify the feature type here. 
   if feattype == 1: 
-    features["feat_static"] = nearl.features.AtomType(selection="!:LIG", focus_element=6, outkey="feat_static", cutoff=6)
+    features["feat_static"] = nearl.features.AtomType(selection="!:MOL", focus_element=6, outkey="feat_static", cutoff=6)
     outkey = "feat_static"
   elif feattype == 2: 
-    features["feat_mo"] = nearl.features.MarchingObservers(selection="!:LIG", weight_type="atom_type", element_type=6, obs="distinct_count", 
-                                                           agg="standard_deviation", outkey="feat_mo", cutoff=2.55)
+    features["feat_mo"] = nearl.features.MarchingObservers(selection="!:MOL", weight_type="atom_type", element_type=6, obs="distinct_count", agg="standard_deviation", outkey="feat_mo", cutoff=2.55)
     outkey = "feat_mo"
   elif feattype == 3:
-    features["feat_pdf"] = nearl.features.DensityFlow(selection="!:LIG", weight_type="atom_type", element_type=6, outkey="feat_pdf", 
-                                                      agg="standard_deviation", cutoff=6)
+    features["feat_pdf"] = nearl.features.DensityFlow(selection="!:MOL", weight_type="atom_type", element_type=6, outkey="feat_pdf", agg="standard_deviation", cutoff=6)
     outkey = "feat_pdf" 
   return features, outkey 
 
@@ -71,7 +75,7 @@ def commandline_interface(args, outputdim):
   
   outputdim = int(outputdim)
   FEATURIZER_PARMS = {
-    "dimensions": outputdim, 
+    "dimensions": [outputdim, outputdim, outputdim], 
     "lengths": 20, 
     "time_window": frame_span,    # Time window equal to 0.8 ns 
     # For default setting inference of registered features 
@@ -94,7 +98,7 @@ def commandline_interface(args, outputdim):
 
   # Start the featurization 
   st = time.perf_counter()
-  featurizer.main_loop(cpu_nr)
+  featurizer.run(cpu_nr)
   ed = time.perf_counter()
 
   # Calculate the throughput 
@@ -106,10 +110,10 @@ def commandline_interface(args, outputdim):
 
 if __name__ == '__main__':
   """
-
-  Example: 
-  python /MieT5/BetaPose/scripts/benchmark_datagen.py -f /tmp/trajlist.txt -t 1 -c 8 -s 20 --force 1
-  python /MieT5/BetaPose/scripts/benchmark_datagen.py -f /tmp/trajlist.txt -t 2 -c 8 -s 20 --force 1
+  Examples: 
+    python /MieT5/Nearl/scripts/benchmark_datagen.py -f /MieT5/trajlist.txt -t 1 -c 8 -s 20 --force 1
+    python /MieT5/Nearl/scripts/benchmark_datagen.py -f /MieT5/trajlist.txt -t 2 -c 8 -s 20 --force 1
+    python /MieT5/Nearl/scripts/benchmark_datagen.py -f /MieT5/trajlist.txt -t 3 -c 8 -s 20 --force 1
   """
   nearl.update_config(verbose = False, debug = False)
 
@@ -118,7 +122,8 @@ if __name__ == '__main__':
   print(json.dumps(args, indent=2))
   
 
-  DIMS_TO_TEST = [16, 24, 32, 48, 64]
+  # DIMS_TO_TEST = [16, 24, 32, 48, 64]
+  DIMS_TO_TEST = [16, 24, 32, 40, 48, 56, 64]
   REPEAT = 10
 
   for dim in DIMS_TO_TEST: 

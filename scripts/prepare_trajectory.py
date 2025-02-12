@@ -4,8 +4,8 @@ import numpy as np
 import dask
 from dask.distributed import Client
 
-from BetaPose import representations, trajloader, features, data_io
-from BetaPose import utils, printit, savelog
+from Nearl import representations, trajloader, features, data_io
+from Nearl import utils, printit, savelog
 
 
 class FeatureLabel(features.Feature):
@@ -138,12 +138,12 @@ def parallelize_traj(traj_list):
 if __name__ == "__main__":
   print("Current working directory: ", os.getcwd());
   outputfile = "../data/data.h5";
-  output_hdffile = "/media/yzhang/MieT5/BetaPose/data/trainingdata/mytraj_test.h5"
+  output_hdffile = "/MieT5/Nearl/data/trainingdata/mytraj_test.h5"
   worker_num = 24;
   thread_per_worker = 1;
 
   st_total = time.perf_counter();
-  pdbbind_csv = "/media/yzhang/MieT5/BetaPose/data/PDBBind_general_v2020.csv";
+  pdbbind_csv = "/MieT5/Nearl/data/PDBBind_general_v2020.csv";
   FEATURIZER_PARMS = {
     # POCKET SETTINGS
     "CUBOID_DIMENSION": [48, 48, 48],  # Unit: 1 (Number of lattice in one dimension)

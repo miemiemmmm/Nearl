@@ -1,7 +1,7 @@
 #!/bin/bash -l 
 
 # Bash usage: 
-# ls -d C001*/job_00* | while read i; do prefix=$(echo $(dirname $i) | awk '{print tolower(substr($0, length($0)-3, 4))}')$(basename $i | sed 's|job||g'); if [ -f /disk3b/yzhang/traj75/${prefix}.nc ]; then echo "Skipping $prefix"; else echo "Processing: $prefix"; bash /MieT5/BetaPose/scripts/prepare_trajectories.sh -d $(realpath $i) -o /disk3b/yzhang/traj75 -p ${prefix}; fi; done
+# ls -d C001*/job_00* | while read i; do prefix=$(echo $(dirname $i) | awk '{print tolower(substr($0, length($0)-3, 4))}')$(basename $i | sed 's|job||g'); if [ -f /disk3b/yzhang/traj75/${prefix}.nc ]; then echo "Skipping $prefix"; else echo "Processing: $prefix"; bash /MieT5/Nearl/scripts/prepare_trajectories.sh -d $(realpath $i) -o /disk3b/yzhang/traj75 -p ${prefix}; fi; done
 # ls -d C001*/job_00* | while read i; do prefix=$(echo $(dirname $i) | awk '{print tolower(substr($0, length($0)-3, 4))}')$(basename $i | sed 's|job||g'); if [ -f /disk3b/yzhang/traj75/${prefix}.nc ]; then echo "Skipping $prefix"; else echo "Processing: $prefix" fi; done
 
 # Parse arguments

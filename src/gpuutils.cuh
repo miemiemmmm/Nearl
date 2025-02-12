@@ -1,12 +1,13 @@
 //
 // Created by yzhang on 06.10.23.
+// Description: This file contains the utility functions for GPU computing. 
 //
-#include "cuda_runtime.h"
 
 #ifndef GPU_UTILS_INCLUDED
 #define GPU_UTILS_INCLUDED
 
-#define BLOCK_SIZE 256
+#include "cuda_runtime.h"
+#include "constants.h"
 
 
 template <typename T>
@@ -174,6 +175,38 @@ __device__ float information_entropy_histogram_device(const T *Arr, const int N)
 
 
 /**
+ * @brief Calculate the drift of a time-series data
+ *
+ * This function calculates the drift of a time-series data. The drift is defined as 
+ * the slope of the linear regression line fitted to the data points. 
+ * 
+ * @tparam T Numerical data type of the time-series data
+ * @param arr Pointer to the input array of type T located in device memory
+ * @param N The number of elements in the input array
+ * 
+ * @return The computed drift value as a float
+ * 
+ * @note The function assumes that the input array contains at least two elements.
+ */
+template <typename T>
+__device__ float slope_device(const T *arr, const int N){
+  if (N <= 1) return 0; 
+
+  float sum_x = 0, sum_y = 0, sum_xy = 0, sum_x2 = 0;
+  for (int i = 0; i < N; i++){
+    sum_x += i;
+    sum_y += arr[i];
+    sum_xy += i * arr[i];
+    sum_x2 += i * i;
+  }
+
+  const float denom = N * sum_x2 - sum_x * sum_x;
+  if (denom == 0) return 0;
+  return (N * sum_xy - sum_x * sum_y) / denom; 
+}
+
+
+/**
  * @brief Calculates the median value of an array on the CUDA device
  * 
  * This function firstly sorts the input array in ascending order via the bubble 
@@ -311,5 +344,79 @@ __device__ float square_distance_device(const T *coord1, const T *coord2) {
   sum += (coord1[2] - coord2[2]) * (coord1[2] - coord2[2]);
   return sum;
 }
+
+
+extern __global__ void sum_reduction_global(float *d_in, float *d_out, const int N); 
+// {
+//   __shared__ float smem[BLOCK_SIZE];
+
+//   int idx = blockIdx.x * blockDim.x + threadIdx.x;
+//   int tid = threadIdx.x;
+
+//   // Load the input data into shared memory 
+//   smem[tid] = (idx < N) ? d_in[idx] : 0; 
+//   __syncthreads();
+
+//   // Perform reduction in shared memory 
+//   for (int stride = blockDim.x / 2; stride > 0; stride >>= 1){
+//     if (tid < stride){
+//       smem[tid] += smem[tid + stride];
+//     }
+//     __syncthreads();
+//   }
+
+//   // Write the result to global memory 
+//   if (tid == 0){
+//     d_out[blockIdx.x] = smem[0];
+//   }
+// }
+
+
+extern __global__ void normalize_array_global(float *d_in, const float sum, const float weight, const int N); 
+// {
+//   int idx = blockIdx.x * blockDim.x + threadIdx.x;
+//   if (idx >= N) return;
+//   d_in[idx] = d_in[idx] / sum * weight;
+// }
+
+
+extern __global__ void voxel_addition_global(float *d_in, float *d_out, const int N); 
+// {
+//   int idx = blockIdx.x * blockDim.x + threadIdx.x;
+//   if (idx >= N) return;
+//   d_out[idx] += d_in[idx];
+// }
+
+
+extern __global__ void gridwise_aggregation_global(float *d_in, float *d_out, const int frame_nr, const int gridpoint_nr, const int type_agg); 
+// {
+//   int idx = blockIdx.x * blockDim.x + threadIdx.x;
+//   if (idx >= gridpoint_nr) return;
+  
+//   // TODO: Check if this works correctly 
+//   float tmp_array[MAX_FRAME_NUMBER]; 
+  
+//   if (type_agg == 0){
+//     d_out[idx] = mean_device(tmp_array, frame_nr);
+//   } else if (type_agg == 1){
+//     d_out[idx] = median_device(tmp_array, frame_nr);
+//   } else if (type_agg == 2){
+//     d_out[idx] = standard_deviation_device(tmp_array, frame_nr);
+//   } else if (type_agg == 3){
+//     d_out[idx] = variance_device(tmp_array, frame_nr);
+//   } else if (type_agg == 4){
+//     d_out[idx] = max_device(tmp_array, frame_nr);
+//   } else if (type_agg == 5){
+//     d_out[idx] = min_device(tmp_array, frame_nr);
+//   } else if (type_agg == 6){
+//     d_out[idx] = information_entropy_device(tmp_array, frame_nr);
+//   } else if (type_agg == 7){
+//     d_out[idx] = slope_device(tmp_array, frame_nr);
+//   } else {
+//     // Should throw exception in the python-end 
+//     d_out[idx] = 0; 
+//   } 
+// }
+
 
 #endif

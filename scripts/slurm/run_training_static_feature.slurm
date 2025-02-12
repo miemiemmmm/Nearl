@@ -16,7 +16,7 @@ micromamba activate pointnet_torch
 datafile = "/Matter/nearl_dual_static/voxel.h5"; 
 
 
-python /MieT5/BetaPose/scripts/training/train_voxnet_test1.py \
+python /MieT5/Nearl/scripts/training/train_voxnet_test1.py \
   --data_path "/Matter/nearl_single_static/voxel.h5" \
   --dataset "dual" \
   --cuda 1 \

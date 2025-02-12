@@ -1,3 +1,6 @@
+"""
+Benchmark the data throughput of the Data Extraction from the HDF5 dataset.
+"""
 import time, os, json, argparse
 from nearl.io.dataset import Dataset
 
@@ -92,7 +95,7 @@ if __name__ == "__main__":
   Benchmarking the data extraction speed of the HDF5 dataset.
 
   Example:
-    python /MieT5/BetaPose/scripts/benchmark_datafile.py -f MisatoOutput3.h5 -b 64 -t prot_NCount_obs%prot_OCount_obs -l label_pcdt
+    python /MieT5/Nearl/scripts/benchmark_datafile.py -f MisatoOutput3.h5 -b 64 -t prot_NCount_obs%prot_OCount_obs -l label_pcdt
   """
   console_interface()
 

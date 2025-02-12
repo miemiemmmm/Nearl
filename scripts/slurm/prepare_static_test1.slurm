@@ -18,7 +18,7 @@ outfolder="/Matter/nearl_dual_static/"
 # outfolder="/Matter/nearl_single_static"
 
 
-python /MieT5/BetaPose/scripts/residue_static_generation.py \
+python /MieT5/Nearl/scripts/residue_static_generation.py \
   -f ${datafile} -o ${outfolder}    \
   -b 500 -c ${SLURM_CPUS_PER_TASK}  \
   --weight_type mass \

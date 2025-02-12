@@ -51,38 +51,57 @@ class TrajectoryLoader:
       print(traj)  # Print the trajectory information
 
   """
-  def __init__(self, trajs = None, trajtype = None, trajid = None, **kwarg):
+  def __init__(self, trajs = None, trajtype = None, trajids = None, **kwarg):
+    # Initialize the trajectory container 
     self.trajs = []
     if isinstance(trajs, (list, tuple)):
       for traj in trajs:
         self.trajs.append(tuple(traj))
     elif hasattr(trajs, "__iter__"):
-      # Check if it is iterable
       for traj in trajs:
         self.trajs.append(tuple(traj))
     else: 
       raise ValueError(f"The input should be a list or tuple of trajectory arguments rather than {type(trajs)}")
 
+    # Set the trajectory type
     if len(self.trajs) > 0: 
       if trajtype is None:
-        # If the user does not specify the output type, use Trajectory as default
+        # Default trajectory type
         self.OUTPUT_TYPE = [Trajectory] * len(self.trajs)
       else:
+        # User-defined trajectory type 
         self.OUTPUT_TYPE = [trajtype] * len(self.trajs)
     else: 
       self.OUTPUT_TYPE = []
-
-    self.i_ = 0
-    if trajid is not None:
-      self.trajids = trajid
-      if len(trajid) != len(self.trajs):
-        raise ValueError(f"The number of trajectory ids {len(trajid)} does not match the number of trajectories {len(self.trajs)}")
+    
+    # Set the trajectory identities
+    if trajids is not None:
+      if len(trajids) != len(self.trajs):
+        raise ValueError(f"The number of trajectory ids {len(trajids)} does not match the number of trajectories {len(self.trajs)}")
+      self.trajids = trajids
     else: 
-      self.trajids = [i[0] if isinstance(i, (list, tuple)) else None for i in trajs]
+      self.trajids = [None] * len(self.trajs)
+      # self.trajids = [i[0] if isinstance(i, (list, tuple)) else None for i in trajs]
 
-    # Remember the user's configuration
-    self.__loading_options = {"stride": None, "frame_indices": None, "mask": None, "superpose": False }
+    # Setup loading configurations
+    self.i_ = 0              # The index of the trajectory being processed 
+    self.__loading_options = {"stride": None, "frame_indices": None, "mask": None, "superpose": False}
     self.loading_options = kwarg
+    
+    # Update the loading options if they are individially set for each trajectory 
+    if kwarg.get("strides", None) is None:
+      self.strides = [None] * len(self.trajs)
+    else:
+      if len(self.strides) != len(self.trajs):
+        raise ValueError(f"The manually defined number of strides {len(self.strides)} does not match the number of trajectories {len(self.trajs)}")
+      self.strides = [int(i) for i in kwarg.get("strides")]
+
+    if kwarg.get("masks", None) is None: 
+      self.masks = [None] * len(self.trajs)
+    else:
+      if len(self.masks) != len(self.trajs):
+        raise ValueError(f"The manually defined number of masks {len(self.masks)} does not match the number of trajectories {len(self.trajs)}") 
+      self.masks = kwarg.get("masks")
 
   @property
   def loading_options(self): 
@@ -91,7 +110,7 @@ class TrajectoryLoader:
     """
     options = {key: value for key, value in self.__loading_options.items() if value is not None}
     if config.verbose or config.debug:
-      printit(f"Loading the trajectory {self.i_} whose identity is {self.trajids[self.i_]}")
+      printit(f"{self.__class__.__name__}: Loading the trajectory {self.i_} whose identity is {self.trajids[self.i_]}")
     if self.trajids is not None: 
       options["identity"] = self.trajids[self.i_]
     return options
@@ -105,6 +124,23 @@ class TrajectoryLoader:
       if key in kwargs:
         self.__loading_options[key] = value
 
+  def get_loading_options(self, index): 
+    """
+    Get the loading options if the user manually defines the loading options for specific trajectories 
+
+    Parameters
+    ----------
+    index : int
+      The index of the trajectory object to be retrieved
+
+    """
+    ret_options = {k:v for k,v in self.__loading_options.items()}
+    if self.strides[index] is not None:
+      ret_options["stride"] = self.strides[index]
+    if self.masks[index] is not None:
+      ret_options["mask"] = self.masks[index]
+    return ret_options
+
   def __str__(self):
     outstr = ""
     for i in self.__iter__(): 
@@ -113,17 +149,17 @@ class TrajectoryLoader:
 
   def __iter__(self):
     """
-    Iterate through the trajectories in the loader
+    Iterate through the trajectories in the trajectory loader
 
     Yields
     ------
     trajectory_like
       The trajectory object
     """
-    options = self.loading_options
     for i in range(len(self)): 
+      options = self.get_loading_options(i)
       self.i_ = i
-      print(f"Loading trajectory {i+1}/{len(self)}", file=sys.stderr)
+      printit(f"Loading the trajectory {i+1}/{len(self.trajs)}")
       yield self.OUTPUT_TYPE[i](*self.trajs[i], **options)
 
   def __len__(self):
@@ -148,22 +184,33 @@ class TrajectoryLoader:
     """
     if isinstance(index, int):
       if config.verbose or config.debug:
-        printit(f"Setting the trajectory index to {index}")
+        printit(f"{self.__class__.__name__}: Setting the trajectory index to {index}")
       self.i_ = index
-      ret = self.OUTPUT_TYPE[index](*self.trajs[index], **self.loading_options)
+      options = self.get_loading_options(index)
+      ret = self.OUTPUT_TYPE[index](*self.trajs[index], **options)
+
     elif isinstance(index, (list, tuple)):
-      self.i_ = index[0]
       tmpindices = np.array(index, dtype=int)
-      ret = [self.OUTPUT_TYPE[i](*self.trajs[i], **self.loading_options) for i in tmpindices]
-    elif isinstance(index, (slice, np.ndarray)):
-      self.i_ = index.start
+      ret = []
+      for i in tmpindices:
+        self.i_ = i
+        options = self.get_loading_options(i)
+        ret.append(self.OUTPUT_TYPE[i](*self.trajs[i], **options))
+      
+    elif isinstance(index, slice):
       tmpindices = np.arange(self.__len__())[index]
-      ret = [self.OUTPUT_TYPE[i](*self.trajs[i], **self.loading_options) for i in tmpindices]
+      ret = []
+      for i in tmpindices:
+        self.i_ = i
+        options = self.get_loading_options(i)
+        ret.append(self.OUTPUT_TYPE[i](*self.trajs[i], **options))
+      
     else: 
       raise IndexError("Index must be either an integer or a slice")
+    
     return ret
   
-  def append(self, trajs = None, trajtype = None): 
+  def append(self, trajs = None, trajtype = None, **kwarg): 
     """
     Append a trajectory or a list of trajectories to the trajectory loader. 
 
@@ -175,12 +222,28 @@ class TrajectoryLoader:
       The trajectory type to be used while loading the trajectory
       
     """
-    # determine how many trajectories will be appended
-    traj_nr = len(trajs) if isinstance(trajs, (list, tuple)) else 0
+    # Determine the number of trajectories to add 
+    if not isinstance(trajs, (list, tuple)):
+      raise ValueError(f"The input should be a list or tuple of trajectory arguments rather than {type(trajs)}") 
+    traj_nr = len(trajs) 
     if traj_nr == 0: 
-      raise ValueError(f"The input should be a list or tuple of trajectory arguments rather than {type(trajs)}")
-    # Append to self.trajs, self.tops and self.OUTPUT_TYPE
-    for i in range(traj_nr):
-      self.trajs.append(trajs)
+      raise ValueError(f"No trajectory detected in the input")  
+    
+    # Append to self.trajs, self.OUTPUT_TYPE and misc. loading options
+    for idx, traj_arg in enumerate(trajs):
+      self.trajs.append(traj_arg)
       self.OUTPUT_TYPE.append(trajtype)
+      if kwarg.get("trajids", None) is not None:
+        self.trajids.append(kwarg.get("trajids")[idx])
+      else:
+        self.trajids.append(None)
+      if kwarg.get("strides", None) is not None: 
+        self.strides.append(kwarg.get("strides")[idx])
+      else:
+        self.strides.append(None)
+      if kwarg.get("masks", None) is not None:
+        self.masks.append(kwarg.get("masks")[idx])
+      else:
+        self.masks.append(None)
+
 

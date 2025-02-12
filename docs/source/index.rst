@@ -24,7 +24,6 @@ Welcome to Nearl's documentation!
    intro_dynfeat
 
 .. TODO: Add back this section after the publication of the paper
-.. tutorial2 
 .. tutorial3
 .. tutorial4
 .. tutorial5
@@ -35,6 +34,9 @@ Welcome to Nearl's documentation!
    :caption: Tutorials
    
    tutorial1
+   
+   .. tutorial2 
+
    tutorial_tba
 
 

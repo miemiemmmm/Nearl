@@ -796,8 +796,6 @@ class AtomType(Feature):
     return coord_inbox, weights
 
 
-# /MieT5/BetaPose/nearl/data/charge_charmm36.json   # self.mode = "charmm36"
-# /MieT5/BetaPose/nearl/data/charge_ff14sb.json     # self.mode = "ff14sb"
 class PartialCharge(Feature):
   """
   Auxiliary class for featurizer. Needs to be hooked to the featurizer after initialization.

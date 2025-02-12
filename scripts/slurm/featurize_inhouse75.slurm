@@ -17,18 +17,18 @@ source /home/yzhang/mamba/bin/loadmamba
 micromamba activate nearl_dev
 
 # outdir=/Matter/nearl_training_data/inhouse75_test
-# pdbcodes=/MieT5/BetaPose/data/inhouse_test.txt
+# pdbcodes=/MieT5/Nearl/data/inhouse_test.txt
 
 
 outdir=/Matter/nearl_training_data/inhouse75_train
-pdbcodes=/MieT5/BetaPose/data/inhouse_train.txt
+pdbcodes=/MieT5/Nearl/data/inhouse_train.txt
 
 # outdir="/Matter/nearl_training_data/inhouse75_test"
-# pdbcodes="/MieT5/BetaPose/data/inhouse_test.txt"
+# pdbcodes="/MieT5/Nearl/data/inhouse_test.txt"
 
 
 ################################################################################
-python3 /MieT5/BetaPose/scripts/featurize_trajectory.py \
+python3 /MieT5/Nearl/scripts/featurize_trajectory.py \
   --trajfiles   ${pdbcodes} \
   --task_nr     ${SLURM_ARRAY_TASK_COUNT} \
   --task_index  ${SLURM_ARRAY_TASK_ID} \
