@@ -11,10 +11,12 @@
 #include "pybind11/pybind11.h"
 #include "pybind11/numpy.h"
 
-#include "cpuutils.h"
+#include "constants.h"
+#include "cpuutils.h"     // For translate_coord
+#include "gpuutils.cuh" 
 #include "voxelize.cuh"
 #include "marching_observers.cuh"
-#include "constants.h"
+
 
 namespace py = pybind11;
 
@@ -146,18 +148,7 @@ py::array_t<float> do_marching_observers(
     throw py::value_error("The number of frames " + std::to_string(frame_nr) + " exceeds the maximum number of frames allowed " + std::to_string(MAX_FRAME_NUMBER) + " frames."); 
   }
   
-  // If there is no point in all of the frames (At least one coordinate not the DEFAULT_COORD_PLACEHOLDER), directly return an array of zeros 
-  // for (int i=0; i < frame_nr*atom_nr*3; i++){
-  //   if (static_cast<float*>(buf_coord.ptr)[i] != DEFAULT_COORD_PLACEHOLDER){
-  //     std::cout << "Have coordinates in the input array" << std::endl;
-  //     break;
-  //   } else if (i == frame_nr*atom_nr*3 - 1){
-  //     std::cout << "C++, No valid coordinates found in the input array" << std::endl;
-  //     py::array_t<float> result({gridpoint_nr});
-  //     for (int i = 0; i < gridpoint_nr; i++) result.mutable_at(i) = 0;
-  //     return result;
-  //   }
-  // }
+  // TODO: Direct return of if all points are place holders
 
   // Current hard coded to 0, 0 for type_obs and type_agg
   py::array_t<float> result({gridpoint_nr});
@@ -238,6 +229,71 @@ py::array_t<float> do_traj_voxelize(
 }
 
 
+py::array_t<float> do_aggregation(
+  py::array_t<float> arr, 
+  const int type_agg 
+){
+  py::buffer_info buf_arr = arr.request();
+  
+  const int frame_nr = buf_arr.shape[0]; 
+  const int gridpoint_nr = buf_arr.shape[1];
+
+  py::array_t<float> result({gridpoint_nr});
+
+  aggregate_host(
+    static_cast<float*>(buf_arr.ptr), 
+    result.mutable_data(), 
+    frame_nr,
+    gridpoint_nr,
+    type_agg
+  ); 
+
+  return result; 
+}
+
+float do_summation(
+  py::array_t<float> arr
+){
+  py::buffer_info buf_arr = arr.request();
+  const int arr_length = buf_arr.shape[0];
+
+  float sum = sum_reduction_host(
+    static_cast<float*>(buf_arr.ptr),
+    arr_length
+  );
+
+  return sum;
+}
+
+py::array_t<float> do_frame_observation(
+  py::array_t<float> coord_arr, 
+  py::array_t<float> weight_arr,
+  py::array_t<int> dims_arr,
+  const float spacing,
+  const float cutoff,
+  const int type_obs
+){
+  py::buffer_info buf_coords = coord_arr.request();
+  py::buffer_info buf_weights = weight_arr.request();
+  py::buffer_info buf_dims = dims_arr.request();
+
+  const int  *dims = static_cast<int*>(buf_dims.ptr);
+  const int gridpoint_nr = dims[0] * dims[1] * dims[2]; 
+  const int atom_nr = buf_coords.shape[0]; 
+  py::array_t<float> result({gridpoint_nr}); 
+
+  observe_frame_host(
+    result.mutable_data(), 
+    static_cast<float*>(buf_coords.ptr),
+    static_cast<float*>(buf_weights.ptr),
+    static_cast<int*>(buf_dims.ptr),
+    spacing, atom_nr, cutoff, type_obs
+  ); 
+
+  return result; 
+}
+
+
 PYBIND11_MODULE(all_actions, m) {
   m.def("do_voxelize", &do_voxelize, 
     py::arg("coords"),
@@ -270,6 +326,27 @@ PYBIND11_MODULE(all_actions, m) {
     py::arg("sigma"),
     py::arg("type_agg"),
     "Voxelize a trajectory"
+  );
+
+  m.def("aggregate", &do_aggregation, 
+    py::arg("arr"),
+    py::arg("type_agg"),
+    "Aggregate the observable (nframes, ngridpoints) to a single frame (ngridpoints)" 
+  );
+
+  m.def("summation", &do_summation, 
+    py::arg("arr"),
+    "Summation of the array on GPU"
+  );
+
+  m.def("frame_observation", &do_frame_observation, 
+    py::arg("coords"),
+    py::arg("weights"),
+    py::arg("dims"),
+    py::arg("spacing"),
+    py::arg("cutoff"),
+    py::arg("type_obs"),
+    "Compute the observable for a single frame"
   );
 
 }

@@ -75,7 +75,7 @@ __device__ float direct_count_device(const float *coord, const float *coord_fram
 
     // Count 1 if the atom is within the cutoff distance
     if (dist_sq > cutoff_sq){
-      continue;
+      continue; 
     } else {
       retval += 1.0;
     }
@@ -111,30 +111,31 @@ __device__ float distinct_count_device(const float *coord, const float *coord_fr
   int atomnr, float cutoff){
   // Work on each atoms in a frame to calculate the observable in that frame
   float dist_sq; 
-  float cutoff_sq = cutoff * cutoff;
+  float cutoff_sq = cutoff * cutoff; 
   float distinct_count = 0.0f; 
 
-  int encountered_values[DISTINCT_LIMIT] = {0};
-  int val_check;
+  // Initialize the encountered values with a default placeholder 
+  float encountered_values[DISTINCT_LIMIT];
+  for (int i = 0; i < DISTINCT_LIMIT; ++i){
+    encountered_values[i] = DEFAULT_PLACEHOLDER;
+  }
+
+  float val_check;
   for (int j = 0; j < atomnr; ++j){
     // Filter atoms outside the cutoff distance 
     dist_sq = square_distance_device(coord, coord_framei + j*3); 
+    if (dist_sq > cutoff_sq) continue; 
     
-    // For atoms within the cutoff, check the existence in the encountered values
-    if (dist_sq > cutoff_sq){
-      continue;
-    } else {
-      val_check = weight_framei[j] * 10;
-      // Linear search unique values with early termination and insertion
-      for (int k = 0; k < DISTINCT_LIMIT; ++k){
-        if (encountered_values[k] == val_check){
-          break;
-        } else if (encountered_values[k] == 0){
-          encountered_values[k] = val_check;
-          distinct_count += 1.0f;
-          break;
-        }
-      }
+    val_check = weight_framei[j];
+    // Linear search unique values with early termination and insertion
+    for (int k = 0; k < DISTINCT_LIMIT; ++k){
+      if (val_check == encountered_values[k]){
+        break; 
+      } else if (encountered_values[k] == DEFAULT_PLACEHOLDER){
+        encountered_values[k] = val_check; 
+        distinct_count += 1; 
+        break;
+      } 
     }
   }
   return distinct_count;
@@ -154,15 +155,16 @@ __device__ float mean_distance_device(const float *coord, const float *coord_fra
   float cutoff_sq = cutoff * cutoff;
 
   float retval = 0.0;
-  float weigh_sum = 0;
+  float weight_sum = 0;
   for (int j = 0; j < atomnr; ++j){
-    dist_sq = square_distance_device(coord, coord_framei + j*3); 
-    if (dist_sq > cutoff_sq){ continue; }  // Within the cutoff count the particle
+    dist_sq = square_distance_device<float>(coord, coord_framei + j*3); 
+    if (dist_sq > cutoff_sq) continue; 
 
     retval += sqrt(dist_sq) * weight_framei[j];
-    weigh_sum += weight_framei[j];
+    weight_sum += weight_framei[j];
   }
-  return weigh_sum > 0 ? retval / weigh_sum : 0.0;
+
+  return weight_sum;
 }
 
 
@@ -171,11 +173,11 @@ __device__ float mean_distance_device(const float *coord, const float *coord_fra
  */
 __device__ float cumulative_weight_device(const float *coord, const float *coord_framei, const float *weight_framei,
   int atomnr, float cutoff){
-  float dist_sq, retval = 0.0;
-  float cutoff_sq = cutoff * cutoff;
+  float dist_sq, retval = 0.0, cutoff_sq = cutoff * cutoff;
   for (int j = 0; j < atomnr; j++){
-    dist_sq = square_distance_device(coord, coord_framei + j*3);
-    if (dist_sq > cutoff_sq){ continue; }   // Skip the particle j if it is outside the cutoff
+    dist_sq = square_distance_device<float>(coord, coord_framei + j*3);
+    if (dist_sq > cutoff_sq) continue;  
+
     // Count the weight if the atom is within the cutoff distance 
     retval += weight_framei[j];
   }
@@ -190,7 +192,7 @@ __device__ float density_device(const float *coord, const float *coord_framei, c
   const int atomnr, const float cutoff){
   float weight_sum = cumulative_weight_device(coord, coord_framei, weight_framei, atomnr, cutoff);
   float volume = (4.0 / 3.0) * M_PI * cutoff * cutoff * cutoff;
-  return weight_sum / volume;
+  return weight_sum / volume; 
 }
 
 
@@ -218,12 +220,14 @@ __device__ float dispersion_device(const float *coord, const float *coord_framei
   float retval = 0.0f;
   // Pairwise distance summation
   for (int j = 0; j < atomnr; ++j){
+    // Filter atom 1 outside the cutoff distance 
     dist_sq_j = square_distance_device(coord, coord_framei + j*3);
-    if (dist_sq_j > cutoff_sq){ continue; }  // Skip the particle j if it is outside the cutoff
+    if (dist_sq_j > cutoff_sq) continue; 
 
     for (int k = j + 1; k < atomnr; ++k){
+      // Filter atom 2 outside the cutoff distance
       dist_sq_k = square_distance_device(coord, coord_framei + k*3);
-      if (dist_sq_k > cutoff_sq){ continue; }  // Skip the particle k if it is outside the cutoff
+      if (dist_sq_k > cutoff_sq) continue;  
 
       dist_sq = square_distance_device(coord_framei + j*3, coord_framei + k*3);
       // Need to clarify what is the formula it follows to characterize the dispersion
@@ -231,7 +235,11 @@ __device__ float dispersion_device(const float *coord, const float *coord_framei
       weight_sum += weight_framei[j] * weight_framei[k];
     }
   }
-  return weight_sum > 0 ? retval / weight_sum : 0.0;
+  if (weight_sum == 0.0){
+    return 0.0;
+  } else {
+    return retval / weight_sum;
+  }
 }
 
 
@@ -263,7 +271,7 @@ __device__ float eccentricity_device(const float *coord, const float *coord_fram
   // Get the center of mass
   for (int j = 0; j < atomnr; ++j){
     dist_sq = square_distance_device(coord, coord_framei + j*3);
-    if (dist_sq > cutoff_sq){ continue; }
+    if (dist_sq > cutoff_sq) continue; 
     com[0] += weight_framei[j] * coord_framei[j*3];
     com[1] += weight_framei[j] * coord_framei[j*3+1];
     com[2] += weight_framei[j] * coord_framei[j*3+2];
@@ -297,45 +305,46 @@ __device__ float eccentricity_device(const float *coord, const float *coord_fram
 __device__ float radius_of_gyration_device(const float *coord, const float *coord_framei, const float *weight_framei,
   const int atomnr, const float cutoff){
   // Work on each atoms in a frame to calculate the observable in that frame
-  float dist_sq, retval = 0.0f; 
-  float cutoff_sq = cutoff * cutoff; 
+  float dist_sq, cutoff_sq = cutoff * cutoff; 
 
   // Calculate the center of mass
   float com[3] = {0.0, 0.0, 0.0}; 
   float weight_sum = 0.0f;
+  int count = 0; 
   for (int j = 0; j < atomnr; ++j){
-    // Only consider the particles within the cutoff distance to the observer
+    // Filter atoms outside of the cutoff distance 
     dist_sq = square_distance_device(coord, coord_framei+j*3);
-    if (dist_sq > cutoff_sq){ continue; }
-    
+    if (dist_sq > cutoff_sq) continue; 
+
     com[0] += weight_framei[j] * coord_framei[j*3];
     com[1] += weight_framei[j] * coord_framei[j*3+1];
     com[2] += weight_framei[j] * coord_framei[j*3+2];
     weight_sum += weight_framei[j];
+    count += 1; 
   }
 
-  if (weight_sum > 0){
-    com[0] = com[0] / weight_sum;
-    com[1] = com[1] / weight_sum;
-    com[2] = com[2] / weight_sum;
+  if (count <= 1){
+    // If no particle or only 1 particle in the cutoff distance, return 0.0
+    return 0.0f; 
+  } else if (weight_sum != 0){
+    com[0] /= weight_sum;
+    com[1] /= weight_sum;
+    com[2] /= weight_sum;
   } else {
-    com[0] = coord[0];
-    com[1] = coord[1];
-    com[2] = coord[2];
+    return 0.0f; 
   }
 
   // Calculate the radius of gyration to the center of mass
-  weight_sum = 0.0f;
+  float retval = 0.0f; 
   for (int j = 0; j < atomnr; ++j){
     dist_sq = square_distance_device(coord, coord_framei+j*3);
-    if (dist_sq > cutoff_sq){ continue; }  // Skip the particle j if it is outside the cutoff
-    dist_sq = square_distance_device(com, coord_framei+j*3);
-    retval += weight_framei[j] * dist_sq;   // moment of inertia
-    weight_sum += weight_framei[j];
-  }
-  return weight_sum > 0 ? sqrt(retval / weight_sum) : 0.0;
-}
+    if (dist_sq > cutoff_sq) continue; 
 
+    dist_sq = square_distance_device(com, coord_framei+j*3);
+    retval += weight_framei[j] * dist_sq; 
+  }
+  return sqrt(retval / weight_sum); 
+}
 
 
 /**
@@ -361,7 +370,7 @@ __device__ float make_observation_device(const float *coord, const float *coord_
   const int atomnr, const float cutoff, const int type_obs){
   float ret_framei = 0.0f;
   if (type_obs == 3){
-    ret_framei = distinct_count_device(coord, coord_framei, coord_framei, atomnr, cutoff);
+    ret_framei = distinct_count_device(coord, coord_framei, weight_framei, atomnr, cutoff);
   } else if (type_obs == 11){
     ret_framei = mean_distance_device(coord, coord_framei, weight_framei, atomnr, cutoff);
   } else if (type_obs == 12){
@@ -378,32 +387,6 @@ __device__ float make_observation_device(const float *coord, const float *coord_
   return ret_framei;
 }
 
-/**
- * @brief The device function to calculate the final aggregated results from the time series
- */
-__device__ float result_aggregation_device(float *series, const int frame_number, const int type_aggregation){
-  float ret_series; 
-  if (type_aggregation == 1){
-    ret_series = mean_device(series, frame_number); 
-  } else if (type_aggregation == 2){
-    ret_series = standard_deviation_device(series, frame_number); 
-  } else if (type_aggregation == 3){
-    ret_series = median_device(series, frame_number); 
-  } else if (type_aggregation == 4){
-    ret_series = variance_device(series, frame_number); 
-  } else if (type_aggregation == 5){
-    ret_series = static_cast<float>(max_device(series, frame_number)); 
-  } else if (type_aggregation == 6){
-    ret_series = static_cast<float>(min_device(series, frame_number)); 
-  } else if (type_aggregation == 7){
-    // TODO: determine which information entropy to use 
-    ret_series = information_entropy_device(series, frame_number); 
-  } else if (type_aggregation == 8){
-    ret_series = slope_device(series, frame_number); 
-  }
-  return ret_series;
-}
-
 
 ////////////////////////////////////////////////////////////////////////////////
 // Direct particle count-based observables
@@ -416,7 +399,6 @@ __global__ void marching_observer_global(
   const int *dims, const float spacing, 
   const int frame_number, const int atomnr, 
   const float cutoff, const int type_observable
-  // , const int type_aggregation
 ){ 
   unsigned int index = blockIdx.x * blockDim.x + threadIdx.x;
   unsigned int grid_size = dims[0] * dims[1] * dims[2];
@@ -430,21 +412,13 @@ __global__ void marching_observer_global(
   }; 
 
   // Calculate the observable of grid point at index in the given frame
-  if (type_observable == 1 or type_observable == 2){
+  if ((type_observable == 1) || (type_observable == 2)){
     // Hard-coded for the direct count-based observables 
     mobs_ret[index] = make_observation_device(coord, coord_frame, atomnr, cutoff, type_observable); 
   } else {
     mobs_ret[index] = make_observation_device(coord, coord_frame, weight_frame, atomnr, cutoff, type_observable); 
   }
 }
-
-// Formulate the return value from the time series of the observer
-// int series_length = frame_number > MAX_FRAME_NUMBER ? MAX_FRAME_NUMBER : frame_number; 
-// if (count == 0){
-//   result[index] = 0.0;
-// } else {
-//   result[index] = result_aggregation_device(series, series_length, type_aggregation);
-// }
 
 
 /**
@@ -487,7 +461,7 @@ void marching_observer_host(
   cudaMemcpy(dims_device, dims, 3 * sizeof(int), cudaMemcpyHostToDevice);
 
   float *partial_sums; 
-  cudaMallocManaged(&partial_sums, grid_size * sizeof(float)); 
+  cudaMalloc(&partial_sums, grid_size * sizeof(float)); 
 
   // NOTE: The coordinate should be uniformed meaning each frame have the same number of atoms
   for (int frame_idx = 0; frame_idx < frame_number; ++frame_idx) {
@@ -506,9 +480,7 @@ void marching_observer_host(
     cudaMemcpy(mobs_traj + frame_idx * observer_number, tmp_mobs_gpu, observer_number * sizeof(float), cudaMemcpyDeviceToDevice);
 
     // Skip the frames if their index exceeds the maximum number of frames allowed due to the GPU-based aggregation
-    if (frame_idx+1 >= MAX_FRAME_NUMBER){ 
-      continue; 
-    }
+    if (frame_idx+1 >= MAX_FRAME_NUMBER) continue; 
   }
 
   // Perform frame-wise aggregation on the voxelized trajectory 
@@ -516,12 +488,8 @@ void marching_observer_host(
   cudaMemset(tmp_mobs_gpu, 0, observer_number * sizeof(float)); 
   gridwise_aggregation_global<<<grid_size, BLOCK_SIZE>>>(mobs_traj, tmp_mobs_gpu, _frame_number, observer_number, type_agg);
 
-
-  // TODO: Find a better way to normalize the return
-  // TODO: Check if it is needed or not 
-  // NOTE: Currently, normalize the return by the number of atoms in the frame
   // IMPORTANT: NEED normalization since the high-diversity of observables and aggregation methods
-
+  // TODO: Check if it is needed or not to normalize the return
   // Perform the normalization if needed 
   float tmp_sum = 0.0f;
   sum_reduction_global<<<grid_size, BLOCK_SIZE>>>(tmp_mobs_gpu, partial_sums, observer_number);
@@ -546,3 +514,37 @@ void marching_observer_host(
 }
 
 
+
+void observe_frame_host(float *results, const float *coord_frame, const float *weight_frame, const int *dims, 
+  const float spacing, const int atomnr, const float cutoff, const int type_obs
+){
+  unsigned int observer_number = dims[0] * dims[1] * dims[2];
+  unsigned int grid_size = (observer_number + BLOCK_SIZE - 1) / BLOCK_SIZE;
+  
+  int frame_nr = 1; 
+
+  float *results_gpu; 
+  cudaMalloc(&results_gpu, frame_nr * observer_number * sizeof(float));
+  cudaMemset(results_gpu, 0.0f, frame_nr * observer_number * sizeof(float));
+  int *dims_gpu;
+  cudaMalloc(&dims_gpu, 3 * sizeof(int));
+  cudaMemcpy(dims_gpu, dims, 3 * sizeof(int), cudaMemcpyHostToDevice); 
+  float *coord_frame_gpu;
+  cudaMalloc(&coord_frame_gpu, frame_nr * atomnr * 3 * sizeof(float));
+  cudaMemcpy(coord_frame_gpu, coord_frame, frame_nr * atomnr * 3 * sizeof(float), cudaMemcpyHostToDevice);
+  float *weight_frame_gpu;
+  cudaMalloc(&weight_frame_gpu, frame_nr * atomnr * sizeof(float));
+  cudaMemcpy(weight_frame_gpu, weight_frame, frame_nr * atomnr * sizeof(float), cudaMemcpyHostToDevice);
+
+  marching_observer_global<<<grid_size, BLOCK_SIZE>>>(
+    results_gpu, coord_frame_gpu, weight_frame_gpu, 
+    dims_gpu, spacing, frame_nr, atomnr, cutoff, type_obs
+  );
+  cudaDeviceSynchronize();
+
+  cudaMemcpy(results, results_gpu, observer_number * sizeof(float), cudaMemcpyDeviceToHost);
+
+  cudaFree(results_gpu);
+  cudaFree(dims_gpu);
+
+}

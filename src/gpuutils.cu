@@ -51,28 +51,86 @@ __global__ void gridwise_aggregation_global(float *d_in, float *d_out, const int
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx >= gridpoint_nr) return;
   
-  // TODO: Check if this works correctly 
   float tmp_array[MAX_FRAME_NUMBER]; 
-  
-  if (type_agg == 0){
-    d_out[idx] = mean_device(tmp_array, frame_nr);
-  } else if (type_agg == 1){
-    d_out[idx] = median_device(tmp_array, frame_nr);
+  for (int i = 0; i < frame_nr; i++){
+    tmp_array[i] = d_in[i * gridpoint_nr + idx];
+  }
+
+  if (type_agg == 1){
+    d_out[idx] = mean_device<float>(tmp_array, frame_nr);
   } else if (type_agg == 2){
-    d_out[idx] = standard_deviation_device(tmp_array, frame_nr);
+    d_out[idx] = standard_deviation_device<float>(tmp_array, frame_nr);
   } else if (type_agg == 3){
-    d_out[idx] = variance_device(tmp_array, frame_nr);
+    d_out[idx] = median_device<float>(tmp_array, frame_nr);
   } else if (type_agg == 4){
-    d_out[idx] = max_device<float>(tmp_array, frame_nr);
+    d_out[idx] = variance_device<float>(tmp_array, frame_nr);
   } else if (type_agg == 5){
-    d_out[idx] = min_device(tmp_array, frame_nr);
+    d_out[idx] = max_device<float>(tmp_array, frame_nr);
   } else if (type_agg == 6){
-    d_out[idx] = information_entropy_device(tmp_array, frame_nr);
+    d_out[idx] = min_device<float>(tmp_array, frame_nr);
   } else if (type_agg == 7){
-    d_out[idx] = slope_device(tmp_array, frame_nr);
+    d_out[idx] = information_entropy_device(tmp_array, frame_nr);
+  } else if (type_agg == 8){
+    d_out[idx] = slope_device<float>(tmp_array, frame_nr);
   } else {
     // Should throw exception in the python-end 
     d_out[idx] = 0; 
   } 
 }
 
+
+void aggregate_host(
+  float *voxel_traj, 
+  float *result_grid, 
+  const int frame_number,
+  const int grid_number, 
+  const int type_agg 
+){
+  unsigned int grid_size = (grid_number + BLOCK_SIZE - 1) / BLOCK_SIZE;
+  unsigned int _frame_number = frame_number > MAX_FRAME_NUMBER ? MAX_FRAME_NUMBER : frame_number; 
+
+  // Move the voxelized stuff 
+  float *voxel_traj_gpu; 
+  cudaMalloc(&voxel_traj_gpu, frame_number * grid_number * sizeof(float));
+  cudaMemcpy(voxel_traj_gpu, voxel_traj, frame_number * grid_number * sizeof(float), cudaMemcpyHostToDevice); 
+
+  float *tmp_grid_gpu; 
+  cudaMalloc(&tmp_grid_gpu, grid_number * sizeof(float)); 
+  cudaMemset(tmp_grid_gpu, 0, grid_number * sizeof(float)); 
+
+  gridwise_aggregation_global<<<grid_size, BLOCK_SIZE>>>(voxel_traj_gpu, tmp_grid_gpu, _frame_number, grid_number, type_agg);
+  cudaMemcpy(result_grid, tmp_grid_gpu, grid_number * sizeof(float), cudaMemcpyDeviceToHost); 
+
+  // Free the memory 
+  cudaFree(voxel_traj_gpu);
+  cudaFree(tmp_grid_gpu);
+}
+
+float sum_reduction_host(
+  float *array, 
+  const int arr_length
+){
+  unsigned int grid_size = (arr_length + BLOCK_SIZE - 1) / BLOCK_SIZE; 
+
+  float *partial_sums; 
+  cudaMalloc(&partial_sums, grid_size * sizeof(float)); 
+  float *array_gpu; 
+  cudaMalloc(&array_gpu, arr_length * sizeof(float)); 
+  cudaMemcpy(array_gpu, array, arr_length * sizeof(float), cudaMemcpyHostToDevice); 
+
+  // Perform the sum reduction on the array 
+  sum_reduction_global<<<grid_size, BLOCK_SIZE>>>(array_gpu, partial_sums, arr_length); 
+  cudaDeviceSynchronize();
+
+  // Compute the final sum 
+  float _partial_sums[grid_size]; 
+  float tmp_sum = 0.0f;
+  cudaMemcpy(_partial_sums, partial_sums, grid_size * sizeof(float), cudaMemcpyDeviceToHost);
+  for (int i = 0; i < grid_size; ++i) tmp_sum += _partial_sums[i]; 
+
+  // Free the memory
+  cudaFree(partial_sums);
+  cudaFree(array_gpu);
+
+  return tmp_sum;
+}

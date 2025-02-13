@@ -8,4 +8,6 @@ void marching_observer_host(
   const float cutoff, const int type_obs, const int type_agg
 );
 
+void observe_frame_host(float *results, const float *coord_frame, const float *weight_frame, const int *dims, const float spacing, const int atomnr, const float cutoff, const int type_obs); 
+
 #endif
