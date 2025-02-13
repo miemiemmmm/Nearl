@@ -8,7 +8,7 @@
 #include "gpuutils.cuh"
 
 
-__global__ void sum_reduction_global(float *d_in, float *d_out, const int N){
+__global__ void sum_reduction_global(const float *d_in, float *d_out, const int N){
   __shared__ float smem[BLOCK_SIZE];
 
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -36,14 +36,14 @@ __global__ void sum_reduction_global(float *d_in, float *d_out, const int N){
 __global__ void normalize_array_global(float *d_in, const float sum, const float weight, const int N){
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx >= N) return;
-  d_in[idx] = d_in[idx] / sum * weight;
+  d_in[idx] = d_in[idx] * weight / sum ;
 }
 
 
-__global__ void voxel_addition_global(float *d_in, float *d_out, const int N){
+__global__ void voxel_addition_global(float *d_parent, float *d_add, const int N){
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx >= N) return;
-  d_out[idx] += d_in[idx];
+  d_parent[idx] += d_add[idx];
 }
 
 

@@ -425,16 +425,9 @@ __global__ void marching_observer_global(
  * @brief The host function to perform the marching observer algorithm
  */
 void marching_observer_host(
-  float *mobs_dynamics, 
-  const float *coord, 
-  const float *weights,
-  const int *dims, 
-  const float spacing, 
-  const int frame_number, 
-  const int atom_per_frame,
-  const float cutoff, 
-  const int type_obs, 
-  const int type_agg
+  float *mobs_dynamics, const float *coord, const float *weights, const int *dims, 
+  const float spacing, const int frame_number, const int atom_per_frame,
+  const float cutoff, const int type_obs, const int type_agg
 ){
   unsigned int observer_number = dims[0] * dims[1] * dims[2];
   unsigned int grid_size = (observer_number + BLOCK_SIZE - 1) / BLOCK_SIZE;
@@ -453,8 +446,10 @@ void marching_observer_host(
   // The atomic coordinates and weights of the frame i in the device memory
   float *coords_device;  
   cudaMalloc(&coords_device, frame_number * atom_per_frame * 3 * sizeof(float));
+  cudaMemcpy(coords_device, coord, frame_number * atom_per_frame * 3 * sizeof(float), cudaMemcpyHostToDevice);
   float *weights_device;
   cudaMalloc(&weights_device, frame_number * atom_per_frame * sizeof(float));
+  cudaMemcpy(weights_device, weights, frame_number * atom_per_frame * sizeof(float), cudaMemcpyHostToDevice);
 
   int *dims_device;
   cudaMalloc(&dims_device, 3 * sizeof(int));
@@ -487,17 +482,18 @@ void marching_observer_host(
   unsigned int _frame_number = frame_number > MAX_FRAME_NUMBER ? MAX_FRAME_NUMBER : frame_number; 
   cudaMemset(tmp_mobs_gpu, 0, observer_number * sizeof(float)); 
   gridwise_aggregation_global<<<grid_size, BLOCK_SIZE>>>(mobs_traj, tmp_mobs_gpu, _frame_number, observer_number, type_agg);
+  cudaDeviceSynchronize(); 
 
   // IMPORTANT: NEED normalization since the high-diversity of observables and aggregation methods
   // TODO: Check if it is needed or not to normalize the return
   // Perform the normalization if needed 
   float tmp_sum = 0.0f;
-  sum_reduction_global<<<grid_size, BLOCK_SIZE>>>(tmp_mobs_gpu, partial_sums, observer_number);
+  sum_reduction_global<<<1, BLOCK_SIZE>>>(tmp_mobs_gpu, partial_sums, observer_number);
   cudaDeviceSynchronize();
   cudaMemcpy(_partial_sums, partial_sums, grid_size * sizeof(float), cudaMemcpyDeviceToHost);
-  for (int i = 0; i < grid_size; ++i) tmp_sum += partial_sums[i];
+  for (int i = 0; i < grid_size; ++i) tmp_sum += _partial_sums[i];
 
-  if (tmp_sum != 0.0){
+  if (tmp_sum != 0.0f){
     normalize_array_global<<<grid_size, BLOCK_SIZE>>>(tmp_mobs_gpu, tmp_sum, 1.0f, observer_number); 
   } 
 
