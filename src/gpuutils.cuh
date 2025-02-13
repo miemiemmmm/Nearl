@@ -346,7 +346,7 @@ __device__ float square_distance_device(const T *coord1, const T *coord2) {
 }
 
 
-extern __global__ void sum_reduction_global(float *d_in, float *d_out, const int N); 
+extern __global__ void sum_reduction_global(const float *d_in, float *d_out, const int N); 
 extern __global__ void normalize_array_global(float *d_in, const float sum, const float weight, const int N); 
 extern __global__ void voxel_addition_global(float *d_in, float *d_out, const int N); 
 extern __global__ void gridwise_aggregation_global(float *d_in, float *d_out, const int frame_nr, const int gridpoint_nr, const int type_agg); 

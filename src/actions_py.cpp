@@ -91,7 +91,7 @@ py::array_t<float> do_voxelize(
  * @brief
  * Perform the marching observers algorithm to convert a slice of coordinate sets to a 3D grid
  * 
- * @param arr_coord: The input array of coordinates
+ * @param arr_coord: The input array of coordinates, shaped (frame_nr, atom_nr, 3)
  * @param arr_weights: The input array of weights
  * @param arr_dims: The dimensions of the grid
  * @param spacing: The spacing between the grid points
@@ -144,21 +144,21 @@ py::array_t<float> do_marching_observers(
       throw py::value_error("The aggregation type is not supported"); 
     }
   }
+
+  // TODO: Eliminate this constraint in the future 
   if (frame_nr > MAX_FRAME_NUMBER){ 
     throw py::value_error("The number of frames " + std::to_string(frame_nr) + " exceeds the maximum number of frames allowed " + std::to_string(MAX_FRAME_NUMBER) + " frames."); 
   }
   
-  // TODO: Direct return of if all points are place holders
+  // TODO: Direct return of if all points are place holders 
 
   // Current hard coded to 0, 0 for type_obs and type_agg
   py::array_t<float> result({gridpoint_nr});
   for (int i = 0; i < gridpoint_nr; i++) result.mutable_at(i) = 0;
   marching_observer_host(
     result.mutable_data(), 
-    static_cast<float*>(buf_coord.ptr), 
-    static_cast<float*>(buf_weights.ptr), 
-    dims, spacing,
-    frame_nr, atom_nr,
+    static_cast<float*>(buf_coord.ptr), static_cast<float*>(buf_weights.ptr), dims, 
+    spacing, frame_nr, atom_nr, 
     cutoff, type_obs, type_agg
   ); 
 

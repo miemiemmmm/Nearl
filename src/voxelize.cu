@@ -12,7 +12,7 @@
 __global__ void coordi_interp_global(const float *coord, float *interpolated, const int *dims, const float spacing, const float cutoff, const float sigma){
   unsigned int task_index = blockIdx.x * blockDim.x + threadIdx.x;
   unsigned int grid_size = dims[0] * dims[1] * dims[2];
-  if (task_index < grid_size) return;
+  if (task_index >= grid_size) return;
 
   // Compute the grid coordinate from the grid index
   float grid_coord[3] = {
