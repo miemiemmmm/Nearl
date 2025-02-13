@@ -52,18 +52,18 @@ void voxelize_host(
   float _partial_sums[grid_size];
 
   float *coord_gpu; 
-  cudaMallocManaged(&coord_gpu, atom_nr * 3 * sizeof(float));
+  cudaMalloc(&coord_gpu, atom_nr * 3 * sizeof(float));
   cudaMemcpy(coord_gpu, coord, atom_nr * 3 * sizeof(float), cudaMemcpyHostToDevice);
   float *tmp_interp_gpu;
-  cudaMallocManaged(&tmp_interp_gpu, gridpoint_nr * sizeof(float));
+  cudaMalloc(&tmp_interp_gpu, gridpoint_nr * sizeof(float));
   cudaMemset(tmp_interp_gpu, 0, gridpoint_nr * sizeof(float)); 
   float *interp_gpu;
-  cudaMallocManaged(&interp_gpu, gridpoint_nr * sizeof(float)); 
+  cudaMalloc(&interp_gpu, gridpoint_nr * sizeof(float)); 
   cudaMemset(interp_gpu, 0, gridpoint_nr * sizeof(float)); 
   float *partial_sums; 
-  cudaMallocManaged(&partial_sums, grid_size * sizeof(float)); 
+  cudaMalloc(&partial_sums, grid_size * sizeof(float)); 
   int *dims_gpu;
-  cudaMallocManaged(&dims_gpu, 3 * sizeof(int)); 
+  cudaMalloc(&dims_gpu, 3 * sizeof(int)); 
   cudaMemcpy(dims_gpu, dims, 3 * sizeof(int), cudaMemcpyHostToDevice); 
 
   for (int atm_idx = 0; atm_idx < atom_nr; ++atm_idx) {
@@ -141,19 +141,19 @@ void trajectory_voxelization_host(
   float _partial_sums[grid_size];
 
   float *coord_gpu; 
-  cudaMallocManaged(&coord_gpu, frame_nr * atom_nr * 3 * sizeof(float));
+  cudaMalloc(&coord_gpu, frame_nr * atom_nr * 3 * sizeof(float));
   cudaMemcpy(coord_gpu, coord, frame_nr * atom_nr * 3 * sizeof(float), cudaMemcpyHostToDevice);
   float *tmp_interp_gpu;
-  cudaMallocManaged(&tmp_interp_gpu, gridpoint_nr * sizeof(float));
+  cudaMalloc(&tmp_interp_gpu, gridpoint_nr * sizeof(float));
   float *interp_gpu;
-  cudaMallocManaged(&interp_gpu, gridpoint_nr * sizeof(float));
+  cudaMalloc(&interp_gpu, gridpoint_nr * sizeof(float));
   float *voxelized_traj; 
-  cudaMallocManaged(&voxelized_traj, frame_nr * gridpoint_nr * sizeof(float));
+  cudaMalloc(&voxelized_traj, frame_nr * gridpoint_nr * sizeof(float));
   cudaMemset(voxelized_traj, 0, frame_nr * gridpoint_nr * sizeof(float));
   float *partial_sums; 
-  cudaMallocManaged(&partial_sums, grid_size * sizeof(float)); 
+  cudaMalloc(&partial_sums, grid_size * sizeof(float)); 
   int *dims_gpu;
-  cudaMallocManaged(&dims_gpu, 3 * sizeof(int));
+  cudaMalloc(&dims_gpu, 3 * sizeof(int));
   cudaMemcpy(dims_gpu, dims, 3 * sizeof(int), cudaMemcpyHostToDevice);
 
   for (int frame_idx = 0; frame_idx < frame_nr; ++frame_idx) {

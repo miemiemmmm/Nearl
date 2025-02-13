@@ -10,6 +10,7 @@
 // Miscellaneous Constants
 #define BLOCK_SIZE 256
 #define DEFAULT_COORD_PLACEHOLDER 99999.0f
+#define DEFAULT_PLACEHOLDER 99999.0f
 #define MAX_FRAME_NUMBER 512
 #define DISTINCT_LIMIT 1000
 
@@ -37,5 +38,16 @@
 // Aggregation types
 #define AGGREGATION_COUNT 8
 #define SUPPORTED_AGGREGATIONS {1, 2, 3, 4, 5, 6, 7, 8}
+
+//////////////////////////////////////////////////////////////////////
+// mean  1
+// standard_deviation 2
+// median  3
+// variance 4
+// max 5
+// min 6
+// information_entropy 7
+// slope 8 
+//////////////////////////////////////////////////////////////////////
 
 #endif 
