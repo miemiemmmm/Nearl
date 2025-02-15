@@ -39,7 +39,7 @@ The following is a simple implementation of a feature.
 
     def run(self, coords, weights): 
       # Transform the frame-slice into a feature vector 
-      feature_vector = commands.voxelize_coords(coords, weights, self.dims, self.spacing, self.cutoff, self.sigma)
+      feature_vector = commands.frame_voxelize(coords, weights, self.dims, self.spacing, self.cutoff, self.sigma)
       return feature_vector
 
     def dump(self, feature_vector):

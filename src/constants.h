@@ -1,8 +1,5 @@
-//
-// Description: Constants used in the program
 // Created by: Yang Zhang
-// Date: 2025-02-11
-//
+// Description: Constants used in the program
 
 #ifndef CONSTANTS_INCLUDED
 #define CONSTANTS_INCLUDED
@@ -38,6 +35,7 @@
 // Aggregation types
 #define AGGREGATION_COUNT 8
 #define SUPPORTED_AGGREGATIONS {1, 2, 3, 4, 5, 6, 7, 8}
+#define INFORMATION_ENTROPY_BINS 32
 
 //////////////////////////////////////////////////////////////////////
 // mean  1

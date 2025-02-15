@@ -1,7 +1,5 @@
-//
-// Created by yzhang on 06.10.23.
-// Description: This file contains the utility functions for GPU computing. 
-//
+// Created by: Yang Zhang 
+// Description: Utility functions for GPU acceleration 
 
 #ifndef GPU_UTILS_INCLUDED
 #define GPU_UTILS_INCLUDED
@@ -137,40 +135,41 @@ __device__ float information_entropy_device(const T *Arr, const int N){
 /**
  * @brief Calculates the information entropy of an array based on the histogram on the CUDA device.
  * In this function, it calculates the histogram with 16 bins based on the input array.
- * For each bin, calculate the probability and then the entropy.
- * 
- * TODO: test this function. 
+ * For each bin, calculate the probability and then the entropy. 
  */
 template <typename T>
 __device__ float information_entropy_histogram_device(const T *Arr, const int N){
-  T min = min_device(Arr, N);
-  T max = max_device(Arr, N);
-  if (min == max){
-    return 0;
-  } else {
-    int bins = 16;
-    T range = max - min;
-    T bin_width = range / bins;
-    if (bin_width == 0) bin_width = 1;
-    
-    int hist[bins] = {0};
-    int bin = 0;
-    for (int i = 0; i < N; ++i){
-      bin = (Arr[i] - min) / bin_width;
-      bin = bin >= bins ? bins - 1 : bin;
-      hist[bin] += 1;
-    }
-
-    float entropy_val = 0.0f;
-    float prob = 0.0f;
-    for (int i = 0; i < bins; ++i){
-      if (hist[i] > 0){
-        prob = static_cast<float>(hist[i]) / N;
-        entropy_val -= prob * log2f(prob);
-      }
-    }
-    return entropy_val;
+  if (N <= 1) return 0.0f; 
+  T min = Arr[0];
+  T max = Arr[0]; 
+  for (int i = 1; i < N; ++i){
+    if (Arr[i] < min) min = Arr[i];
+    if (Arr[i] > max) max = Arr[i];
   }
+
+  const T range = max - min; 
+  if (range == 0) return 0.0f; 
+  
+  int hist[INFORMATION_ENTROPY_BINS] = {0}; 
+  int bin = 0;
+  float normalized = 0.0f; 
+  for (int i = 0; i < N; ++i){
+    normalized = static_cast<float>(Arr[i] - min) / range; 
+    bin = static_cast<int>(normalized * INFORMATION_ENTROPY_BINS); 
+    if (bin >= INFORMATION_ENTROPY_BINS) bin = INFORMATION_ENTROPY_BINS - 1; 
+    hist[bin] += 1; 
+  }
+
+  float entropy_val = 0.0f;
+  float prob = 0.0f;
+  for (int i = 0; i < INFORMATION_ENTROPY_BINS; ++i){
+    if (hist[i] > 0){
+      prob = static_cast<float>(hist[i]) / N;
+      entropy_val -= prob * log2f(prob);
+    }
+  }
+  return entropy_val;
+  
 }
 
 
@@ -346,12 +345,17 @@ __device__ float square_distance_device(const T *coord1, const T *coord2) {
 }
 
 
+// Global kernels 
 extern __global__ void sum_reduction_global(const float *d_in, float *d_out, const int N); 
 extern __global__ void normalize_array_global(float *d_in, const float sum, const float weight, const int N); 
 extern __global__ void voxel_addition_global(float *d_in, float *d_out, const int N); 
 extern __global__ void gridwise_aggregation_global(float *d_in, float *d_out, const int frame_nr, const int gridpoint_nr, const int type_agg); 
 
+
+// Host functions 
 extern void aggregate_host(float *voxel_traj, float *tmp_grid, const int frame_number, const int grid_number, const int type_agg); 
 extern float sum_reduction_host(float *array, const int arr_length); 
+
+
 
 #endif
