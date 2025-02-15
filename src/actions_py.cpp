@@ -1,24 +1,26 @@
-//
-// Description: This file contains the python bindings for the actions implemented in the actions.cu file.
-// The actions implemented are:
-// 1. Voxelization of a trajectory
-// 2. Marching cubes algorithm to convert a slice of coordinates to a 3D grid
-// 3. Property density flow for a slice of frames in a trajectory 
-//
+// Created by: Yang Zhang 
+// Description: Python bindings for all actions in the library 
+// Functionality:
+// 1. frame_voxelize: Voxelization of a single frame
+// 2. frame_observation: Compute the observable for a single frame
+// 3. marching_observer: Marching observer algorithm for a slice of frames/trajectory
+// 4. density_flow: Property density flow for a slice of frames/trajectory
+// 5. aggregate: Aggregate the observable from a slice of frames to a single frame
+// 6. summation: Summation of the array on GPU
 
 #include <iostream>
 
 #include "pybind11/pybind11.h"
 #include "pybind11/numpy.h"
 
-#include "constants.h"
+#include "constants.h" 
 #include "cpuutils.h"     // For translate_coord
 #include "gpuutils.cuh" 
-#include "voxelize.cuh"
-#include "marching_observers.cuh"
+#include "voxelize.cuh" 
+#include "marching_observers.cuh" 
 
 
-namespace py = pybind11;
+namespace py = pybind11; 
 
 
 /**
@@ -149,8 +151,6 @@ py::array_t<float> do_marching_observers(
   if (frame_nr > MAX_FRAME_NUMBER){ 
     throw py::value_error("The number of frames " + std::to_string(frame_nr) + " exceeds the maximum number of frames allowed " + std::to_string(MAX_FRAME_NUMBER) + " frames."); 
   }
-  
-  // TODO: Direct return of if all points are place holders 
 
   // Current hard coded to 0, 0 for type_obs and type_agg
   py::array_t<float> result({gridpoint_nr});
@@ -295,7 +295,7 @@ py::array_t<float> do_frame_observation(
 
 
 PYBIND11_MODULE(all_actions, m) {
-  m.def("do_voxelize", &do_voxelize, 
+  m.def("frame_voxelize", &do_voxelize, 
     py::arg("coords"),
     py::arg("weights"),
     py::arg("grid_dims"),
@@ -306,7 +306,17 @@ PYBIND11_MODULE(all_actions, m) {
     "Voxelize a set of coordinates and weights"
   );
 
-  m.def("do_marching", &do_marching_observers, 
+  m.def("frame_observation", &do_frame_observation, 
+    py::arg("coords"),
+    py::arg("weights"),
+    py::arg("dims"),
+    py::arg("spacing"),
+    py::arg("cutoff"),
+    py::arg("type_obs"),
+    "Compute the observable for a single frame"
+  );
+
+  m.def("marching_observer", &do_marching_observers, 
     py::arg("coords"),
     py::arg("weights"),
     py::arg("dims"),
@@ -317,7 +327,7 @@ PYBIND11_MODULE(all_actions, m) {
     "Marching cubes algorithm to create a mesh from a 3D grid"
   );
 
-  m.def("voxelize_traj", &do_traj_voxelize, 
+  m.def("density_flow", &do_traj_voxelize, 
     py::arg("traj"),
     py::arg("weights"),
     py::arg("grid_dims"),
@@ -339,15 +349,6 @@ PYBIND11_MODULE(all_actions, m) {
     "Summation of the array on GPU"
   );
 
-  m.def("frame_observation", &do_frame_observation, 
-    py::arg("coords"),
-    py::arg("weights"),
-    py::arg("dims"),
-    py::arg("spacing"),
-    py::arg("cutoff"),
-    py::arg("type_obs"),
-    "Compute the observable for a single frame"
-  );
 
 }
 

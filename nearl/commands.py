@@ -9,15 +9,20 @@ except ImportError:
   printit("Warning: Could not import all_actions submodule. Please check if the package is compiled correctly.") 
 
 __all__ = [
-  "voxelize_trajectory",
-  "voxelize_coords",
-  "marching_observers"
+  # Single frame methods
+  "frame_voxelize",
+  "frame_observation", 
+
+  # Trajectory/frame-slice methods
+  "density_flow",
+  "marching_observer", 
+
 ]
 
 
-def voxelize_coords(coords, weights, grid_dims, spacing, cutoff, sigma):
+def frame_voxelize(coords, weights, grid_dims, spacing, cutoff, sigma):
   """
-  Voxelize a set of coordinates and weights
+  Voxelize a set of coordinates and weights (Single frame version of the density flow method) 
 
   Parameters
   ----------
@@ -46,7 +51,7 @@ def voxelize_coords(coords, weights, grid_dims, spacing, cutoff, sigma):
   >>> coords = np.random.normal(size=(100, 3), loc=5, scale=2)
   >>> weights = np.full(100, 1)
   >>> grid_dims = np.array([32, 32, 32])
-  >>> commands.voxelize_coords(coords, weights, grid_dims, 0.5, 5, 2)
+  >>> commands.frame_voxelize(coords, weights, grid_dims, 0.5, 5, 2)
   """
   if coords.dtype != np.float32:
     coords = coords.astype(np.float32)
@@ -57,13 +62,53 @@ def voxelize_coords(coords, weights, grid_dims, spacing, cutoff, sigma):
   cutoff = float(cutoff)
   sigma = float(sigma)
   # NOTE: no auto translation in the C++ part 
-  ret_arr = all_actions.do_voxelize(coords, weights, grid_dims, spacing, cutoff, sigma, 0)
+  ret_arr = all_actions.frame_voxelize(coords, weights, grid_dims, spacing, cutoff, sigma, 0)
   return ret_arr.reshape(grid_dims)
 
 
-def marching_observers(coords, weights, grid_dims, spacing, cutoff, type_obs, type_agg):
+def frame_observation(coords, weights, grid_dims, spacing, cutoff, sigma, type_obs): 
   """
-  Marching observers algorithm to create a mesh from a slice of frames. The number of atoms in each frame should be the same. 
+  Perform marching observer on a single frame. 
+
+  Parameters
+  ----------
+  coords : np.ndarray
+    The coordinates of the points to be voxellized
+  weights : np.ndarray
+    The weights of the points to be voxellized
+  grid_dims : tuple
+    The dimensions of the grid
+  spacing : float
+    The spacing of the grid
+  cutoff : float
+    The cutoff distance
+  sigma : float
+    The sigma value for the Gaussian kernel
+  type_obs : int
+    The type of observer
+
+  Returns
+  -------
+  np.ndarray
+    The voxellized grid sized grid_dims 
+
+  """
+  if coords.dtype != np.float32:
+    coords = coords.astype(np.float32)
+  if weights.dtype != np.float32:
+    weights = weights.astype(np.float32)
+  grid_dims = np.array(grid_dims, dtype=int)
+  spacing = float(spacing)
+  cutoff = float(cutoff)
+  sigma = float(sigma)
+  type_obs = int(type_obs)
+  ret_arr = all_actions.frame_observation(coords, weights, grid_dims, spacing, cutoff, sigma, type_obs)
+  return ret_arr.reshape(grid_dims) 
+
+
+def marching_observer(coords, weights, grid_dims, spacing, cutoff, type_obs, type_agg):
+  """
+  Marching observers algorithm to create a grid from a slice of frames. The number of atoms in each frame should be the same. 
 
   Parameters
   ----------
@@ -91,13 +136,13 @@ def marching_observers(coords, weights, grid_dims, spacing, cutoff, type_obs, ty
   if weights.dtype != np.float32:
     weights = weights.astype(np.float32)
   grid_dims = np.asarray(grid_dims, dtype=int)
-  ret_arr = all_actions.do_marching(coords, weights, grid_dims, spacing, cutoff, type_obs, type_agg)
+  ret_arr = all_actions.marching_observer(coords, weights, grid_dims, spacing, cutoff, type_obs, type_agg)
   return ret_arr.reshape(grid_dims)
 
 
-def voxelize_trajectory(traj, weights, grid_dims, spacing, cutoff, sigma, type_agg):
+def density_flow(traj, weights, grid_dims, spacing, cutoff, sigma, type_agg):
   """
-  Voxelize a trajectory (multiple frames version of commands.voxelize_coords). 
+  Voxelize a trajectory using the density flow method
 
   Parameters
   ----------
@@ -137,7 +182,7 @@ def voxelize_trajectory(traj, weights, grid_dims, spacing, cutoff, sigma, type_a
   sigma = float(sigma)
   type_agg = int(type_agg)
 
-  ret_arr = all_actions.voxelize_traj(traj, weights, grid_dims, spacing, cutoff, sigma, type_agg)
+  ret_arr = all_actions.density_flow(traj, weights, grid_dims, spacing, cutoff, sigma, type_agg)
   if np.isnan(ret_arr).any():
     printit(f"Warning: Found nan in the return: {np.count_nonzero(np.isnan(ret_arr))}")
   return ret_arr.reshape(grid_dims)

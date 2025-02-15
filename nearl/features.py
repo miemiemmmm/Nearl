@@ -167,7 +167,7 @@ class Feature:
   query(topology, frame_coords, focal_point)
     Query the atoms and weights within the bounding box
   run(coords, weights)
-    By default use voxelize_coords to voxelize the coordinates and weights
+    Voxelize the coordinates and weights by default 
   dump(result)
     Dump the result feature to an HDF5 file, Feature.outfile and Feature.outkey should be set in its child class (Either via __init__ or hook function)
 
@@ -419,7 +419,7 @@ class Feature:
 
   def run(self, coords, weights):
     """
-    By default use voxelize_coords to voxelize the coordinates and weights
+    By default voxelize the coordinates and weights 
 
     Parameters
     ----------
@@ -438,7 +438,7 @@ class Feature:
       printit(f"{self.__class__.__name__}: Warning: The coordinates are empty")
       return np.zeros(self.dims, dtype=np.float32)
     
-    ret = commands.voxelize_coords(coords, weights, self.dims, self.spacing, self.cutoff, self.sigma)
+    ret = commands.frame_voxelize(coords, weights, self.dims, self.spacing, self.cutoff, self.sigma)
     
     if np.sum(np.isnan(ret)) > 0:
       printit(f"{self} Warning: The returned array has {np.isnan(ret).sum()} NaN values")
@@ -1299,7 +1299,7 @@ class DensityFlow(DynamicFeature):
     # Run the density flow algorithm
     assert frames.shape[0] * frames.shape[1] == len(weights), f"The production of frame_nr and atom_nr has to be equal to the number of weights: {frames.shape[0] * frames.shape[1]}/{len(weights)}"
     
-    ret_arr = commands.voxelize_trajectory(frames, weights, self.dims, self.spacing, self.cutoff, self.sigma, self.agg)
+    ret_arr = commands.density_flow(frames, weights, self.dims, self.spacing, self.cutoff, self.sigma, self.agg)
 
     # print(frames.shape, weights.shape)
     # atom_nr = frames.shape[1]

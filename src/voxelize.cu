@@ -1,5 +1,7 @@
+// Created by: Yang Zhang 
+// Description: The CUDA implementation of the property density flow algorithm
+
 #include <iostream>
-#include <vector>
 
 #include "constants.h"
 #include "gpuutils.cuh"   // For CUDA kernels

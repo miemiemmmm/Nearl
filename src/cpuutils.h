@@ -1,4 +1,5 @@
-// Basic utility functions for the project
+// Created by: Yang Zhang
+// Description: Basic CPU utility functions for the project
 #ifndef CPU_UTILS_INCLUDED
 #define CPU_UTILS_INCLUDED
 

@@ -1,4 +1,6 @@
-// Function for voxelization of atomic coordinates and weights
+// Created by: Yang Zhang 
+// Description: Header for the CUDA implementation of the property density flow algorithm
+
 #ifndef VOXELIZE_INCLUDE
 #define VOXELIZE_INCLUDE
 

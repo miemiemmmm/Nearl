@@ -1,3 +1,6 @@
+// Created by: Yang Zhang 
+// Description: Header for the CUDA implementation of the marching observers algorithm 
+
 #ifndef MARCHING_OBSERVERS_INCLUDE
 #define MARCHING_OBSERVERS_INCLUDE
 

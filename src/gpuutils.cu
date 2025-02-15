@@ -1,7 +1,5 @@
-//
-// Created by yzhang on 06.10.23.
-// Description: This file contains the utility functions for GPU computing. 
-//
+// Created by: Yang Zhang 
+// Description: Utility functions for GPU computing 
 
 #include "cuda_runtime.h"
 #include "constants.h"
@@ -69,7 +67,7 @@ __global__ void gridwise_aggregation_global(float *d_in, float *d_out, const int
   } else if (type_agg == 6){
     d_out[idx] = min_device<float>(tmp_array, frame_nr);
   } else if (type_agg == 7){
-    d_out[idx] = information_entropy_device(tmp_array, frame_nr);
+    d_out[idx] = information_entropy_histogram_device(tmp_array, frame_nr);
   } else if (type_agg == 8){
     d_out[idx] = slope_device<float>(tmp_array, frame_nr);
   } else {

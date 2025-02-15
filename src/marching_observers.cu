@@ -1,16 +1,16 @@
+// Created by: Yang Zhang 
+// Description: The CUDA implementation of the marching observer algorithm  
+
 #include <iostream>
 
 #include "constants.h"              // For hard-coded variables: BLOCK_SIZE, MAX_FRAME_NUMBER      
 #include "gpuutils.cuh"             // For hard-coded BLOCK_SIZE and device functions: mean_device, mean_device, standard_deviation_device
 #include "marching_observers.cuh"   // For the hard coded MAX_FRAME_NUMBER
 
-// TODO: need a throughout check on the observation functions. 
 
 ////////////////////////////////////////////////////////////////////////////////
 // Direct count-based observables
 ////////////////////////////////////////////////////////////////////////////////
-
-
 /**
  * @brief Check the existence of particles in a frame
  *
@@ -283,7 +283,7 @@ __device__ float eccentricity_device(const float *coord, const float *coord_fram
     com[1] = com[1] / weight_sum;
     com[2] = com[2] / weight_sum;
   } else {
-    return cutoff; // Return the cutoff distance if no particles within the cutoff
+    return cutoff;    // Return the cutoff distance if no particles within the cutoff
   }
 
   float retval = sqrt(square_distance_device(coord, com));
@@ -347,6 +347,9 @@ __device__ float radius_of_gyration_device(const float *coord, const float *coor
 }
 
 
+////////////////////////////////////////////////////////////////////////////////
+// Direct particle count-based observables
+////////////////////////////////////////////////////////////////////////////////
 /**
  * @brief The device function to calculate the observable in frame i
  */
@@ -388,9 +391,6 @@ __device__ float make_observation_device(const float *coord, const float *coord_
 }
 
 
-////////////////////////////////////////////////////////////////////////////////
-// Direct particle count-based observables
-////////////////////////////////////////////////////////////////////////////////
 /**
  * @brief The global kernel function to calculate the observable in a grid point
  */
@@ -484,9 +484,7 @@ void marching_observer_host(
   gridwise_aggregation_global<<<grid_size, BLOCK_SIZE>>>(mobs_traj, tmp_mobs_gpu, _frame_number, observer_number, type_agg);
   cudaDeviceSynchronize(); 
 
-  // IMPORTANT: NEED normalization since the high-diversity of observables and aggregation methods
-  // TODO: Check if it is needed or not to normalize the return
-  // Perform the normalization if needed 
+  // IMPORTANT: Need normalization since the high-diversity of observables and aggregation methods
   float tmp_sum = 0.0f;
   sum_reduction_global<<<1, BLOCK_SIZE>>>(tmp_mobs_gpu, partial_sums, observer_number);
   cudaDeviceSynchronize();
@@ -508,7 +506,6 @@ void marching_observer_host(
   cudaFree(dims_device);
   cudaFree(partial_sums);
 }
-
 
 
 void observe_frame_host(float *results, const float *coord_frame, const float *weight_frame, const int *dims, 
