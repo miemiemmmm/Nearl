@@ -1405,7 +1405,7 @@ class MarchingObservers(DynamicFeature):
     #   print("============> ALL COORDINATES ARE DEFAULT <============")
     #   return np.zeros(self.dims, dtype=np.float32)
     # else: 
-    ret_arr = commands.marching_observers(
+    ret_arr = commands.marching_observer(
       coords, weights, 
       self.dims, self.spacing, 
       self.cutoff, 
