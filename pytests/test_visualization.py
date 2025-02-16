@@ -34,7 +34,7 @@ def test_view_ret():
     viewer.update_renderer()
     time.sleep(0.1)
   viewer.destroy_window()
-  
+
 
 
 

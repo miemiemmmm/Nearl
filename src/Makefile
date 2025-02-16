@@ -38,7 +38,7 @@ all_actions: voxelize marching_observers
 test_gpu: testgpu_template.cu 
 		$(NVCC) $(NVCCFLAGS) -o a.out testgpu_template.cu 
 
-clean:
+clean: 
 		rm -f *.o *.so
 
 

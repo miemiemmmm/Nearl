@@ -7,18 +7,22 @@ channels:
   - nvidia
 
 dependencies:
-  - python=3.9      # Tested with Python 3.9
-  - ambertools      # For PyTraj support
-  - numpy<2.0.0     # Numpy>2.0 breaks some dependencies 
+  - python=3.9                # Tested with Python 3.9
+  - ambertools                # For PyTraj support
+  - numpy<2.0.0               # Numpy>2.0 breaks some dependencies 
   - openbabel
   - h5py
   - scipy
-  - pytorch         # Pytorch packages
-  - pytorch-cuda=12.4  # Modify according to your CUDA compatibility 
+  - pytorch                   # Pytorch support
+  - pytorch-cuda=12.4         # NOTE: Modify according to your CUDA device  
   # Other packages 
   - pip>=20.1
   - pip:
     - rdkit
+    - tensorboard
+    - pytest
+    - pytest-benchmark 
+    - open3d
 
 # Other packages 
 # pandas==2.0.3

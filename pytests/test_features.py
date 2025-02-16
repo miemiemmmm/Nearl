@@ -1,6 +1,7 @@
 import numpy as np 
-from nearl import features
-import all_actions 
+import nearl.all_actions as all_actions 
+
+# from nearl import features
 
 agg_map = {
   1: "mean",
@@ -87,5 +88,6 @@ def test_aggregation_functions():
       if not np.isclose(agg_cpu, ret[i]): 
         print(c, i, np.isclose(agg_cpu, ret[i]), np.round(agg_cpu, 8), np.round(ret[i], 8))
         c += 1
-    print(f"{agg_map} Found {c} mismatches")
+    assert c < 32*32*32 * 0.25
+    # print(f"{agg_map} Found {c} mismatches")
 

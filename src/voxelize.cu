@@ -5,7 +5,6 @@
 
 #include "constants.h"
 #include "gpuutils.cuh"   // For CUDA kernels
-// #include "cpuutils.h" 
 #include "voxelize.cuh"
 
 /**
