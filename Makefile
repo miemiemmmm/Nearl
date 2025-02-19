@@ -38,3 +38,5 @@ dotest:
 document: 
 	cd docs && make html
 
+document_dependencies: 
+	pip install sphinx-copybutton sphinx-togglebutton myst-parser sphinx-design numpydoc sphinx_book_theme

@@ -34,9 +34,7 @@ Welcome to Nearl's documentation!
    :caption: Tutorials
    
    tutorial1
-   
-   .. tutorial2 
-
+   tutorial2 
    tutorial_tba
 
 

@@ -23,6 +23,7 @@ def parser():
   parser.add_argument("-o", "--outputfile", type=str, default="/tmp/benchmarking_dataset.h5", help="Output file path.")
   parser.add_argument("-c", "--cpus", type=int, default=8, help="Number of CPUs.")
   parser.add_argument("-s", "--frame-span", type=int, default=20, help="The span for each frame-slice.")
+  parser.add_argument("-n", "--num-repeat", type=int, default=5, help="Number of repeat for the benchmark") 
   parser.add_argument("--force", type=int, default=0, help="Force to remove the output file.")
   args = parser.parse_args()
 
@@ -124,7 +125,7 @@ if __name__ == '__main__':
 
   # DIMS_TO_TEST = [16, 24, 32, 48, 64]
   DIMS_TO_TEST = [16, 24, 32, 40, 48, 56, 64]
-  REPEAT = 10
+  REPEAT = args["num_repeat"]
 
   for dim in DIMS_TO_TEST: 
     for i in range(REPEAT): 
