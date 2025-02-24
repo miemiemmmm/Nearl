@@ -50,7 +50,7 @@ def get_features(feattype):
   features = OrderedDict()
   # Modify the feature type here. 
   if feattype == 1: 
-    features["feat_static"] = nearl.features.AtomType(selection="!:MOL", focus_element=6, outkey="feat_static", cutoff=6)
+    features["feat_static"] = nearl.features.AtomType(selection="!:MOL", focus_element=6, outkey="feat_static", cutoff=4)
     outkey = "feat_static"
   elif feattype == 2: 
     features["feat_mo"] = nearl.features.MarchingObservers(selection="!:MOL", weight_type="atom_type", element_type=6, obs="distinct_count", agg="standard_deviation", outkey="feat_mo", cutoff=2.55)
@@ -124,7 +124,10 @@ if __name__ == '__main__':
   
 
   # DIMS_TO_TEST = [16, 24, 32, 48, 64]
-  DIMS_TO_TEST = [16, 24, 32, 40, 48, 56, 64]
+  # DIMS_TO_TEST = [16, 24, 32, 40, 48, 56, 64]
+  # DIMS_TO_TEST = [24]
+  DIMS_TO_TEST = [16, 24, 32, 48, 64, 96, 128]
+
   REPEAT = args["num_repeat"]
 
   for dim in DIMS_TO_TEST: 

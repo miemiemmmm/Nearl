@@ -98,5 +98,3 @@ if __name__ == "__main__":
     python /MieT5/Nearl/scripts/benchmark_datafile.py -f MisatoOutput3.h5 -b 64 -t prot_NCount_obs%prot_OCount_obs -l label_pcdt
   """
   console_interface()
-
-  

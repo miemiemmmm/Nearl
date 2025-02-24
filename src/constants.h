@@ -35,7 +35,7 @@
 // Aggregation types
 #define AGGREGATION_COUNT 8
 #define SUPPORTED_AGGREGATIONS {1, 2, 3, 4, 5, 6, 7, 8}
-#define INFORMATION_ENTROPY_BINS 32
+#define INFORMATION_ENTROPY_BINS 16
 
 //////////////////////////////////////////////////////////////////////
 // mean  1

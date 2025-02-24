@@ -539,5 +539,7 @@ void observe_frame_host(float *results, const float *coord_frame, const float *w
 
   cudaFree(results_gpu);
   cudaFree(dims_gpu);
+  cudaFree(coord_frame_gpu);
+  cudaFree(weight_frame_gpu);
 
 }
