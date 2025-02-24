@@ -36,7 +36,7 @@ def test_marching_observer():
   Perform marching observers on a trajectory of coordinates and weights
   """
   tmp_traj = np.random.normal(size=(frame_nr, atom_nr, 3), loc=5, scale=2).astype(np.float32)
-  tmp_weights = np.full((100*10,), 16.0, dtype=np.float32)
+  tmp_weights = np.full((frame_nr * atom_nr,), 1.0, dtype=np.float32)
 
   st = time.perf_counter()
   ret = commands.marching_observer(tmp_traj, tmp_weights, dims, spacing, cutoff, 1, 1)
@@ -47,7 +47,7 @@ def test_marching_observer():
 
 def test_density_flow(): 
   tmp_coords = np.random.normal(size=(frame_nr, atom_nr, 3), loc=5, scale=1).astype(np.float32)
-  tmp_weights = np.full((frame_nr*atom_nr,), 16.0, dtype=np.float32)
+  tmp_weights = np.full((frame_nr * atom_nr,), 16.0, dtype=np.float32)
 
   st = time.perf_counter()
   ret = commands.density_flow(tmp_coords, tmp_weights, dims, spacing, cutoff, sigma, 1)

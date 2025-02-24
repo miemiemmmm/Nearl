@@ -154,7 +154,7 @@ In Jupyter notebook, `NGLview <https://github.com/nglviewer/nglview>`_ could vis
 
 Featurize MISATO trajectories
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Similar to tutorial 1, the following code converts the 
+Similar to tutorial 1, the following code converts the MISATO trajectories into mass-weighted voxel features.
 
 
 .. code-block:: python
