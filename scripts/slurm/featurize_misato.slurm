@@ -71,7 +71,6 @@ python3 /MieT5/Nearl/scripts/featurize_misato.py \
   --h5prefix    ${prefix} \
   --task_nr     ${SLURM_ARRAY_TASK_COUNT} \
   --task_index  ${SLURM_ARRAY_TASK_ID} \
-  --output_dir  ${outdir} \
-  --cpu_nr      ${SLURM_CPUS_PER_TASK}
+  --output_dir  ${outdir} 
 
 realpath ${outdir}/*h5 > ${outdir}/$(echo ${prefix} | cut -c1-2).txt

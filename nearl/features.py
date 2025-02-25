@@ -1,8 +1,9 @@
-import sys, tempfile, os, subprocess
+import sys, tempfile, os, subprocess, time
 
 import h5py
 import numpy as np
 import pytraj as pt
+import torch   # TODO
 
 from . import utils, commands, constants, chemtools   # local modules 
 from . import printit, config   # local static methods/objects
@@ -79,7 +80,8 @@ SUPPORTED_AGGREGATION = {
   "variance": 4,
   "max": 5,
   "min": 6,
-  "information_entropy": 7
+  "information_entropy": 7, 
+  "drift": 8,
 }
 
 
@@ -437,16 +439,13 @@ class Feature:
     if len(coords) == 0:
       printit(f"{self.__class__.__name__}: Warning: The coordinates are empty")
       return np.zeros(self.dims, dtype=np.float32)
-    
+    # coords = np.array(coords, dtype=np.float32, order="C")
+    # weights = np.array(weights, dtype=np.float32, order="C")
+    torch.cuda.synchronize()   # TODO
+    st = time.perf_counter()
     ret = commands.frame_voxelize(coords, weights, self.dims, self.spacing, self.cutoff, self.sigma)
-    
-    if np.sum(np.isnan(ret)) > 0:
-      printit(f"{self} Warning: The returned array has {np.isnan(ret).sum()} NaN values")
-    # Check the sum of the absolute values of the returned array
-    if config.verbose() or config.debug():
-      ret_sum = np.sum(np.abs(ret))
-      if np.isclose(ret_sum, 0):
-        printit(f"{self} Warning: The sum of the returned array is zero")
+    torch.cuda.synchronize()   # TODO
+    print(f"{'Timing_Voxelize':15} {time.perf_counter()-st} seconds, shape: {coords.shape}") 
     
     return ret
 
@@ -1162,6 +1161,8 @@ class DynamicFeature(Feature):
   +------------------------+------------------+
   | information_entropy    | 7                |
   +------------------------+------------------+
+  | drift                  | 8                |
+  +------------------------+------------------+
     
   """
 
@@ -1294,16 +1295,29 @@ class DensityFlow(DynamicFeature):
 
   def run(self, frames, weights):
     """
-    Take frames of coordinates and weights and return the a feature array with the same dimensions as self.dims
-    """
-    # Run the density flow algorithm
-    assert frames.shape[0] * frames.shape[1] == len(weights), f"The production of frame_nr and atom_nr has to be equal to the number of weights: {frames.shape[0] * frames.shape[1]}/{len(weights)}"
-    
-    ret_arr = commands.density_flow(frames, weights, self.dims, self.spacing, self.cutoff, self.sigma, self.agg)
+    Take frames of coordinates and weights to run the density flow algorithm. 
 
-    # print(frames.shape, weights.shape)
-    # atom_nr = frames.shape[1]
-    # printit(f"{self}: Expected feature sum {np.sum(weights[:atom_nr])} and the actual sum {np.sum(ret_arr)}")
+    Parameters
+    ----------
+    frames : np.array
+      The coordinates of the atoms in the frames.
+    weights : np.array
+      The weights of the atoms in the frames. NOTE: The weight has to match the number of atoms in the frames.
+
+    Return: 
+    -------
+    ret_arr : np.array
+      The dynamic feature array with the dimensions of self.dims
+
+    """
+    # frames = np.array(frames, dtype=np.float32, order="C")
+    # weights = np.array(weights, dtype=np.float32, order="C")
+    torch.cuda.synchronize()   # TODO
+    st = time.perf_counter()
+    ret_arr = commands.density_flow(frames, weights, self.dims, self.spacing, self.cutoff, self.sigma, self.agg)
+    torch.cuda.synchronize()
+    print(f"{'Timing_PDF':15} {time.perf_counter() - st} seconds, shape: {frames.shape}") 
+    
     return ret_arr.reshape(self.dims)  
 
 
@@ -1399,18 +1413,21 @@ class MarchingObservers(DynamicFeature):
     Returns
     -------
     ret_arr : np.array
-      The feature array with the same dimensions as self.dims
+      The feature array with the dimensions of self.dims 
     """
-    # if np.count_nonzero(coords != self.DEFAULT_COORD) == 0:
-    #   print("============> ALL COORDINATES ARE DEFAULT <============")
-    #   return np.zeros(self.dims, dtype=np.float32)
-    # else: 
+    # coords = np.array(coords, dtype=np.float32, order="C")
+    # weights = np.array(weights, dtype=np.float32, order="C")
+    torch.cuda.synchronize()   # TODO
+    st = time.perf_counter()
     ret_arr = commands.marching_observer(
       coords, weights, 
       self.dims, self.spacing, 
       self.cutoff, 
       self.obs, self.agg
     ) 
+    torch.cuda.synchronize()   # TODO
+    print(f"{'Timing_MO':15} {time.perf_counter() - st} seconds, shape: {coords.shape}")
+
     return ret_arr.reshape(self.dims)
 
 

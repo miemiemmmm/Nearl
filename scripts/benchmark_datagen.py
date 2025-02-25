@@ -21,7 +21,6 @@ def parser():
   parser.add_argument("-f", "--trajfiles", type=str, required=True, help="Input trajectory file path.")
   parser.add_argument("-t", "--feature-type", type=int, required=True, help="Feature type to benchmark.")
   parser.add_argument("-o", "--outputfile", type=str, default="/tmp/benchmarking_dataset.h5", help="Output file path.")
-  parser.add_argument("-c", "--cpus", type=int, default=8, help="Number of CPUs.")
   parser.add_argument("-s", "--frame-span", type=int, default=20, help="The span for each frame-slice.")
   parser.add_argument("-n", "--num-repeat", type=int, default=5, help="Number of repeat for the benchmark") 
   parser.add_argument("--force", type=int, default=0, help="Force to remove the output file.")
@@ -71,7 +70,6 @@ def commandline_interface(args, outputdim):
   
   feattype = args["feature_type"]
   trajfile = args["trajfiles"]
-  cpu_nr = args.get("cpus", 8)
   frame_span = args.get("frame_span", 20)
   
   outputdim = int(outputdim)
@@ -99,7 +97,7 @@ def commandline_interface(args, outputdim):
 
   # Start the featurization 
   st = time.perf_counter()
-  featurizer.run(cpu_nr)
+  featurizer.run()
   ed = time.perf_counter()
 
   # Calculate the throughput 

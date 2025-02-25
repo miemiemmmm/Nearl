@@ -382,21 +382,10 @@ class Featurizer:
     else:
       raise ValueError(f"Unexpected focus format: {self.FOCALPOINTS_TYPE}")
 
-  def run(self, process_nr=0): 
+  def run(self): 
     """
     Run the featurization for each iteration over trajectory, frame-slice, focal-point, and feature. 
-
-    Parameters
-    ----------
-    process_nr : int, default = 0
-      The number of processes to run in parallel. If 0, run in serial mode. 
     """
-    import multiprocessing as mp
-    if process_nr > 0:
-      pool = mp.Pool(process_nr)
-    else:
-      pool = None
-
     for tid in range(self.TRAJECTORYNUMBER):
       # Setup the trajectory and its related parameters such as slicing of the trajectory
       self.traj = self.TRAJLOADER[tid]
@@ -446,14 +435,8 @@ class Featurizer:
 
       printit(f"{self.__class__.__name__}: Trajectory {tid+1} yields {len(tasks)} frame-slices (tasks) for the featurization. ")
       
-      if pool is None: 
-        results = [wrapper_runner(*task) for task in tasks]
-      else: 
-        printit(f"{self.__class__.__name__}: Running the tasks in parallel with {process_nr} processes") 
-        results = pool.starmap(wrapper_runner, tasks)
-        # OR run the actions in the following way 
-        # _tasks = [pool.apply_async(wrapper_runner, task) for task in tasks]
-        # results = [task.get() for task in _tasks]
+      # Remove the dependency on the multiprocessing due to high overhead
+      results = [wrapper_runner(*task) for task in tasks] 
       printit(f"{self.__class__.__name__}: Tasks are finished, dumping the results to the feature space...")
 
       if config.verbose() or config.debug():
@@ -471,7 +454,7 @@ class Featurizer:
       printit(f"{self.__class__.__name__}: {msg}")
     printit(f"{self.__class__.__name__}: All trajectories and tasks are finished. \n")
 
-  def loop_by_residue(self, restype, process_nr=20, tag_limit=0): 
+  def loop_by_residue(self, restype, tag_limit=0): 
     """
     TO BE ADDED
     """
@@ -535,22 +518,7 @@ class Featurizer:
                   feature_map.append((tid, bid, fidx, label))
       
       printit(f"{self.__class__.__name__}: Task set containing {len(tasks)} tasks are created for the trajectory {tid+1}; ")
-      ######################################################
-      # TODO: Find a proper way to parallelize the CUDA function. 
       results = [wrapper_runner(*task) for task in tasks]
-      
-      ######################################################
-      # Run the actions in the process pool 
-      # Not working
-      # pool = mp.Pool(process_nr)
-      # _tasks  = [pool.apply_async(wrapper_runner, task) for task in tasks]
-      # results = [task.get() for task in _tasks]
-      # OR results = pool.starmap(wrapper_runner, tasks) 
-      ######################################################
-      # Not working
-      # with dask.config.set(scheduler='processes', num_workers=process_nr):
-      #   results = dask.compute(*[dask.delayed(wrapper_runner)(func, args) for func, args in tasks])
-      ######################################################
 
       printit(f"{self.__class__.__name__}: Tasks are finished, dumping the results to the feature space...")
 
