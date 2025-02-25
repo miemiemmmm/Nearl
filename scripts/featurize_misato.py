@@ -24,7 +24,6 @@ def parser():
   parser.add_argument("--h5prefix", type=str, default="Output", help="The prefix of the output h5 file")
   parser.add_argument("--task_nr", type=int, default=1, help="The task number to run")
   parser.add_argument("--task_index", type=int, default=0, help="The task index to run")
-  parser.add_argument("--cpu_nr", type=int, default=6, help="The number of CPUs to use")
   args = parser.parse_args()
   if not os.path.exists(args.output_dir):
     raise FileNotFoundError(f"Output directory {args.output_dir} does not exist")
@@ -54,7 +53,6 @@ if __name__ == "__main__":
   training_set = args.get("pdbcodes")
   VOX_cutoff = args.get("cutoff")
   VOX_sigma = args.get("sigma")
-  cpu_nr = args.get("cpu_nr")
 
   print(f"Input file: {training_set}, Output file: {outputfile}; Task {task_index} of {task_nr}")
 
@@ -220,5 +218,5 @@ if __name__ == "__main__":
 
   print(f"There are {len(features)} features registered: {features.keys()}")
   feat.register_features(features)
-  feat.main_loop(cpu_nr)
+  feat.main_loop()
 
