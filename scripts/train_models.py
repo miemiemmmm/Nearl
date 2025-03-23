@@ -93,7 +93,6 @@ def compute_correlations(labels, pred):
       pred = pred.detach().cpu().numpy()
   labels = labels.flatten()
   pred = pred.flatten()
-  print(labels, pred)
   # Compute Pearson's R
   pearson_corr, _ = scipy.stats.pearsonr(labels, pred)
   # Compute Spearman's rho
@@ -177,8 +176,8 @@ def perform_training(training_settings: dict):
   # Load the datasets
   trainingfiles = nearl.utils.check_filelist(training_settings["training_data"])
   testfiles     = nearl.utils.check_filelist(training_settings["test_data"])
-  training_data = Dataset(trainingfiles, feature_keys = datatags, label_key = labeltag)
-  test_data = Dataset(testfiles, feature_keys = datatags, label_key = labeltag)
+  training_data = Dataset(trainingfiles, feature_keys = datatags, label_key = labeltag, normalize=True)  # TODO: Check the normalization
+  test_data = Dataset(testfiles, feature_keys = datatags, label_key = labeltag, normalize=True)   # TODO: Check the normalization
   
   model = nearl.utils.get_model(MODEL_TYPE, len(datatags), output_dims, dimensions)
   print(model)
@@ -273,7 +272,7 @@ def perform_training(training_settings: dict):
       optimizer.step()
 
       # Measure the RMSE of the training set and one batch of the test set
-      if (batch_idx+1) % (batch_nr // 3) == 0: 
+      if (batch_idx+1) % (batch_nr // 3) == 0 and (not training_settings["production"]): 
         preds_tr, targets_tr, losses_tr = nearl.utils.test_model(model, training_data, criterion, training_settings["test_number"], BATCH_SIZE, USECUDA, WORKER_NR)
         preds_te, targets_te, losses_te = nearl.utils.test_model(model, test_data, criterion, training_settings["test_number"], BATCH_SIZE, USECUDA, WORKER_NR)
         jobmsg = f"Processing the block {batch_idx:>5d}/{batch_nr:<5d}; Loss: {np.mean(losses_te):>6.4f}({np.mean(losses_tr):<6.4f}); "

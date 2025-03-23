@@ -43,20 +43,30 @@ def get_features(cutoff, sigma):
   # print("Adding static features") 
   features["feat_prot"] = nearl.features.Mass(selection="!:MOL", outkey="protMassStatic", cutoff=cutoff, sigma=sigma)
   features["feat_lig"] = nearl.features.Mass(selection=":MOL", outkey="ligMassStatic", cutoff=cutoff, sigma=sigma)
-  # outkey = "feat_static"
   
   # print("Adding marching observers") 
-  features["mo_prot"] = nearl.features.MarchingObservers(selection="!:MOL", weight_type="mass", 
-                                                          obs="mean_distance", agg="drift", outkey="protDistObsDrift", cutoff=cutoff)
-  features["mo_lig"] = nearl.features.MarchingObservers(selection=":MOL", weight_type="mass", 
-                                                          obs="mean_distance", agg="drift", outkey="ligDistObsDrift", cutoff=cutoff)
-  # outkey = "feat_mo"
+  # features["mo_prot"] = nearl.features.MarchingObservers(selection="!:MOL", weight_type="mass", 
+  #                                                         obs="mean_distance", agg="drift", outkey="protDistObsDrift", cutoff=cutoff)
+  # features["mo_lig"] = nearl.features.MarchingObservers(selection=":MOL", weight_type="mass", 
+  #                                                         obs="mean_distance", agg="drift", outkey="ligDistObsDrift", cutoff=cutoff)
+  
+  features["mo_prot2"] = nearl.features.MarchingObservers(selection="!:MOL", weight_type="mass",
+                                                          obs="mean_distance", agg="standard_deviation", outkey="protDistObsStd", cutoff=cutoff)
+  features["mo_lig2"] = nearl.features.MarchingObservers(selection=":MOL", weight_type="mass",
+                                                          obs="mean_distance", agg="standard_deviation", outkey="ligDistObsStd", cutoff=cutoff)
+
   
   # print("Adding probability density flow") 
-  features["pdf_prot"] = nearl.features.DensityFlow(selection="!:MOL", weight_type="mass", 
-                                                    outkey="protMassPropDrift", agg="drift", cutoff=cutoff, sigma=sigma) 
-  features["pdf_lig"] = nearl.features.DensityFlow(selection=":MOL", weight_type="mass", 
-                                                    outkey="ligMassPropDrift", agg="drift", cutoff=cutoff, sigma=sigma) 
+  # features["pdf_prot"] = nearl.features.DensityFlow(selection="!:MOL", weight_type="mass", 
+  #                                                   outkey="protMassPropDrift", agg="drift", cutoff=cutoff, sigma=sigma) 
+  # features["pdf_lig"] = nearl.features.DensityFlow(selection=":MOL", weight_type="mass", 
+  #                                                   outkey="ligMassPropDrift", agg="drift", cutoff=cutoff, sigma=sigma) 
+  
+  features["pdf_prot2"] = nearl.features.DensityFlow(selection="!:MOL", weight_type="mass",
+                                                      outkey="protMassPropStd", agg="standard_deviation", cutoff=cutoff, sigma=sigma)
+  features["pdf_lig2"] = nearl.features.DensityFlow(selection=":MOL", weight_type="mass",
+                                                    outkey="ligMassPropStd", agg="standard_deviation", cutoff=cutoff, sigma=sigma)
+  
   outkey = "feat_pdf" 
 
   return features, outkey 
@@ -106,7 +116,16 @@ if __name__ == "__main__":
   trajids = [i[0] for i in trajlists]
   print(f"Total number of trajectories {trajlists.__len__()}")
 
-  trajlists, trajids = trajlists[:50], trajids[:50]   # TODO: Remove this line for production run
+  ##############################################################
+  np.random.seed(0)
+  np.random.shuffle(trajlists)
+  #  ['6p85' '/Matter/misato_database/']
+  #  ['3u6h' '/Matter/misato_database/']
+  #  ['2wcx' '/Matter/misato_database/']
+  #  ['2qwe' '/Matter/misato_database/']
+  #  ['6rih' '/Matter/misato_database/']
+  trajlists, trajids = trajlists[:3000], trajids[:3000]   # TODO: Remove this line for production run
+  ##############################################################
   loader = nearl.io.TrajectoryLoader(trajlists, trajtype=MisatoTraj, superpose=True, trajid = trajids)
   print(f"Performing the featurization on {len(loader)} trajectories")
 

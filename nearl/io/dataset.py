@@ -1,4 +1,4 @@
-import os, time
+import os
 import h5py
 import torch
 import numpy as np 
@@ -51,7 +51,7 @@ def rand_translate(factor=1):
   return rand_trans
 
 
-def readdata(input_file, keyword, theslice):
+def readdata(input_file, keyword, theslice, normalize=False): 
   """
   A simple wrapper function to read the data from the HDF5 file.
 
@@ -71,6 +71,20 @@ def readdata(input_file, keyword, theslice):
   """
   with h5py.File(input_file, "r") as h5file:
     ret_data = h5file[keyword][theslice]
+    if normalize == "minmax": 
+      min_val = np.min(ret_data)
+      max_val = np.max(ret_data)
+      if np.isclose(min_val, max_val):
+        return np.zeros_like(ret_data)
+      else: 
+        ret_data = (ret_data - min_val) / (max_val - min_val)
+    elif normalize == "zscore":
+      mean_val = np.mean(ret_data)
+      std_val = np.std(ret_data)
+      if np.isclose(std_val, 0) or np.isnan(std_val) or np.isnan(mean_val):
+        return np.zeros_like(ret_data)
+      else: 
+        ret_data = (ret_data - mean_val) / std_val 
   return ret_data
 
 
@@ -183,7 +197,7 @@ class Dataset:
 
   """
   # TODO Check if the Label is not defined in the file
-  def __init__(self, files, grid_dim=None, label_key="label", feature_keys=[]): 
+  def __init__(self, files, grid_dim=None, label_key="label", feature_keys=[], normalize=True): 
     # self.size = np.array([grid_dim, grid_dim, grid_dim], dtype=int)
     self.FILELIST = files
     self.sample_sizes = []
@@ -193,6 +207,7 @@ class Dataset:
     self.channel_nr = len(feature_keys)
     self.label_key = label_key
     self.size = None
+    self.normalize = normalize 
 
     for filename in self.FILELIST:
       if not os.path.exists(filename):
@@ -283,8 +298,9 @@ class Dataset:
       raise IndexError(f"Index {index} is out of range. The dataset has {self.total_entries} entries.")
     
     data = torch.zeros([self.channel_nr] + self.size.tolist(), dtype=torch.float32)
-    for i, key in enumerate(self.feature_keys):
-      data[i] = torch.from_numpy(readdata(self.filename(index), key, self.position(index)))
+    for i, key in enumerate(self.feature_keys): 
+      retdata = readdata(self.filename(index), key, self.position(index), normalize=self.normalize)
+      data[i] = torch.from_numpy(retdata)
     if self.label_key is None:
       label = torch.tensor([0])
     else: 
@@ -303,7 +319,7 @@ class Dataset:
     """
     tasks = []
     for i in range(len(self.feature_keys)):
-      tasks.append((self.filename(index), self.feature_keys[i], np.s_[self.position(index)]))
+      tasks.append((self.filename(index), self.feature_keys[i], np.s_[self.position(index)], self.normalize)) 
     return tasks
   
 

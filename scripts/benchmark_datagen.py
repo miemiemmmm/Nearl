@@ -48,6 +48,22 @@ def parser():
 def get_features(feattype): 
   features = OrderedDict()
   # Modify the feature type here. 
+
+  features["feat_prot"] = nearl.features.Mass(selection="!:MOL", outkey="protMassStatic", cutoff=2.5, sigma=1)
+  features["feat_lig"] = nearl.features.Mass(selection=":MOL", outkey="ligMassStatic", cutoff=2.5, sigma=1)
+  
+  # print("Adding marching observers") 
+  features["mo_prot"] = nearl.features.MarchingObservers(selection="!:MOL", weight_type="mass", 
+                                                          obs="mean_distance", agg="drift", outkey="protDistObsDrift", cutoff=1)
+  features["mo_lig"] = nearl.features.MarchingObservers(selection=":MOL", weight_type="mass", 
+                                                          obs="mean_distance", agg="drift", outkey="ligDistObsDrift", cutoff=1)
+  
+  # print("Adding probability density flow") 
+  features["pdf_prot"] = nearl.features.DensityFlow(selection="!:MOL", weight_type="mass", 
+                                                    outkey="protMassPropDrift", agg="drift", cutoff=2.5, sigma=1.0) 
+  features["pdf_lig"] = nearl.features.DensityFlow(selection=":MOL", weight_type="mass", 
+                                                    outkey="ligMassPropDrift", agg="drift", cutoff=2.5, sigma=1.0) 
+
   if feattype == 1: 
     features["feat_static"] = nearl.features.AtomType(selection="!:MOL", focus_element=6, outkey="feat_static", cutoff=4)
     outkey = "feat_static"

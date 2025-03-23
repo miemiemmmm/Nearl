@@ -4,11 +4,11 @@
 #SBATCH --error=/Weiss/nearl_rebuttal/rebuttal_trainings_%a.err      # TODO: Correct the log folder and file name 
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --array=7-13%3                                        # TODO: Match the desired concurrent tasks
-#SBATCH --cpus-per-task=8                                    # TODO: Match the cpu number with desired concurrent tasks
+#SBATCH --array=0-20%4                                       # TODO: Match the desired concurrent tasks
+#SBATCH --cpus-per-task=6                                    # TODO: Match the cpu number with desired concurrent tasks
 
-export SLURM_CPUS_PER_TASK=${SLURM_CPUS_PER_TASK:-12}    # if running in non-SLURM environment, set the number of CPUs here
-export SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID:-19}    # if running in non-SLURM environment, set the task ID here
+export SLURM_CPUS_PER_TASK=${SLURM_CPUS_PER_TASK:-8}    # if running in non-SLURM environment, set the number of CPUs here
+export SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID:-0}    # if running in non-SLURM environment, set the task ID here
 
 source /home/yzhang/mamba/bin/loadmamba
 micromamba activate nearl_dev
@@ -46,6 +46,6 @@ more_options="--augment 0 --production 1"
 python /MieT5/Nearl/scripts/train_models.py \
   --model ${model} --optimizer adam --loss-function mse \
   --training_data ${train_data} --test_data ${test_data} --output_folder ${output_dir}  \
-  --epochs 150 --batch_size 64  --test_number 1280 --lr-init 0.001 --lr-decay-steps 10 --lr-decay-rate 0.5 --output_dimension 1 \
+  --epochs 100 --batch_size 64  --test_number 1280 --lr-init 0.001 --lr-decay-steps 10 --lr-decay-rate 0.5 --output_dimension 1 \
   --tags ${target_datatags} --labeltag ${labeltag} --data_workers ${SLURM_CPUS_PER_TASK} ${more_options} 
   
