@@ -96,15 +96,15 @@ class Featurizer:
     # assert ("lengths" in parms) or ("spacing" in parms), "Please define the 'lengths' or 'spacing' in the parameter set"
 
     # Basic parameters for the featurizer to communicate with cuda code
-    self.__lengths = None
     self.__dims = parms.get("dimensions", None)   # Set the dimensions of the 3D grid
+    self.__lengths = None
     self.__spacing = None
     if "lengths" in parms:
-      self.lengths = parms.get("lengths", 16)   # Set the lengths of the 3D grid
-      self.__spacing = np.mean(self.__lengths / self.__dims)
+      self.__lengths = parms.get("lengths", 16)   # Set the lengths of the 3D grid
+      self.__spacing = np.mean(self.lengths / self.dims)
     elif "spacing" in parms:
       self.__spacing = parms.get("spacing", 1.0)
-      self.__lengths = self.__dims * self.__spacing  # Directly assignment avoid the re-calculation of the spacing
+      self.__lengths = self.dims * self.__spacing  # Directly assignment avoid the re-calculation of the spacing
 
     self.time_window = int(parms.get("time_window", 1))   # The time window for the trajectory (default is 1), Simple integer.
 
@@ -150,9 +150,9 @@ class Featurizer:
     self.TRAJLOADER = None
     self.TRAJECTORYNUMBER = 0
     
-    self.classname
+    self.classname = self.__class__.__name__  
     if config.verbose():
-      printit(f"{self.classname}: Featurizer is initialized successfully with dimensions: {self.__dims} and lengths: {self.__lengths}")
+      printit(f"{self.classname}: Featurizer is initialized successfully with dimensions: {self.dims} and lengths: {self.lengths}")
 
     if "outfile" in parms.keys():
       # Dump the parm dict to that hdf file 
@@ -189,7 +189,7 @@ class Featurizer:
     else:
       raise Exception("Unexpected data type, either be a number or a list of 3 integers")
     if self.__lengths is not None:
-      self.__spacing = np.mean(self.__lengths / self.__dims)
+      self.__spacing = np.mean(self.lengths / self.dims)
     
   # The most important attributes to determine the size of the 3D grid
   @property
@@ -208,7 +208,7 @@ class Featurizer:
     else:
       raise Exception("Unexpected data type, either be a number or a list of 3 floats")
     if self.__dims is not None:
-      self.__spacing = np.mean(self.__lengths / self.__dims)
+      self.__spacing = np.mean(self.lengths / self.dims)
 
   @property
   def spacing(self):
@@ -364,13 +364,19 @@ class Featurizer:
     elif self.FOCALPOINTS_TYPE == "index":
       for midx, mask in enumerate(self.FOCALPOINTS_PROTOTYPE): 
         for idx, frame in enumerate(self.traj.xyz[::self.time_window]):
+          if idx >= self.SLICENUMBER: 
+            break
           self.FOCALPOINTS[idx, midx] = np.mean(frame[mask], axis=0)
       return 1
 
     elif self.FOCALPOINTS_TYPE == "absolute":
       for focusidx, focus in enumerate(self.FOCALPOINTS_PROTOTYPE): 
         assert len(focus) == 3, "The focus should be a 3D coordinate"
+        logging.debug(f"Shape of the focus: {focus.shape}") 
         for idx, frame in enumerate(self.traj.xyz[::self.time_window]):
+          logging.warning(f"Processing the frame {idx} with the focus {focus}") 
+          if idx >= self.SLICENUMBER: 
+            break
           self.FOCALPOINTS[idx, focusidx] = focus
       return 1
       
@@ -380,6 +386,8 @@ class Featurizer:
         indices = focus[utils.get_pdbcode(self.traj.identity)]
       indices = np.array(indices, dtype=int)
       for idx, frame in enumerate(self.traj.xyz[::self.time_window]):
+        if idx >= self.SLICENUMBER:
+          break
         focus = np.mean(frame[indices], axis=0)
         self.FOCALPOINTS[0, idx] = focus
       return 1

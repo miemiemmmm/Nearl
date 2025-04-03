@@ -77,7 +77,7 @@ __device__ float direct_count_device(const float *coord, const float *coord_fram
     if (dist_sq > cutoff_sq){
       continue; 
     } else {
-      retval += 1.0;
+      retval += 1.0f;
     }
   }
   return retval;
@@ -155,16 +155,22 @@ __device__ float mean_distance_device(const float *coord, const float *coord_fra
   float cutoff_sq = cutoff * cutoff;
 
   float retval = 0.0;
-  float weight_sum = 0;
+  float weight_sum = 0.0;
+  int count = 0;
   for (int j = 0; j < atomnr; ++j){
     dist_sq = square_distance_device<float>(coord, coord_framei + j*3); 
     if (dist_sq > cutoff_sq) continue; 
 
-    retval += sqrt(dist_sq) * weight_framei[j];
+    retval += dist_sq * weight_framei[j];
     weight_sum += weight_framei[j];
+    count += 1;
   }
-
-  return weight_sum;
+  if (count > 0){
+    retval = sqrt(retval / weight_sum);
+    return retval;
+  } else {
+    return 0.0f; 
+  }
 }
 
 
@@ -406,8 +412,8 @@ __global__ void marching_observer_global(
 
   // Get the coordinate of the grid point (Observer) in real space 
   float coord[3] = {
-    static_cast<float>(index / dims[0] / dims[1]) * spacing,
-    static_cast<float>(index / dims[0] % dims[1]) * spacing,
+    static_cast<float>(index / (dims[0] * dims[1])) * spacing,
+    static_cast<float>((index / dims[0]) % dims[1]) * spacing,
     static_cast<float>(index % dims[0]) * spacing
   }; 
 
@@ -486,14 +492,14 @@ void marching_observer_host(
 
   // IMPORTANT: Need normalization since the high-diversity of observables and aggregation methods
   float tmp_sum = 0.0f;
-  sum_reduction_global<<<1, BLOCK_SIZE>>>(tmp_mobs_gpu, partial_sums, observer_number);
+  sum_reduction_global<<<grid_size, BLOCK_SIZE>>>(tmp_mobs_gpu, partial_sums, observer_number);
   cudaDeviceSynchronize();
   cudaMemcpy(_partial_sums, partial_sums, grid_size * sizeof(float), cudaMemcpyDeviceToHost);
   for (int i = 0; i < grid_size; ++i) tmp_sum += _partial_sums[i];
 
-  if (tmp_sum != 0.0f){
-    normalize_array_global<<<grid_size, BLOCK_SIZE>>>(tmp_mobs_gpu, tmp_sum, 1.0f, observer_number); 
-  } 
+  // if (tmp_sum != 0.0f){
+  //   normalize_array_global<<<grid_size, BLOCK_SIZE>>>(tmp_mobs_gpu, tmp_sum, 1.0f, observer_number); 
+  // } 
 
   // Copy the final result to the host memory
   cudaMemcpy(mobs_dynamics, tmp_mobs_gpu, observer_number * sizeof(float), cudaMemcpyDeviceToHost); 

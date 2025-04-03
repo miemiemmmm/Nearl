@@ -113,7 +113,9 @@ def marching_observer(coords, weights, grid_dims, spacing, cutoff, type_obs, typ
   Parameters
   ----------
   coords : np.ndarray
-    The coordinates of the points to be voxellized
+    The coordinates of the points to calculate the marching observer
+  weights : np.ndarray
+    The weights of the corresponding points  
   grid_dims : tuple
     The dimensions of the grid
   spacing : float
@@ -127,7 +129,7 @@ def marching_observer(coords, weights, grid_dims, spacing, cutoff, type_obs, typ
 
   Returns
   -------
-  retgrid : np.ndarray
+  ret_arr : np.ndarray
     The voxellized grid sized grid_dims
   
   """

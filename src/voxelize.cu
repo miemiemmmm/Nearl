@@ -17,8 +17,8 @@ __global__ void coordi_interp_global(const float *coord, float *interpolated, co
 
   // Compute the grid coordinate from the grid index
   float grid_coord[3] = {
-    static_cast<float>(task_index / dims[0] / dims[1]) * spacing,
-    static_cast<float>(task_index / dims[0] % dims[1]) * spacing,
+    static_cast<float>(task_index / (dims[0] * dims[1])) * spacing,
+    static_cast<float>((task_index / dims[0]) % dims[1]) * spacing,
     static_cast<float>(task_index % dims[0]) * spacing
   };
   float dist_square = 0.0f;
@@ -67,8 +67,7 @@ __global__ void frame_interp_global(
   int x, y, z, rem; 
   float grid_x, grid_y, grid_z, dist_sq; 
 
-  // int bix 
-  // for (int gid = bix*bksz+tid; gid < (bix+1)*bksz; gid += num_threads){
+  // For each block, compute the partial sum 
   for (int gid = tid; gid < gridpoint_nr; gid += num_threads){
     x = gid / dims[0] / dims[1];
     y = gid / dims[0] % dims[1];

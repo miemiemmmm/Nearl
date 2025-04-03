@@ -11,6 +11,8 @@ from . import printit, config   # local static methods/objects
 # TODO: 
 # - Add description of each features in the docstring 
 
+logger = logging.getLogger(__name__)
+
 __all__ = [
   # Base class
   "Feature",
@@ -243,7 +245,7 @@ class Feature:
     elif self.translate == "origin":
       printit(f"{self.classname}: Will translate the coordinates of focused substructure to align the origin of the bounding box. ")
     else: 
-      logging.warning(f"{self.classname}: The translate parameter is not recognized. ") 
+      logger.warning(f"{self.classname}: The translate parameter is not recognized. ") 
     
     # To be used in .dump() function
     self.outkey = outkey        # Has to be specific to the feature
@@ -276,7 +278,7 @@ class Feature:
         else:
           ret_str += f"{k}:{val}|"
     else: 
-      ret_str += f"<dims:{self.dims}|length:{self.__lengths}|spacing:{self.spacing}|cutoff:{self.cutoff}|sigma:{self.sigma}|selection:{self.selection}>" 
+      ret_str += f"<dims:{self.dims}|lengths:{self.__lengths}|spacing:{self.spacing}|cutoff:{self.cutoff}|sigma:{self.sigma}|selection:{self.selection}>" 
     return ret_str
 
   @property
@@ -299,12 +301,12 @@ class Feature:
     elif isinstance(value, (list, tuple, np.ndarray)):
       self.__dims = np.array([int(i) for i in value][:3])
     else:
-      logging.warning(f"{self.classname} The dimension should be a number, list, tuple or a numpy array, not {type(value)}")
+      logger.warning(f"{self.classname} The dimension should be a number, list, tuple or a numpy array, not {type(value)}")
       self.__dims = None
     if self.__spacing is not None:
-      self.__center = np.array(self.__dims * self.spacing, dtype=np.float32) / 2
+      self.__center = self.lengths / 2
     if self.__dims is not None and self.__spacing is not None:
-      self.__lengths = self.__dims * self.__spacing
+      self.__lengths = self.dims * self.__spacing
 
   @property
   def spacing(self):
@@ -317,12 +319,12 @@ class Feature:
     if isinstance(value, (int, float, np.int64, np.float64, np.int32, np.float32)):
       self.__spacing = float(value)
     else: 
-      logging.warning(f"{self.classname}: The spacing is not a valid number, setting to None") 
+      logger.warning(f"{self.classname}: The spacing is not a valid number, setting to None") 
       self.__spacing = None
     if self.__dims is not None and self.__spacing is not None:
       self.__center = np.array(self.__dims * self.spacing, dtype=np.float32) / 2
     if self.__dims is not None and self.__spacing is not None:
-      self.__lengths = self.__dims * self.__spacing
+      self.__lengths = self.dims * self.__spacing
 
   @property
   def center(self):
@@ -395,7 +397,7 @@ class Feature:
       printit(f"{self}: Selected {np.count_nonzero(self.selected)} atoms based on the selection string")
     elif isinstance(self.selection, (list, tuple, np.ndarray)):
       if len(self.selection) != len(self.atomic_numbers):
-        logging.warning(f"{self.classname}: The length of selection array does not match the number of atoms {trajectory.n_atoms} in the topology. ")
+        logger.warning(f"{self.classname}: The length of selection array does not match the number of atoms {trajectory.n_atoms} in the topology. ")
       selected = np.array(self.selection)
       self.selected = np.full(len(self.atomic_numbers), False, dtype=bool)
       self.selected[selected] = True
@@ -429,7 +431,7 @@ class Feature:
     assert focal_point.shape.__len__() == 1, f"The focal point should be a 1D array with length 3, rather than the given {focal_point.shape}"
     
     if (len(self.resids) != topology.n_atoms) or self.force_recache: 
-      logging.info(f"{self.classname}: Dealing with inhomogeneous topology")
+      logger.info(f"{self.classname}: Dealing with inhomogeneous topology")
       if len(frame_coords.shape) == 2:
         self.cache(pt.Trajectory(xyz=np.array([frame_coords]), top=topology))
       else:
@@ -439,16 +441,14 @@ class Feature:
       printit(f"{self} Skipping the coordinates cropping due to the missing center, lengths or padding information") 
       return np.full(topology.n_atoms, True, dtype=bool), frame_coords
     else: 
-      if self.translate == "origin":
-        frame_coords = frame_coords - focal_point + (self.lengths / 2)
-      elif self.translate == "center": 
-        frame_coords = frame_coords - focal_point + self.center 
+      # Align the coordinates to the center of the bounding box (with focal point being the center) 
+      frame_coords = frame_coords - focal_point + self.center # + self.spacing/2
       mask = crop(frame_coords, self.lengths, self.padding)
       
       if np.count_nonzero(mask) == 0:
-        logging.warning(f"{self.classname}: Did not find atoms in the bounding box near the focal point {np.round(focal_point,1)}")
+        logger.warning(f"{self.classname}: Did not find atoms in the bounding box near the focal point {np.round(focal_point,1)}")
 
-      logging.debug(f"{self}: Found {np.count_nonzero(mask)}/{len(mask)} atoms in the bounding box near the focal point {np.round(focal_point,1)}. ")
+      logger.debug(f"{self}: Found {np.count_nonzero(mask)}/{len(mask)} atoms in the bounding box near the focal point {np.round(focal_point,1)}. ")
 
       # Get the boolean array of residues within the bounding box
       if self.byres:
@@ -462,7 +462,7 @@ class Feature:
       if self.selection is not None:
         final_mask = final_mask * self.selected
       final_coords = np.ascontiguousarray(frame_coords[final_mask])
-      logging.debug(f"Returned {np.count_nonzero(final_mask)}; Selected {np.count_nonzero(self.selected)}; Total {len(final_mask)}. ")
+      logger.debug(f"Returned {np.count_nonzero(final_mask)}; Selected {np.count_nonzero(self.selected)}; Total {len(final_mask)}. ")
       return final_mask, final_coords
 
   def run(self, coords, weights):
@@ -483,13 +483,13 @@ class Feature:
 
     """
     if len(coords) == 0:
-      logging.warning(f"{self.classname}: The coordinates ffrom query method are empty")
+      logger.warning(f"{self.classname}: The coordinates from query method are empty")
       return np.zeros(self.dims, dtype=np.float32)
     st = time.perf_counter()
     ret = commands.frame_voxelize(coords, weights, self.dims, self.spacing, self.cutoff, self.sigma)
     if not np.isclose(np.sum(weights),  np.sum(ret), rtol=1e-2):
-      logging.warning(f"{self.classname}: The sum of the weights not match {np.sum(weights)} vs {np.sum(ret)}") 
-    logging.info(f"{'Feature generation':15}: {time.perf_counter()-st:8.6f} seconds. ") 
+      logger.warning(f"{self.classname}: The sum of the weights not match {np.sum(weights)} vs {np.sum(ret)}") 
+    logger.info(f"{'Feature generation':15}: {time.perf_counter()-st:8.6f} seconds. ") 
     
     return ret
 
@@ -502,10 +502,10 @@ class Feature:
     results : np.array
       The result feature array
     """
-    logging.debug(f"{self.classname}: Dumping the result to the HDF5 file {self.outfile} with the key {self.outkey}") 
+    logger.debug(f"{self.classname}: Dumping the result to the HDF5 file {self.outfile} with the key {self.outkey}") 
     if ("outfile" in dir(self)) and ("outkey" in dir(self)) and (len(self.outfile) > 0):
       if np.isnan(result).sum() > 0:
-        logging.warning(f"{self.classname}: Found {np.isnan(result).sum()} NaN values in the result array")
+        logger.warning(f"{self.classname}: Found {np.isnan(result).sum()} NaN values in the result array")
         result = np.nan_to_num(result).astype(result.dtype)     # Replace NaN with 0
       if self.outshape is not None: 
         # Output shape is explicitly set (Usually heterogeneous data like coordinates)
@@ -517,7 +517,7 @@ class Feature:
         else: 
           utils.append_hdf_data(self.outfile, self.outkey, np.array([result], dtype=np.float32), dtype=np.float32, maxshape=(None, *self.dims), chunks=(1, *self.dims), **self.hdf_dump_opts)
     else: 
-      logging.warning(f"{self.classname}: The outfile and outkey are not set, the result is not dumped to the disk")
+      logger.warning(f"{self.classname}: The outfile and outkey are not set, the result is not dumped to the disk")
       
 
 
@@ -525,16 +525,9 @@ class AtomicNumber(Feature):
   """
   Annotate each atoms with their atomic number. 
   """
-  def __init__(self, **kwargs):
-    super().__init__(**kwargs)
-
-  def cache(self, trajectory):
-    super().cache(trajectory)
-  
   def query(self, topology, frame_coords, focal_point): 
     """
-    Query the atomic coordinates and weights within the bounding box
-    
+    Query the atomic coordinates and the atomic numbers as weights within the bounding box
 
     Notes
     -----
@@ -548,6 +541,7 @@ class AtomicNumber(Feature):
       frame_coords = frame_coords[0]
     idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
     weights = self.atomic_numbers[idx_inbox]
+    logger.info(f"{self.classname}: Found {len(weights)} atoms in the bounding box and total weight is {np.sum(weights)}")
     return coord_inbox, weights
 
 
@@ -644,7 +638,7 @@ class Aromaticity(Feature):
       atoms_aromatic = chemtools.label_aromaticity(fpt.name)
 
     if len(atoms_aromatic) != trajectory.n_atoms:
-      logging.warning(f"{self.classname}: The number of atoms in PDB does not match the number of aromaticity values")
+      logger.warning(f"{self.classname}: The number of atoms in PDB does not match the number of aromaticity values")
     if self.reverse: 
       self.atoms_aromatic = np.array([1 if i == 0 else 0 for i in atoms_aromatic], dtype=np.float32)
     else: 
@@ -674,7 +668,7 @@ class Ring(Feature):
       atoms_in_ring = chemtools.label_ring_status(fpt.name)
 
     if len(atoms_in_ring) != trajectory.n_atoms:
-      logging.warning(f"{self.classname}: The number of atoms in PDB does not match the number of aromaticity values")
+      logger.warning(f"{self.classname}: The number of atoms in PDB does not match the number of aromaticity values")
 
     if self.reverse: 
       self.atoms_in_ring = np.array([1 if i == 0 else 0 for i in atoms_in_ring], dtype=np.float32)
@@ -727,7 +721,7 @@ class HBondDonor(Feature):
       atoms_hbond_donor = chemtools.label_hbond_donor(fpt.name)
 
     if len(atoms_hbond_donor) != trajectory.n_atoms:
-      logging.warning(f"{self.classname}: The length of feature array {len(atoms_hbond_donor)} does not match the number of atoms {trajectory.n_atoms} in the topology. ") 
+      logger.warning(f"{self.classname}: The length of feature array {len(atoms_hbond_donor)} does not match the number of atoms {trajectory.n_atoms} in the topology. ") 
     
     self.atoms_hbond_donor = np.array(atoms_hbond_donor, dtype=np.float32)
   
@@ -753,7 +747,7 @@ class HBondAcceptor(Feature):
       atoms_hbond_acceptor = chemtools.label_hbond_acceptor(fpt.name)
 
     if len(atoms_hbond_acceptor) != trajectory.n_atoms:
-      logging.warning(f"{self.classname}: The length of feature array {len(atoms_hbond_acceptor)} does not match the number of atoms {trajectory.n_atoms} in the topology. ") 
+      logger.warning(f"{self.classname}: The length of feature array {len(atoms_hbond_acceptor)} does not match the number of atoms {trajectory.n_atoms} in the topology. ") 
 
     self.atoms_hbond_acceptor = np.array(atoms_hbond_acceptor, dtype=np.float32)
 
@@ -779,7 +773,7 @@ class Hybridization(Feature):
       atoms_hybridization = chemtools.label_hybridization(fpt.name)
 
     if len(atoms_hybridization) != trajectory.n_atoms:
-      logging.warning(f"{self.classname}: The length of feature array {len(atoms_hybridization)} does not match the number of atoms {trajectory.n_atoms} in the topology. ") 
+      logger.warning(f"{self.classname}: The length of feature array {len(atoms_hybridization)} does not match the number of atoms {trajectory.n_atoms} in the topology. ") 
 
     self.atoms_hybridization = np.asarray(atoms_hybridization, dtype=np.float32)
 
@@ -844,7 +838,7 @@ class AtomType(Feature):
     weights = self.atom_type[idx_inbox]
 
     if np.sum(weights) == 0:
-      logging.warning(f"{self.classname}: No atoms of the type {self.focus_element} is found in the bounding box")
+      logger.warning(f"{self.classname}: No atoms of the type {self.focus_element} is found in the bounding box")
     
     return coord_inbox, weights
 
@@ -921,7 +915,7 @@ class PartialCharge(Feature):
         try: 
           mol = cfw.Molecules(f.name)
         except Exception as e: 
-          logging.warning(f"{self.classname}: Failed to load the molecule because of the following error:\n{e}")
+          logger.warning(f"{self.classname}: Failed to load the molecule because of the following error:\n{e}")
         
         # Step 2: Calculate the charges
         try: 
@@ -937,7 +931,7 @@ class PartialCharge(Feature):
         except Exception as e: 
           # Step 3 (optional): If the default charge method fails, try alternative methods
           subprocess.call(["cp", f.name, "/tmp/chargefailed.pdb"])
-          logging.warning(f"{self.classname}: Default charge method {self.charge_type} failed due to the following error:\n{e}") 
+          logger.warning(f"{self.classname}: Default charge method {self.charge_type} failed due to the following error:\n{e}") 
           for method, parmfile in cfw.get_suitable_methods(mol): 
             if method == "formal":
               continue
@@ -962,11 +956,11 @@ class PartialCharge(Feature):
                   self.charge_values = charge_values
                   break
             except Exception as e:
-              logging.warning(f"{self.classname}: Failed to calculate molecular charge (Alternative charge types) because of the following error:\n {e}")
+              logger.warning(f"{self.classname}: Failed to calculate molecular charge (Alternative charge types) because of the following error:\n {e}")
               continue
 
       if charges is None or charge_values is None:
-        logging.warning(f"{self.classname}: The charge computation fails. Setting all charge values to 0. ", file=sys.stderr)
+        logger.warning(f"{self.classname}: The charge computation fails. Setting all charge values to 0. ", file=sys.stderr)
         self.charge_values = np.zeros(trajectory.n_atoms)
     
     # Final check of the needed sign of the charge values
@@ -1317,7 +1311,7 @@ class DynamicFeature(Feature):
 
       atomnr_inbox = np.count_nonzero(idx_inbox)
       if atomnr_inbox > self.MAX_ALLOWED_ATOMS:
-        logging.warning(f"{self.classname}: The maximum allowed atom slice is {self.MAX_ALLOWED_ATOMS} but the maximum atom number is {atomnr_inbox}")
+        logger.warning(f"{self.classname}: The maximum allowed atom slice is {self.MAX_ALLOWED_ATOMS} but the maximum atom number is {atomnr_inbox}")
       zero_count += 1 if atomnr_inbox == 0 else 0
       atomnr_inbox = min(atomnr_inbox, self.MAX_ALLOWED_ATOMS)
 
@@ -1326,7 +1320,7 @@ class DynamicFeature(Feature):
       max_atom_nr = max(max_atom_nr, atomnr_inbox)
     
     if zero_count > 0 and config.verbose(): 
-      logging.warning(f"{self.classname}: {zero_count} out of {len(frame_coords)} frames has no atoms in the box. The coordinates will be padded with {self.DEFAULT_COORD} and 0.0 for the weights.")
+      logger.warning(f"{self.classname}: {zero_count} out of {len(frame_coords)} frames has no atoms in the box. The coordinates will be padded with {self.DEFAULT_COORD} and 0.0 for the weights.")
 
     # Prepare the return arrays
     ret_coord  = np.ascontiguousarray(coords[:, :max_atom_nr], dtype=np.float32)
@@ -1353,9 +1347,6 @@ class DensityFlow(DynamicFeature):
     For aggregation types, please refer to the :class:`nearl.features.DynamicFeature` .
 
   """
-  def __init__(self, **kwargs):
-    super().__init__(**kwargs) 
-
   def query(self, topology, frame_coords, focal_point):
     """
     """
@@ -1379,11 +1370,9 @@ class DensityFlow(DynamicFeature):
       The dynamic feature array with the dimensions of self.dims
 
     """
-    # torch.cuda.synchronize()   # TODO
     st = time.perf_counter()
     ret_arr = commands.density_flow(frames, weights, self.dims, self.spacing, self.cutoff, self.sigma, self.agg)
-    # torch.cuda.synchronize()
-    print(f"{'Timing_PDF':15} {time.perf_counter() - st} seconds, shape: {frames.shape}") 
+    logger.info(f"{'Timing_PDF':15} {time.perf_counter() - st} seconds, shape: {frames.shape}") 
     
     return ret_arr.reshape(self.dims)  
 
