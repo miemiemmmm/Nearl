@@ -47,6 +47,9 @@ __global__ void frame_interp_global(
 ){
   // Each block is responsible for one atom 
   const int atom_idx = blockIdx.x; 
+  const int buff_dim = (cutoff + spacing) / spacing; 
+  const int buff_dims[3] = {dims[0] + buff_dim + buff_dim, dims[1] + buff_dim + buff_dim, dims[2] + buff_dim + buff_dim};
+  const int gridpoint_buff_nr = buff_dims[0] * buff_dims[1] * buff_dims[2];
   const int gridpoint_nr = dims[0] * dims[1] * dims[2];
   const float *coord = coords_frame + atom_idx * 3;
   const float cutoff_sq = cutoff * cutoff;
@@ -68,10 +71,19 @@ __global__ void frame_interp_global(
   float grid_x, grid_y, grid_z, dist_sq; 
 
   // For each block, compute the partial sum 
-  for (int gid = tid; gid < gridpoint_nr; gid += num_threads){
-    x = gid / dims[0] / dims[1];
-    y = gid / dims[0] % dims[1];
-    z = gid % dims[0];
+  // for (int gid = tid; gid < gridpoint_nr; gid += num_threads){
+  //   x = gid / dims[0] / dims[1];
+  //   y = gid / dims[0] % dims[1];
+  //   z = gid % dims[0];
+  
+  for (int gid = tid; gid < gridpoint_buff_nr; gid += num_threads){
+    x = gid / buff_dims[0] / buff_dims[1];
+    y = gid / buff_dims[0] % buff_dims[1];
+    z = gid % buff_dims[0];
+
+    x -= buff_dim; 
+    y -= buff_dim; 
+    z -= buff_dim; 
 
     grid_x = x * spacing;
     grid_y = y * spacing;

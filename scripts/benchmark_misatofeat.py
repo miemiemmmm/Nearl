@@ -17,9 +17,10 @@ def parser():
 
   # Featurization settings
   parser.add_argument("-d", "--dimension", type=int, default=32, help="The dimension of the feature vector")
-  parser.add_argument("-l", "--length", type=int, default=20, help="The length of the bounding box")
-  parser.add_argument("-c", "--cutoff", type=float, default=2.5, help="The cutoff distance for the feature selection")
+  parser.add_argument("-l", "--length", type=int, default=24, help="The length of the bounding box")
+  parser.add_argument("-c", "--cutoff", type=float, default=5.0, help="The cutoff distance for the feature selection")
   parser.add_argument("-s", "--sigma", type=float, default=1.5, help="The sigma value for the feature selection")
+  parser.add_argument("-w", "--windowsize", type=int, default=20, help="The time window for the feature selection")
 
   parser.add_argument("--h5prefix", type=str, default="Output", help="The prefix of the output h5 file")
   parser.add_argument("--task_nr", type=int, default=1, help="The task number to run")
@@ -36,43 +37,21 @@ def get_trajlist(training_set, misatodir):
   return trajlists
 
 
-def get_features(cutoff, sigma): 
+def get_features(sigma): 
   features = OrderedDict()
 
   # Modify the feature type here. 
-  # print("Adding static features") 
-  features["feat_prot"] = nearl.features.Mass(selection="!:MOL", outkey="protMassStatic", cutoff=cutoff, sigma=sigma)
-  features["feat_lig"] = nearl.features.Mass(selection=":MOL", outkey="ligMassStatic", cutoff=cutoff, sigma=sigma)
+  features["feat_prot"] = nearl.features.Mass(selection="!:MOL", outkey="mass_prot", sigma=sigma)
+  features["feat_lig"] = nearl.features.Mass(selection=":MOL", outkey="mass_lig", sigma=sigma)
   
-  # print("Adding marching observers") 
-  # features["mo_prot"] = nearl.features.MarchingObservers(selection="!:MOL", weight_type="mass", 
-  #                                                         obs="mean_distance", agg="drift", outkey="protDistObsDrift", cutoff=cutoff)
-  # features["mo_lig"] = nearl.features.MarchingObservers(selection=":MOL", weight_type="mass", 
-  #                                                         obs="mean_distance", agg="drift", outkey="ligDistObsDrift", cutoff=cutoff)
   
-  features["mo_prot2"] = nearl.features.MarchingObservers(selection="!:MOL", weight_type="mass",
-                                                          obs="mean_distance", agg="standard_deviation", outkey="protDistObsStd", cutoff=cutoff)
-  features["mo_lig2"] = nearl.features.MarchingObservers(selection=":MOL", weight_type="mass",
-                                                          obs="mean_distance", agg="standard_deviation", outkey="ligDistObsStd", cutoff=cutoff)
-
+  features["mo_prot2"] = nearl.features.MarchingObservers(weight_type="mass", selection="!:MOL", obs="mean_distance", agg="standard_deviation", outkey="mobs_prot")
+  features["mo_lig2"] = nearl.features.MarchingObservers(weight_type="mass", selection=":MOL", obs="mean_distance", agg="standard_deviation", outkey="mobs_lig")
   
-  # print("Adding probability density flow") 
-  # features["pdf_prot"] = nearl.features.DensityFlow(selection="!:MOL", weight_type="mass", 
-  #                                                   outkey="protMassPropDrift", agg="drift", cutoff=cutoff, sigma=sigma) 
-  # features["pdf_lig"] = nearl.features.DensityFlow(selection=":MOL", weight_type="mass", 
-  #                                                   outkey="ligMassPropDrift", agg="drift", cutoff=cutoff, sigma=sigma) 
-  
-  features["pdf_prot2"] = nearl.features.DensityFlow(selection="!:MOL", weight_type="mass",
-                                                      outkey="protMassPropStd", agg="standard_deviation", cutoff=cutoff, sigma=sigma)
-  features["pdf_lig2"] = nearl.features.DensityFlow(selection=":MOL", weight_type="mass",
-                                                    outkey="ligMassPropStd", agg="standard_deviation", cutoff=cutoff, sigma=sigma)
-  
-  outkey = "feat_pdf" 
+  features["pdf_prot2"] = nearl.features.DensityFlow(weight_type="mass", selection="!:MOL", agg="standard_deviation", outkey="pdb_prot", sigma=sigma)
+  features["pdf_lig2"] = nearl.features.DensityFlow(weight_type="mass", selection=":MOL", agg="standard_deviation", outkey="pdb_lig", sigma=sigma)
 
-  return features, outkey 
-
-
-
+  return features 
 
 
 if __name__ == "__main__":
@@ -100,6 +79,7 @@ if __name__ == "__main__":
   training_set = args.get("pdbcodes")
   VOX_cutoff = args.get("cutoff")
   VOX_sigma = args.get("sigma")
+  WINDOW_SIZE = args.get("windowsize")
 
   print(f"Input file: {training_set}, Output file: {outputfile}; Task {task_index} of {task_nr}")
 
@@ -107,8 +87,11 @@ if __name__ == "__main__":
   FEATURIZER_PARMS = {
     "dimensions": [args.get("dimension")]*3, 
     "lengths": args.get("length"), 
-    "time_window": 100,               # TODO: Temporal setting for simple test 
+    "time_window": WINDOW_SIZE,               # TODO: Temporal setting for simple test 
     "outfile": outputfile, 
+    "cutoff": VOX_cutoff,
+    "padding": VOX_cutoff, 
+    "frame_offset": 9, 
   }
 
   trajlists = get_trajlist(training_set, misatodir)
@@ -124,7 +107,7 @@ if __name__ == "__main__":
   #  ['2wcx' '/Matter/misato_database/']
   #  ['2qwe' '/Matter/misato_database/']
   #  ['6rih' '/Matter/misato_database/']
-  trajlists, trajids = trajlists[:3000], trajids[:3000]   # TODO: Remove this line for production run
+  # trajlists, trajids = trajlists[:100], trajids[:100]   # TODO: Remove this line for production run
   ##############################################################
   loader = nearl.io.TrajectoryLoader(trajlists, trajtype=MisatoTraj, superpose=True, trajid = trajids)
   print(f"Performing the featurization on {len(loader)} trajectories")
@@ -133,7 +116,7 @@ if __name__ == "__main__":
   feat.register_trajloader(loader)
   feat.register_focus([":MOL"], "mask")
   
-  features, feat_key = get_features(VOX_cutoff, VOX_sigma)  
+  features = get_features(VOX_sigma)  
 
   # Labels
   features["pk_original"] = nearl.features.LabelAffinity(baseline_map="/MieT5/Nearl/data/PDBBind_general_v2020.csv", outkey="pk_original")
