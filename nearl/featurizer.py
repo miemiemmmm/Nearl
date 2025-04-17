@@ -1,4 +1,4 @@
-import time, json, logging 
+import time, json, logging
 
 import numpy as np
 
@@ -8,6 +8,8 @@ from . import printit, config
 __all__ = [
   "Featurizer",
 ]
+
+logger = logging.getLogger(__name__)
 
 def wrapper_runner(func, args):
   """
@@ -230,11 +232,11 @@ class Featurizer:
     self.FRAMENUMBER = the_traj.n_frames
     self.SLICENUMBER = self.FRAMENUMBER // self.time_window
     if self.SLICENUMBER == 0: 
-      logging.warning(f"{self.classname}: No frame slice is available. The trajectory have {self.FRAMENUMBER} frames and the time window is {self.time_window}.")
+      logger.warning(f"{self.classname}: No frame slice is available. The trajectory have {self.FRAMENUMBER} frames and the time window is {self.time_window}.")
     if self.FRAMENUMBER % self.time_window != 0 and self.FRAMENUMBER != 1:
-      logging.warning(f"{self.classname}: the number of frames ({self.FRAMENUMBER}) is not divisible by the time window ({self.time_window}). The last few frames will be ignored.")
-    logging.info(f"{self.classname}: Registered {self.SLICENUMBER} slices of frames with {self.time_window} as the time window (frames-per-slice).")
-    logging.debug(f"Having {self.SLICENUMBER} frame slices in the trajectory ") 
+      logger.warning(f"{self.classname}: the number of frames ({self.FRAMENUMBER}) is not divisible by the time window ({self.time_window}). The last few frames will be ignored.")
+    logger.info(f"{self.classname}: Registered {self.SLICENUMBER} slices of frames with {self.time_window} as the time window (frames-per-slice).")
+    logger.debug(f"Having {self.SLICENUMBER} frame slices in the trajectory ") 
     frame_array = np.array([0] + np.cumsum([self.time_window] * self.SLICENUMBER).tolist())
     self.FRAMESLICES = [np.s_[frame_array[i]:frame_array[i+1]] for i in range(self.SLICENUMBER)]
 
@@ -348,7 +350,7 @@ class Featurizer:
     """
     # Parse the focus points to the correct format
     self.FOCALPOINTS = np.full((self.SLICENUMBER, len(self.FOCALPOINTS_PROTOTYPE), 3), 99999, dtype=np.float32)
-    logging.debug(f"Shape of the focal points prototype: {self.FOCALPOINTS.shape}")
+    logger.debug(f"Shape of the focal points prototype: {self.FOCALPOINTS.shape}")
     self.FOCALNUMBER = len(self.FOCALPOINTS_PROTOTYPE)
     if self.FOCALPOINTS_TYPE == "mask":
       # Get the center of geometry for the frames with self.interval
@@ -372,9 +374,8 @@ class Featurizer:
     elif self.FOCALPOINTS_TYPE == "absolute":
       for focusidx, focus in enumerate(self.FOCALPOINTS_PROTOTYPE): 
         assert len(focus) == 3, "The focus should be a 3D coordinate"
-        logging.debug(f"Shape of the focus: {focus.shape}") 
+        logger.debug(f"Shape of the focus: {focus.shape}") 
         for idx, frame in enumerate(self.traj.xyz[::self.time_window]):
-          logging.warning(f"Processing the frame {idx} with the focus {focus}") 
           if idx >= self.SLICENUMBER: 
             break
           self.FOCALPOINTS[idx, focusidx] = focus

@@ -52,7 +52,7 @@ def draw_scatter(pred_data, target_data, figtype="scatter", title="", fig=None, 
   # Compute the metrics 
   rmse = np.sqrt(np.mean((pred_data - target_data)**2).sum())
   R, rho = compute_correlations(target_data, pred_data)
-  title += f"RMSE: {rmse:4.2f}; R: {R:4.2f}; rho: {rho:4.2f}"
+  title += f"RMSE: {rmse:4.2f}; R: {R:4.2f}"
 
   df = pd.DataFrame({"groundtruth": target_data, "predicted": pred_data})
   if fig is None: 
@@ -76,8 +76,15 @@ def draw_scatter(pred_data, target_data, figtype="scatter", title="", fig=None, 
   # Limit to 0-1
   color_reg = np.clip(color_reg, 0, 1)
   sns.regplot(data=df, x="groundtruth", y="predicted", scatter=False, color=color_reg, ax=f.ax_joint, ci=50, line_kws=dict(linewidth=2))
-  f.ax_joint.legend(loc="lower right")
-  # Set the 
+  # Set the legends
+  f.ax_joint.legend(loc="lower right", fontsize=15)
+  # Set the font size of x and y labels
+  f.ax_joint.set_xlabel("Ground Truth", fontsize=15)
+  f.ax_joint.set_ylabel("Predicted", fontsize=15)
+  # Set tick label font size
+  f.ax_joint.tick_params(axis='x', labelsize=15)
+  f.ax_joint.tick_params(axis='y', labelsize=15)
+
   return f 
 
 
@@ -176,8 +183,8 @@ def perform_training(training_settings: dict):
   # Load the datasets
   trainingfiles = nearl.utils.check_filelist(training_settings["training_data"])
   testfiles     = nearl.utils.check_filelist(training_settings["test_data"])
-  training_data = Dataset(trainingfiles, feature_keys = datatags, label_key = labeltag, normalize=True)  # TODO: Check the normalization
-  test_data = Dataset(testfiles, feature_keys = datatags, label_key = labeltag, normalize=True)   # TODO: Check the normalization
+  training_data = Dataset(trainingfiles, feature_keys = datatags, label_key = labeltag, normalize=False)  # TODO: Check the normalization
+  test_data = Dataset(testfiles, feature_keys = datatags, label_key = labeltag, normalize=False)   # TODO: Check the normalization
   
   model = nearl.utils.get_model(MODEL_TYPE, len(datatags), output_dims, dimensions)
   print(model)
@@ -254,11 +261,6 @@ def perform_training(training_settings: dict):
       train_data, train_label = batch
       train_data, train_label = train_data.to(device), train_label.to(device)
 
-      #### TODO: In case of nan, replace nan with 0 
-      # if torch.isnan(train_data).any() or torch.isnan(train_label).any(): 
-      #   print(f"Warning: Found NaN in the training data")
-      #   train_data[torch.isnan(train_data)] = 0
-
       optimizer.zero_grad()
       model = model.train()
       pred = model(train_data)
@@ -325,8 +327,8 @@ def perform_training(training_settings: dict):
             tensorboard_writer.add_scalar("Perf/Train", accuracy_tr, epoch*batch_nr+batch_idx)
             tensorboard_writer.add_scalar("Perf/Test", accuracy_te, epoch*batch_nr+batch_idx)
 
-          fig_tr = draw_scatter(preds_tr, targets_tr, figtype="scatter", title="TrainSet:", color=COLORS[1])
-          fig_te = draw_scatter(preds_te, targets_te, figtype="scatter", title="TestSet:", fig=fig_tr, color=COLORS[0])
+          fig_tr = draw_scatter(preds_tr, targets_tr, figtype="scatter", color=COLORS[1])
+          fig_te = draw_scatter(preds_te, targets_te, figtype="scatter", fig=fig_tr, color=COLORS[0])
           # tensorboard_writer.add_figure("Vis/Test", fig_te.fig, epoch*batch_nr+batch_idx)
           tensorboard_writer.add_figure("Dist/Results", fig_te.fig, epoch*batch_nr+batch_idx)
 
@@ -376,8 +378,8 @@ def perform_training(training_settings: dict):
     print(f"Saving the model to {modelfile_output} ...")
     torch.save(model.state_dict(), modelfile_output)
     # Save the figures 
-    fig_tr = draw_scatter(preds_tr, targets_tr, figtype="scatter", title="TrainSet:", color=COLORS[1])
-    fig_te = draw_scatter(preds_te, targets_te, figtype="scatter", title="TestSet:", fig=fig_tr, color=COLORS[0])
+    fig_tr = draw_scatter(preds_tr, targets_tr, figtype="scatter", color=COLORS[1])
+    fig_te = draw_scatter(preds_te, targets_te, figtype="scatter", fig=fig_tr, color=COLORS[0])
     fig_te.savefig(os.path.join(training_settings["output_folder"], f"Results_{epoch}.png"))
 
 

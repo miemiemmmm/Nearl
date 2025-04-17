@@ -104,7 +104,7 @@ SUPPORTED_OBSERVATION = {
 }
 
 
-def crop(points, upperbound, padding):
+def crop(points, upperbound, padding, spacing):
   """
   Crop the points to the box defined by the center and lengths. 
 
@@ -116,6 +116,8 @@ def crop(points, upperbound, padding):
     The upperbound of the box
   padding : float
     The padding of the box
+  spacing : float
+    The spacing of the box for half grid offset
 
   Returns
   -------
@@ -123,14 +125,14 @@ def crop(points, upperbound, padding):
     The boolean mask of the atoms within the box
   """
   # X within the bouding box
-  x_state_0 = points[:, 0] < upperbound[0] + padding
-  x_state_1 = points[:, 0] > 0 - padding
+  x_state_0 = points[:, 0] < upperbound[0] + padding - spacing/2
+  x_state_1 = points[:, 0] > 0 - padding - spacing/2
   # Y within the bouding box
-  y_state_0 = points[:, 1] < upperbound[1] + padding
-  y_state_1 = points[:, 1] > 0 - padding
+  y_state_0 = points[:, 1] < upperbound[1] + padding - spacing/2
+  y_state_1 = points[:, 1] > 0 - padding - spacing/2
   # Z within the bouding box
-  z_state_0 = points[:, 2] < upperbound[2] + padding
-  z_state_1 = points[:, 2] > 0 - padding
+  z_state_0 = points[:, 2] < upperbound[2] + padding - spacing/2
+  z_state_1 = points[:, 2] > 0 - padding - spacing/2
   # All states
   mask_inbox = np.array(x_state_0 * x_state_1 * y_state_0 * y_state_1 * z_state_0 * z_state_1, dtype=bool)
   return mask_inbox
@@ -210,9 +212,10 @@ class Feature:
     dims=None, spacing=None, 
     outfile=None, outkey=None,
     cutoff=None, sigma=None,
-    padding=0, byres=None, 
+    padding=None, byres=None, 
     outshape=None, force_recache=None,
     selection=None, translate="origin", 
+    frame_offset=None,
     **kwargs
   ):
     # Fundamental variables need setter callback 
@@ -224,13 +227,16 @@ class Feature:
       self.spacing = spacing
     self.__center = None
     self.__lengths = None
+    self.__padding = padding # cutoff if padding is None else padding 
+    if padding is not None:
+      self.padding = padding
 
     # General variables for featurization process 
     self.cutoff = cutoff
     self.sigma = sigma
     self.outfile = outfile
-    self.padding = padding
     self.byres = byres
+    self.frame_offset = frame_offset
 
     # To be used in .query() function
     self.selection = selection
@@ -339,6 +345,13 @@ class Feature:
     """
     return self.__lengths
 
+  @property
+  def padding(self):
+    return self.__padding
+  @padding.setter
+  def padding(self, value):
+    self.__padding = float(value)
+
   def hook(self, featurizer): 
     """
     Hook the feature generator back to the feature convolutor and obtain necessary attributes from the featurizer
@@ -354,7 +367,7 @@ class Feature:
     If the following attributes are not set manually, hook function will try to inherit them from the featurizer object: 
     sigma, cutoff, outfile, outkey, padding, byres
     """
-    printit(f"{self.classname}: Hooking feature ({self.__str__()}) to the featurizer. ")
+    printit(f"{self}: Hooking feature ({self.__str__()}) to the featurizer. ")
     if self.dims is None and featurizer.dims is not None:
       self.dims = featurizer.dims
     if self.spacing is None and featurizer.spacing is not None:
@@ -366,13 +379,21 @@ class Feature:
         if key in featurizer.FEATURE_PARMS.keys() and featurizer.FEATURE_PARMS[key] is not None:
           keyval = featurizer.FEATURE_PARMS[key]
           setattr(self, key, keyval)
-          printit(f"{self.classname}: Inheriting the parameter from the featurizer: {key} {keyval}")
+          printit(f"{self}: Inheriting the parameter from the featurizer: {key} {keyval}")
           self.PARAMSPACE[key] = keyval
     
+    # Setting coupled parameters if not set
+    if self.padding is None: 
+      logger.warning(f"{self}: The padding is not set, setting to cutoff")
+      self.padding = self.cutoff 
+
     if getattr(self, "hdf_compress_level", 0):
       self.hdf_dump_opts["compression_opts"] = self.hdf_compress_level
       self.hdf_dump_opts["compression"] = "gzip"
-      self.PARAMSPACE["HDF_OPTS"] = {"compression_opts": self.hdf_compress_level, "compression": "gzip"}
+      self.PARAMSPACE["HDF_OPTS"] = {
+        "compression_opts": self.hdf_compress_level, 
+        "compression": "gzip"
+      }
     
 
   def cache(self, trajectory): 
@@ -431,24 +452,22 @@ class Feature:
     assert focal_point.shape.__len__() == 1, f"The focal point should be a 1D array with length 3, rather than the given {focal_point.shape}"
     
     if (len(self.resids) != topology.n_atoms) or self.force_recache: 
-      logger.info(f"{self.classname}: Dealing with inhomogeneous topology")
+      logger.info(f"{self}: Dealing with inhomogeneous topology")
       if len(frame_coords.shape) == 2:
         self.cache(pt.Trajectory(xyz=np.array([frame_coords]), top=topology))
       else:
         self.cache(pt.Trajectory(xyz=frame_coords, top=topology))
 
     if self.center is None or self.lengths is None or self.padding is None:
-      printit(f"{self} Skipping the coordinates cropping due to the missing center, lengths or padding information") 
+      logger.warning(f"{self} Skipping the coordinates cropping due to the missing center, lengths or padding information") 
       return np.full(topology.n_atoms, True, dtype=bool), frame_coords
     else: 
       # Align the coordinates to the center of the bounding box (with focal point being the center) 
-      frame_coords = frame_coords - focal_point + self.center # + self.spacing/2
-      mask = crop(frame_coords, self.lengths, self.padding)
+      frame_coords = frame_coords - focal_point + self.center - self.spacing/2
+      mask = crop(frame_coords, self.lengths, self.padding, self.spacing)
       
       if np.count_nonzero(mask) == 0:
-        logger.warning(f"{self.classname}: Did not find atoms in the bounding box near the focal point {np.round(focal_point,1)}")
-
-      logger.debug(f"{self}: Found {np.count_nonzero(mask)}/{len(mask)} atoms in the bounding box near the focal point {np.round(focal_point,1)}. ")
+        logger.warning(f"{self}: Did not find atoms in the bounding box near the focal point {np.round(focal_point,1)}")
 
       # Get the boolean array of residues within the bounding box
       if self.byres:
@@ -483,12 +502,12 @@ class Feature:
 
     """
     if len(coords) == 0:
-      logger.warning(f"{self.classname}: The coordinates from query method are empty")
+      logger.warning(f"{self.classname}: The coordinates from query method are empty, returning an all-zero array") 
       return np.zeros(self.dims, dtype=np.float32)
     st = time.perf_counter()
     ret = commands.frame_voxelize(coords, weights, self.dims, self.spacing, self.cutoff, self.sigma)
-    if not np.isclose(np.sum(weights),  np.sum(ret), rtol=1e-2):
-      logger.warning(f"{self.classname}: The sum of the weights not match {np.sum(weights)} vs {np.sum(ret)}") 
+    # if not np.isclose(np.sum(weights),  np.sum(ret), rtol=1e-2):
+    #   logger.warning(f"{self.classname}: The sum of the weights not match {np.sum(weights)} vs {np.sum(ret)}") 
     logger.info(f"{'Feature generation':15}: {time.perf_counter()-st:8.6f} seconds. ") 
     
     return ret
@@ -517,7 +536,7 @@ class Feature:
         else: 
           utils.append_hdf_data(self.outfile, self.outkey, np.array([result], dtype=np.float32), dtype=np.float32, maxshape=(None, *self.dims), chunks=(1, *self.dims), **self.hdf_dump_opts)
     else: 
-      logger.warning(f"{self.classname}: The outfile and outkey are not set, the result is not dumped to the disk")
+      logger.warning(f"{self.classname}: The outfile and/or outkey are not set, the result is not dumped into file. ")
       
 
 
@@ -533,12 +552,12 @@ class AtomicNumber(Feature):
     -----
     By default, a slice of frame coordinates is passed to the querier function (typically 3 dimension shaped by [frames_number, atom_number, 3])
     However, for static feature, only one frame is needed. 
-    Hence, the querier function by default uses the first frame (frame_coords[0], the default bahavior is customizable by the user). 
+    Hence, the querier function by default uses the first frame, Set the frame_offset to change this behavior. 
 
     The focused part of the coords needs to be translated to the center of the box before sending to the runner function.
     """
     if frame_coords.shape.__len__() == 3: 
-      frame_coords = frame_coords[0]
+      frame_coords = frame_coords[self.frame_offset]
     idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
     weights = self.atomic_numbers[idx_inbox]
     logger.info(f"{self.classname}: Found {len(weights)} atoms in the bounding box and total weight is {np.sum(weights)}")
@@ -586,11 +605,12 @@ class Mass(Feature):
     Before sending the coordinates to the runner function, move the coordinates to the center of the box. 
     """
     if frame_coords.shape.__len__() == 3: 
-      frame_coords = frame_coords[0]
+      frame_coords = frame_coords[self.frame_offset]
     
     idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
     # weights = np.array([self.mass[i] for i in self.atomic_numbers[idx_inbox]], dtype=np.float32)
     weights = self.mass[idx_inbox]
+    logger.debug(f"Query: Sum of weights: {np.sum(weights)}, {weights.shape}, {weights[:5]}, {np.mean(weights)}") 
     return coord_inbox, weights
 
 
@@ -615,7 +635,7 @@ class HeavyAtom(Feature):
     Get the atoms and weights within the bounding box
     """
     if frame_coords.shape.__len__() == 3: 
-      frame_coords = frame_coords[0]  # NOTE: Get the first frame if multiple frames are given
+      frame_coords = frame_coords[self.frame_offset] 
     idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
     # coord_inbox = frame_coords[idx_inbox]
     weights = self.heavy_atoms[idx_inbox]
@@ -638,7 +658,8 @@ class Aromaticity(Feature):
       atoms_aromatic = chemtools.label_aromaticity(fpt.name)
 
     if len(atoms_aromatic) != trajectory.n_atoms:
-      logger.warning(f"{self.classname}: The number of atoms in PDB does not match the number of aromaticity values")
+      logger.warning(f"{self.classname}: The length of feature array {len(atoms_aromatic)} does not match the number of atoms {trajectory.n_atoms} in the topology. ") 
+
     if self.reverse: 
       self.atoms_aromatic = np.array([1 if i == 0 else 0 for i in atoms_aromatic], dtype=np.float32)
     else: 
@@ -646,7 +667,7 @@ class Aromaticity(Feature):
 
   def query(self, topology, frame_coords, focal_point):
     if frame_coords.shape.__len__() == 3: 
-      frame_coords = frame_coords[0]
+      frame_coords = frame_coords[self.frame_offset]
     idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
     weights = self.atoms_aromatic[idx_inbox]
     return coord_inbox, weights
@@ -668,7 +689,7 @@ class Ring(Feature):
       atoms_in_ring = chemtools.label_ring_status(fpt.name)
 
     if len(atoms_in_ring) != trajectory.n_atoms:
-      logger.warning(f"{self.classname}: The number of atoms in PDB does not match the number of aromaticity values")
+      logger.warning(f"{self.classname}: The length of feature array {len(atoms_in_ring)} does not match the number of atoms {trajectory.n_atoms} in the topology. ") 
 
     if self.reverse: 
       self.atoms_in_ring = np.array([1 if i == 0 else 0 for i in atoms_in_ring], dtype=np.float32)
@@ -677,7 +698,7 @@ class Ring(Feature):
   
   def query(self, topology, frame_coords, focal_point): 
     if frame_coords.shape.__len__() == 3: 
-      frame_coords = frame_coords[0]
+      frame_coords = frame_coords[self.frame_offset]
     idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
     weights = self.atoms_in_ring[idx_inbox]
     return coord_inbox, weights
@@ -701,7 +722,7 @@ class Selection(Feature):
     No need to cache the weights because of the selection is set by the user 
     """
     if frame_coords.shape.__len__() == 3: 
-      frame_coords = frame_coords[0]
+      frame_coords = frame_coords[self.frame_offset]
     idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
     weights = np.full(len(coord_inbox), self.default_value, dtype=np.float32)
     return coord_inbox, weights
@@ -727,7 +748,7 @@ class HBondDonor(Feature):
   
   def query(self, topology, frame_coords, focal_point):
     if frame_coords.shape.__len__() == 3: 
-      frame_coords = frame_coords[0]
+      frame_coords = frame_coords[self.frame_offset]
     idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
     weights = self.atoms_hbond_donor[idx_inbox]
     return coord_inbox, weights
@@ -753,7 +774,7 @@ class HBondAcceptor(Feature):
 
   def query(self, topology, frame_coords, focal_point):
     if frame_coords.shape.__len__() == 3: 
-      frame_coords = frame_coords[0]
+      frame_coords = frame_coords[self.frame_offset]
     idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
     weights = self.atoms_hbond_acceptor[idx_inbox]
     return coord_inbox, weights
@@ -779,7 +800,7 @@ class Hybridization(Feature):
 
   def query(self, topology, frame_coords, focal_point):
     if frame_coords.shape.__len__() == 3: 
-      frame_coords = frame_coords[0]
+      frame_coords = frame_coords[self.frame_offset]
     idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
     weights = self.atoms_hybridization[idx_inbox]
     return coord_inbox, weights
@@ -807,7 +828,7 @@ class Backbone(Feature):
     
   def query(self, topology, frame_coords, focal_point):
     if frame_coords.shape.__len__() == 3: 
-      frame_coords = frame_coords[0]
+      frame_coords = frame_coords[self.frame_offset]
     idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
     # coord_inbox = frame_coords[idx_inbox]
     weights = self.backboneness[idx_inbox]
@@ -832,7 +853,7 @@ class AtomType(Feature):
 
   def query(self, topology, frame_coords, focal_point):
     if frame_coords.shape.__len__() == 3: 
-      frame_coords = frame_coords[0]
+      frame_coords = frame_coords[self.frame_offset]
 
     idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
     weights = self.atom_type[idx_inbox]
@@ -976,7 +997,7 @@ class PartialCharge(Feature):
 
   def query(self, topology, frame_coords, focal_point):
     if frame_coords.shape.__len__() == 3: 
-      frame_coords = frame_coords[0]
+      frame_coords = frame_coords[self.frame_offset]
     idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
     # coord_inbox = frame_coords[idx_inbox]
     weights = self.charge_values[idx_inbox] 
@@ -996,7 +1017,7 @@ class Electronegativity(Feature):
 
   def query(self, topology, frame_coords, focal_point):
     if frame_coords.shape.__len__() == 3: 
-      frame_coords = frame_coords[0]
+      frame_coords = frame_coords[self.frame_offset]
     idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
     weights = self.electronegativity[idx_inbox]
     return coord_inbox, weights
@@ -1020,7 +1041,7 @@ class Hydrophobicity(Feature):
   
   def query(self, topology, frame_coords, focal_point):
     if frame_coords.shape.__len__() == 3: 
-      frame_coords = frame_coords[0]
+      frame_coords = frame_coords[self.frame_offset]
     idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
     weights = self.hydrophobicity[idx_inbox]
     return coord_inbox, weights
@@ -1239,10 +1260,10 @@ class DynamicFeature(Feature):
     self.DEFAULT_COORD = 99999.0
 
   def __str__(self):
-    ret = f"{self.classname} <agg:{self.agg}|weight:{self.weight_type}"
-    for key, value in self.feature_args.items():
-      ret += f"|{key}:{value}"
-    ret += ">"
+    ret = f"{self.classname} <agg:{self._agg_type}|weight:{self._weight_type}|cutoff:{self.cutoff}>"
+    # for key, value in self.feature_args.items():
+    #   ret += f"|{key}:{value}"
+    # ret += ">"
     return ret
     
 
@@ -1347,6 +1368,10 @@ class DensityFlow(DynamicFeature):
     For aggregation types, please refer to the :class:`nearl.features.DynamicFeature` .
 
   """
+  def __str__(self):
+    ret = f"{self.classname} <agg:{self._agg_type}|weight:{self._weight_type}|cutoff:{self.cutoff}|sigma:{self.sigma}>"
+    return ret
+  
   def query(self, topology, frame_coords, focal_point):
     """
     """
@@ -1372,7 +1397,7 @@ class DensityFlow(DynamicFeature):
     """
     st = time.perf_counter()
     ret_arr = commands.density_flow(frames, weights, self.dims, self.spacing, self.cutoff, self.sigma, self.agg)
-    logger.info(f"{'Timing_PDF':15} {time.perf_counter() - st} seconds, shape: {frames.shape}") 
+    printit(f"{self}: {'Timing_PDF':15} {time.perf_counter() - st} seconds, shape: {frames.shape}")  # TODO
     
     return ret_arr.reshape(self.dims)  
 
@@ -1425,7 +1450,7 @@ class MarchingObservers(DynamicFeature):
     self._obs_type = obs     # Directly pass to the CUDA voxelizer
     
   def __str__(self): 
-    return f"{self.classname} <obs:{self._obs_type}|type:{self._weight_type}|agg:{self._agg_type}>"
+    return f"{self.classname} <obs:{self._obs_type}|type:{self._weight_type}|agg:{self._agg_type}|cutoff:{self.cutoff}>"
   @property
   def obs(self):
     """
@@ -1475,7 +1500,7 @@ class MarchingObservers(DynamicFeature):
       self.cutoff, 
       self.obs, self.agg
     ) 
-    print(f"{'Timing_MO':15} {time.perf_counter() - st} seconds, shape: {coords.shape}")
+    printit(f"{self}: {'Timing_MO':15} {time.perf_counter() - st} seconds, shape: {coords.shape}")  # TODO
 
     return ret_arr.reshape(self.dims)
 
@@ -1753,7 +1778,7 @@ class LabelResType(Feature):
     Hence only the cropped residues will be retured. 
     """
     if frames.shape.__len__() == 3: 
-      frames = frames[0]
+      frames = frames[self.frame_offset]
     returned, _ = super().query(topology, frames, focus)
     resnames = [i.name for i in topology.residues]
     resids = [i.resid for i in topology.atoms]
@@ -1792,7 +1817,7 @@ class Coords(Feature):
 
   def query(self, topology, frames, focus):
     if frames.shape.__len__() == 3: 
-      frames = frames[0]
+      frames = frames[self.frame_offset]
     idx_inbox, coord_inbox = super().query(topology, frames, focus)
     nr_atom = np.count_nonzero(idx_inbox)
     ret = np.full((nr_atom, 4), 0.0, dtype=np.float32)

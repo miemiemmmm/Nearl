@@ -8,7 +8,7 @@
 #SBATCH --cpus-per-task=6                                    # TODO: Match the cpu number with desired concurrent tasks
 
 export SLURM_CPUS_PER_TASK=${SLURM_CPUS_PER_TASK:-8}    # if running in non-SLURM environment, set the number of CPUs here
-export SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID:-0}    # if running in non-SLURM environment, set the task ID here
+export SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID:-17}    # if running in non-SLURM environment, set the task ID here
 
 source /home/yzhang/mamba/bin/loadmamba
 micromamba activate nearl_dev

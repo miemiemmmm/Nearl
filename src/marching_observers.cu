@@ -5,7 +5,7 @@
 
 #include "constants.h"              // For hard-coded variables: BLOCK_SIZE, MAX_FRAME_NUMBER      
 #include "gpuutils.cuh"             // For hard-coded BLOCK_SIZE and device functions: mean_device, mean_device, standard_deviation_device
-#include "marching_observers.cuh"   // For the hard coded MAX_FRAME_NUMBER
+#include "marching_observers.cuh" 
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -161,12 +161,12 @@ __device__ float mean_distance_device(const float *coord, const float *coord_fra
     dist_sq = square_distance_device<float>(coord, coord_framei + j*3); 
     if (dist_sq > cutoff_sq) continue; 
 
-    retval += dist_sq * weight_framei[j];
+    retval += sqrt(dist_sq) * weight_framei[j];
     weight_sum += weight_framei[j];
     count += 1;
   }
   if (count > 0){
-    retval = sqrt(retval / weight_sum);
+    retval = retval / weight_sum;
     return retval;
   } else {
     return 0.0f; 
@@ -274,17 +274,19 @@ __device__ float eccentricity_device(const float *coord, const float *coord_fram
   
   float com[3] = {0.0, 0.0, 0.0};
   float weight_sum = 0.0f;
+  int count = 0; 
   // Get the center of mass
   for (int j = 0; j < atomnr; ++j){
     dist_sq = square_distance_device(coord, coord_framei + j*3);
     if (dist_sq > cutoff_sq) continue; 
+    count += 1;
     com[0] += weight_framei[j] * coord_framei[j*3];
     com[1] += weight_framei[j] * coord_framei[j*3+1];
     com[2] += weight_framei[j] * coord_framei[j*3+2];
     weight_sum += weight_framei[j];
   }
 
-  if (weight_sum > 0){
+  if (count > 0 && weight_sum != 0){
     com[0] = com[0] / weight_sum;
     com[1] = com[1] / weight_sum;
     com[2] = com[2] / weight_sum;

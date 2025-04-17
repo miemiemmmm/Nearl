@@ -330,7 +330,7 @@ COMMON_FEATURE_PARMS = [
   # Output settings 
   "outfile", 
   # Feature calculation parms
-  "cutoff", "sigma", "padding", "byres",
+  "cutoff", "sigma", "padding", "byres", "frame_offset", 
   # HDF dumping parms
   "hdf_compress_level",
   # On-the-fly parms
