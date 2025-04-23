@@ -3,7 +3,6 @@ import sys, tempfile, os, subprocess, time, logging
 import h5py
 import numpy as np
 import pytraj as pt
-import torch   # TODO
 
 from . import utils, commands, constants, chemtools   # local modules 
 from . import printit, config   # local static methods/objects
@@ -55,23 +54,12 @@ __all__ = [
   
 ]
 
-"""
-! IMPORTANT: 
-  If there is difference from trajectory to trajectory, for example the name of the ligand, feature object has to behave 
-  differently. However, the featurizer statically pipelines the feature.featurize() function and difference is not known
-  in these featurization process. 
-  This change has to take place in the featurizer object because the trajectories are registered into the featurizer. Add 
-  the variable attribute to the featurizer object and use it in the re-organized feature.featurize() function. 
-"""
-
 
 # Hardcoded maps in dynamic feature preparation
 SUPPORTED_FEATURES = {
   "atomic_id": 1,       "residue_id": 2,  "atomic_number": 3, "hybridization": 4,
-
   "mass": 11, "radius": 12, "electronegativity": 13, "hydrophobicity": 14,
   "partial_charge": 15, "uniformed" : 16, 
-
   "heavy_atom": 21, "aromaticity": 22, "ring": 23, "hbond_donor": 24,
   "hbond_acceptor": 25, "backboneness": 26, "sidechainness": 27,  "atom_type": 28
 }
@@ -382,10 +370,14 @@ class Feature:
           printit(f"{self}: Inheriting the parameter from the featurizer: {key} {keyval}")
           self.PARAMSPACE[key] = keyval
     
-    # Setting coupled parameters if not set
+    # Setting coupled parameters or defaults if not set manually 
     if self.padding is None: 
       logger.warning(f"{self}: The padding is not set, setting to cutoff")
       self.padding = self.cutoff 
+
+    if self.frame_offset is None: 
+      logger.info(f"{self}: Setting the frame offset to 0")
+      self.frame_offset = 0
 
     if getattr(self, "hdf_compress_level", 0):
       self.hdf_dump_opts["compression_opts"] = self.hdf_compress_level
@@ -568,9 +560,6 @@ class Mass(Feature):
   """
   Annotate each atoms with their atomic mass. 
   """
-  def __init__(self, **kwargs):
-    super().__init__(**kwargs)
-
   def cache(self, trajectory):
     super().cache(trajectory)
     self.mass = np.array([constants.ATOMICMASS[i] for i in self.atomic_numbers], dtype=np.float32)
@@ -608,7 +597,6 @@ class Mass(Feature):
       frame_coords = frame_coords[self.frame_offset]
     
     idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
-    # weights = np.array([self.mass[i] for i in self.atomic_numbers[idx_inbox]], dtype=np.float32)
     weights = self.mass[idx_inbox]
     logger.debug(f"Query: Sum of weights: {np.sum(weights)}, {weights.shape}, {weights[:5]}, {np.mean(weights)}") 
     return coord_inbox, weights
@@ -616,7 +604,12 @@ class Mass(Feature):
 
 class HeavyAtom(Feature):
   """
-  Annotate each atoms as heavy atom or not (heavy atoms are encoded 1, otherwise 0).
+  Annotate each atoms as heavy atom or not (heavy atoms are encoded 1, otherwise 0). 
+
+  Parameters
+  ----------
+  default_weight : int, default 1
+    The default weight of the heavy atoms. 
   """
   def __init__(self, default_weight=1, **kwargs):
     super().__init__(**kwargs)
@@ -637,7 +630,6 @@ class HeavyAtom(Feature):
     if frame_coords.shape.__len__() == 3: 
       frame_coords = frame_coords[self.frame_offset] 
     idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
-    # coord_inbox = frame_coords[idx_inbox]
     weights = self.heavy_atoms[idx_inbox]
     return coord_inbox, weights
 
@@ -645,10 +637,14 @@ class HeavyAtom(Feature):
 class Aromaticity(Feature):
   """
   Annotate each atoms as aromatic atom or not (aromatic atoms are encoded 1, otherwise 0). 
+
+  Parameters
+  ----------
+  reverse : bool, default False
+    Set to True if you want to get the non-aromatic atoms to be 1; The aromaticity is calculated by OpenBabel. 
   """
   def __init__(self, reverse=None, **kwargs): 
     super().__init__(**kwargs)
-    # Set reverse to True if you want to get the non-aromatic atoms to be 1
     self.reverse = reverse 
 
   def cache(self, trajectory):
@@ -676,6 +672,11 @@ class Aromaticity(Feature):
 class Ring(Feature):
   """
   Annotate each atoms as ring atom or not (ring atoms are encoded 1, otherwise 0). 
+
+  Parameters
+  ----------
+  reverse : bool, default False
+    Set to True if you want to get the non-ring atoms to be 1; The ring status is calculated by OpenBabel. 
   """
   def __init__(self, reverse=False, **kwargs):
     super().__init__(**kwargs)
@@ -707,15 +708,21 @@ class Ring(Feature):
 class Selection(Feature):
   """
   Annotate each atoms with the selection of the user (selected atoms are encoded 1, otherwise 0). 
+  
+  Parameters
+  ----------
+  default_value : int, default 1
+    The default value of the weights for the selected atoms.
+
+  Notes
+  -----
+  The argument `selection` is required to be set in the constructor. 
   """
   def __init__(self, default_value=1, **kwargs):
     if "selection" not in kwargs.keys():
       raise ValueError(f"{self.classname}: The selection parameter should be set")
     super().__init__(**kwargs)
     self.default_value = default_value
-
-  def __str__(self): 
-    return f"{self.classname}({self.selection}:{self.default_value})"
 
   def query(self, topology, frame_coords, focal_point):
     """
@@ -724,7 +731,8 @@ class Selection(Feature):
     if frame_coords.shape.__len__() == 3: 
       frame_coords = frame_coords[self.frame_offset]
     idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
-    weights = np.full(len(coord_inbox), self.default_value, dtype=np.float32)
+    weights = np.full(np.count_nonzero(idx_inbox), self.default_value, dtype=np.float32)
+    assert len(weights) == len(coord_inbox), f"{self.classname}: The length of weights {len(weights)} does not match the length of coordinates {len(coord_inbox)}"
     return coord_inbox, weights
   
 
@@ -732,9 +740,6 @@ class HBondDonor(Feature):
   """
   Annotate each atoms with the hydrogen bond donor atoms (donor atoms are encoded 1, otherwise 0).
   """
-  def __init__(self, **kwargs):
-    super().__init__(**kwargs)
-
   def cache(self, trajectory):
     super().cache(trajectory)
     with tempfile.NamedTemporaryFile(suffix=".pdb") as fpt:
@@ -758,9 +763,6 @@ class HBondAcceptor(Feature):
   """
   Annotate each atoms with the hydrogen bond acceptor atoms (acceptor atoms are encoded 1, otherwise 0). 
   """
-  def __init__(self, **kwargs):
-    super().__init__(**kwargs)
-
   def cache(self, trajectory):
     super().cache(trajectory)
     with tempfile.NamedTemporaryFile(suffix=".pdb") as fpt:
@@ -782,11 +784,8 @@ class HBondAcceptor(Feature):
 
 class Hybridization(Feature):
   """
-  Annotate each atoms with the hybridization of the atoms (0-3 integer).
+  Annotate each atoms with the hybridization of the atoms (integer range from 0 to 3).
   """
-  def __init__(self, **kwargs):
-    super().__init__(**kwargs)
-
   def cache(self, trajectory):
     super().cache(trajectory)
     with tempfile.NamedTemporaryFile(suffix=".pdb") as fpt:
@@ -809,14 +808,20 @@ class Hybridization(Feature):
 class Backbone(Feature):
   """
   Annotate each atoms with the backbone atoms (backbone atoms are encoded 1, otherwise 0). 
+
+  Parameters
+  ----------
+  reverse : bool, default False
+    Set to True if you want to get the non-backbone atoms (sidechain) to be 1 
+  
+  Notes
+  -----
+  Backbone atoms are defined as the atoms with the name "C", "O", "CA", "HA", "N" and "HN".
+  The reverse parameter can be set to True to get the non-backbone atoms (sidechain) to be 1.
   """
   def __init__(self, reverse=False, **kwargs):
     super().__init__(**kwargs)
     self.reverse = reverse
-
-  def __str__(self):
-    ret_str = f""   # TODO
-    return ret_str
 
   def cache(self, trajectory):
     super().cache(trajectory)
@@ -830,7 +835,6 @@ class Backbone(Feature):
     if frame_coords.shape.__len__() == 3: 
       frame_coords = frame_coords[self.frame_offset]
     idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
-    # coord_inbox = frame_coords[idx_inbox]
     weights = self.backboneness[idx_inbox]
     return coord_inbox, weights
   
@@ -838,13 +842,18 @@ class Backbone(Feature):
 class AtomType(Feature):
   """
   Annotate each atoms as the selected atom type (focus_element) or not (selected atoms are encoded 1, otherwise 0).
+
+  Parameters
+  ----------
+  focus_element : int
+    The atomic number of the atom type to be selected. 
   """
   def __init__(self, focus_element, **kwargs):
     super().__init__(**kwargs)
     self.focus_element = int(focus_element)
 
   def __str__(self):
-    ret_str = f"{self.classname} <focus:{constants.ATOMICNR2SYMBOL[self.focus_element]}>"    # TODO
+    ret_str = f"{self.classname} <focus:{constants.ATOMICNR2SYMBOL[self.focus_element]}>" 
     return ret_str
 
   def cache(self, trajectory):
@@ -866,16 +875,18 @@ class AtomType(Feature):
 
 class PartialCharge(Feature):
   """
-  Annotate each atoms with the partial charge of the atoms. The charges are obtailed from the original topology or computed using the OpenBabel/ChargeFW2. 
+  Annotate each atom with their partial charge. The charges could be derived from multiple sources, including its own topology, manually set, external functions, or recomputed using ChargeFW2. 
 
   Parameters
   ----------
-  charge_type : str, Using 'qeq' by default
-    The charge type. If 'manual' is used, the charge_parm should be set manually via an array of charge values of each atom
-  charge_parm : str, Using 'QEq_00_original' by default 
-    The charge parameter
-  force_compute : bool, Using False by default
-    The partial charge will be prioritized from the charges are already in the trajectory/topology. If True, the charge values will be recomputed anyway. 
+  charge_type : str, "topology" by default 
+    The supported charge types can be "topology", "manual", "chargefw" and "external". 
+  charge_parm : str
+    The charge parameter. 
+    If "topology", Nearl will refer to the charge values in the topology and this parameter will be ignored. 
+    In case of "manual", the charge_parm should be a dictionary with its trajectory identity as the key and the charge values as the value. 
+    In case of "chargefw", the charge_parm is the name of the charge method to be used in ChargeFW2. Note that the computation of charge could be very expensive depending on the size of the structure. 
+    The "external" type allows the user to pass the reference to an external function to calculate the charge values. 
 
   Notes
   -----
@@ -883,23 +894,21 @@ class PartialCharge(Feature):
   https://github.com/sb-ncbr/ChargeFW2
 
   """
-  # "qeq" -> "QEq_00_original"
-  # The following types are supported by ChargeFW: 
-  # [ "sqeqp",  "eem",  "abeem",  "sfkeem",  "qeq", "smpqeq",  "eqeq",  "eqeqc",  "delre",  "peoe", 
-  #   "mpeoe",  "gdac",  "sqe",  "sqeq0",  "mgc", "kcm",  "denr",  "tsef",  "charge2",  "veem", "formal" ]
-  def __init__(self, charge_type="topology", charge_parm=None, force_compute=False, keep_sign="both", **kwargs):
+  def __init__(self, charge_type="topology", charge_parm=None, keep_sign="both", **kwargs):
     super().__init__(**kwargs)
     self.charge_type = charge_type
     self.charge_parm = charge_parm
-    self.force_compute = force_compute
+    if charge_type not in ["topology", "manual", "chargefw", "external"]: 
+      raise ValueError(f"{self.classname}: The charge type should be either 'topology', 'manual', 'chargefw' or 'external' rather than {charge_type}")
+    if keep_sign not in ["positive", "negative", "both", "p", "n", "b"]:
+      raise ValueError(f"{self.classname}: The keep_sign parameter should be either positive/p, negative/n or both/b rather than {keep_sign}")
+
     if keep_sign in ["positive", "p"]:
       self.keep_sign = "positive"
     elif keep_sign in ["negative", "n"]:
       self.keep_sign = "negative"
     elif keep_sign in ["both", "b"]:
       self.keep_sign = "both"
-    else:
-      raise ValueError(f"{self.classname}: The keep_sign parameter should be either 'positive', 'negative' or 'both' rather than {keep_sign}")
 
   def __str__(self):
     ret_str = f"{self.classname} <type:{self.charge_type}|sign:{self.keep_sign}>"
@@ -907,24 +916,31 @@ class PartialCharge(Feature):
 
   def cache(self, trajectory):
     super().cache(trajectory)
-    if np.abs(trajectory.top.charge).sum() > 0 and not self.force_compute:
-      # Inherit the charge values from the trajectory if the charges are already computed
-      self.charge_type = "topology"
-      self.charge_values = trajectory.top.charge
+    if self.charge_type == "topology":
+      if np.allclose(trajectory.top.charge, 0): 
+        raise ValueError(f"{self.classname}: The charge values in the topology are all zero meaning the topology of the trajectory does not contain necessary charge information. ")
+      else: 
+        self.charge_values = trajectory.top.charge
 
     elif self.charge_type == "manual": 
       # If the charge type is manual, the charge values should be set manually
       assert len(self.charge_parm) == trajectory.top.n_atoms, f"The number of charge values does not match the number of atoms in the trajectory"
-      self.charge_values = np.array(self.charge_parm, dtype=np.float32)
+      self.charge_values = self.charge_parm[trajectory.identity]
+      self.charge_values = np.array(self.charge_values, dtype=np.float32)
 
-    elif self.charge_type == "function": 
-      # Use some precalculated charge values
-      self.charge_values = self.charge_parm(trajectory.identity)
-      assert len(self.charge_values) == trajectory.top.n_atoms, f"The number of charge values does not match the number of atoms in the trajectory"
+    elif self.charge_type == "external": 
+      # Use external function to calculate the charge values
+      self.charge_values = self.charge_parm(trajectory)
 
-    else: 
+    elif self.charge_type == "chargefw":
       # Otherwise, compute the charges using the ChargeFW2
-      import chargefw2_python as cfw
+      # The following types are supported by ChargeFW: 
+      # "sqeqp",  "eem",  "abeem",  "sfkeem",  "qeq", "smpqeq",  "eqeq",  "eqeqc",  "delre",  "peoe", 
+      # "mpeoe",  "gdac",  "sqe",  "sqeq0",  "mgc", "kcm",  "denr",  "tsef",  "charge2",  "veem", "formal", 
+      try: 
+        import chargefw2_python as cfw
+      except ImportError as e:
+        raise ImportError(f"{self.classname}: The ChargeFW2 is not installed. Check the https://github.com/sb-ncbr/ChargeFW2 for more information. ") from e
       charges = None
       charge_values = None
       mol = None
@@ -984,16 +1000,14 @@ class PartialCharge(Feature):
         logger.warning(f"{self.classname}: The charge computation fails. Setting all charge values to 0. ", file=sys.stderr)
         self.charge_values = np.zeros(trajectory.n_atoms)
     
+    assert self.charge_values is not None, f"{self.classname}: The charge values are not set. Please check the charge type and parameters. " 
+    assert len(self.charge_values) == trajectory.n_atoms, f"{self.classname}: The number of charge values does not match the number of atoms in the trajectory. " 
+
     # Final check of the needed sign of the charge values
     if self.keep_sign in ["positive", "p"]:
       self.charge_values = np.maximum(self.charge_values, 0)
     elif self.keep_sign in ["negative", "n"]:
       self.charge_values = np.minimum(self.charge_values, 0)
-    elif self.keep_sign in ["both", "b"]:
-      pass
-    else: 
-      raise ValueError(f"{self.classname}::Warning: The keep_sign parameter should be either 'positive', 'negative' or 'both' rather than {self.keep_sign}")
-        
 
   def query(self, topology, frame_coords, focal_point):
     if frame_coords.shape.__len__() == 3: 
@@ -1008,9 +1022,6 @@ class Electronegativity(Feature):
   """
   Annotate each atoms with the electronegativity of the atoms. 
   """
-  def __init__(self, **kwargs):
-    super().__init__(**kwargs)
-
   def cache(self, trajectory):
     super().cache(trajectory)
     self.electronegativity = np.array([constants.ELECNEG[i] for i in self.atomic_numbers], dtype=np.float32)
@@ -1031,9 +1042,6 @@ class Hydrophobicity(Feature):
   -----
   The hydrophobicity is calculated by the absolute difference between the electronegativity of the atom and the electronegativity of the carbon atom. 
   """
-  def __int__(self):
-    super().__init__()
-
   def cache(self, trajectory):
     super().cache(trajectory)
     elecnegs = np.array([constants.ELECNEG[i] for i in self.atomic_numbers], dtype=np.float32)
@@ -1760,81 +1768,81 @@ class LabelPCDT(LabelAffinity):
 ###############################################################################
 # Reporter-Tyep Features (for debugging and testing purposes) 
 ###############################################################################
-class LabelResType(Feature): 
-  def __init__(self, restype, byres=True, outshape=(None,), **kwargs): 
-    """
-    Report the residue type as the result feature. 
+# class LabelResType(Feature): 
+#   def __init__(self, restype, byres=True, outshape=(None,), **kwargs): 
+#     """
+#     Report the residue type as the result feature. 
 
-    Notes
-    -----
-    This is the special label-type feature that returns the label based on the residue type.
-    """
-    super().__init__(outshape = outshape, byres=byres, **kwargs)
-    self.restype = restype
+#     Notes
+#     -----
+#     This is the special label-type feature that returns the label based on the residue type.
+#     """
+#     super().__init__(outshape = outshape, byres=byres, **kwargs)
+#     self.restype = restype
   
-  def query(self, topology, frames, focus):
-    """
-    When querying the single-residue types, the topology and frames has to be cropped to the focused residue (COG of the residue). 
-    Hence only the cropped residues will be retured. 
-    """
-    if frames.shape.__len__() == 3: 
-      frames = frames[self.frame_offset]
-    returned, _ = super().query(topology, frames, focus)
-    resnames = [i.name for i in topology.residues]
-    resids = [i.resid for i in topology.atoms]
+#   def query(self, topology, frames, focus):
+#     """
+#     When querying the single-residue types, the topology and frames has to be cropped to the focused residue (COG of the residue). 
+#     Hence only the cropped residues will be retured. 
+#     """
+#     if frames.shape.__len__() == 3: 
+#       frames = frames[self.frame_offset]
+#     returned, _ = super().query(topology, frames, focus)
+#     resnames = [i.name for i in topology.residues]
+#     resids = [i.resid for i in topology.atoms]
 
-    final_resname = ""
-    processed = []
-    for i in range(len(returned)): 
-      if returned[i] and resids[i] not in processed:
-        final_resname += resnames[resids[i]]
-        processed.append(resids[i])
-    return (final_resname, )
+#     final_resname = ""
+#     processed = []
+#     for i in range(len(returned)): 
+#       if returned[i] and resids[i] not in processed:
+#         final_resname += resnames[resids[i]]
+#         processed.append(resids[i])
+#     return (final_resname, )
 
-  def run(self, resname):
-    """
-    Look up the residue name in the dictionary and return its label
-    """
-    if self.restype == "single" and resname in constants.RES2LAB:
-      retval = constants.RES2LAB[resname]
-    elif self.restype == "single" and resname not in constants.RES2LAB:
-      printit(f"DEBUG: The residue type {resname} is not recognized, there might be some problem in the trajectory cropping")
-      retval = 0 
-    elif self.restype == "dual" and resname in constants.RES2LAB_DUAL:
-      retval = constants.RES2LAB_DUAL[resname]
-    elif self.restype == "dual" and resname not in constants.RES2LAB_DUAL:
-      printit(f"DEBUG: The residue type {resname} is not recognized, there might be some problem in the trajectory cropping")
-      retval = 0
-    return retval
+#   def run(self, resname):
+#     """
+#     Look up the residue name in the dictionary and return its label
+#     """
+#     if self.restype == "single" and resname in constants.RES2LAB:
+#       retval = constants.RES2LAB[resname]
+#     elif self.restype == "single" and resname not in constants.RES2LAB:
+#       printit(f"DEBUG: The residue type {resname} is not recognized, there might be some problem in the trajectory cropping")
+#       retval = 0 
+#     elif self.restype == "dual" and resname in constants.RES2LAB_DUAL:
+#       retval = constants.RES2LAB_DUAL[resname]
+#     elif self.restype == "dual" and resname not in constants.RES2LAB_DUAL:
+#       printit(f"DEBUG: The residue type {resname} is not recognized, there might be some problem in the trajectory cropping")
+#       retval = 0
+#     return retval
 
 
-class Coords(Feature):
-  """
-  Report the coordinates as the result feature. 
-  """
-  def __init__(self, **kwargs): 
-    super().__init__(outshape=(None,4), **kwargs)
+# class Coords(Feature):
+#   """
+#   Report the coordinates as the result feature. 
+#   """
+#   def __init__(self, **kwargs): 
+#     super().__init__(outshape=(None,4), **kwargs)
 
-  def query(self, topology, frames, focus):
-    if frames.shape.__len__() == 3: 
-      frames = frames[self.frame_offset]
-    idx_inbox, coord_inbox = super().query(topology, frames, focus)
-    nr_atom = np.count_nonzero(idx_inbox)
-    ret = np.full((nr_atom, 4), 0.0, dtype=np.float32)
-    ret[:, :3] = coord_inbox
-    ret[:, 3] = self.atomic_numbers[idx_inbox]
-    return (ret,)
+#   def query(self, topology, frames, focus):
+#     if frames.shape.__len__() == 3: 
+#       frames = frames[self.frame_offset]
+#     idx_inbox, coord_inbox = super().query(topology, frames, focus)
+#     nr_atom = np.count_nonzero(idx_inbox)
+#     ret = np.full((nr_atom, 4), 0.0, dtype=np.float32)
+#     ret[:, :3] = coord_inbox
+#     ret[:, 3] = self.atomic_numbers[idx_inbox]
+#     return (ret,)
   
-  def run(self, arr):
-    return arr
+#   def run(self, arr):
+#     return arr
   
-  def dump(self, result): 
-    with h5py.File(self.outfile, "r") as f:
-      if self.outkey in f.keys():
-        start_idx = f[self.outkey].shape[0]
-      else:
-        start_idx = 0
-      end_idx = start_idx + result.shape[0]
-    utils.append_hdf_data(self.outfile, f"{self.outkey}_", np.array([[start_idx, end_idx]], dtype=int), dtype=int, maxshape=(None,2), chunks=True, compression="gzip", compression_opts=4)
-    utils.append_hdf_data(self.outfile, self.outkey, np.array(result, dtype=np.float32), dtype=np.float32, maxshape=self.outshape, chunks=True, compression="gzip", compression_opts=4)  
+#   def dump(self, result): 
+#     with h5py.File(self.outfile, "r") as f:
+#       if self.outkey in f.keys():
+#         start_idx = f[self.outkey].shape[0]
+#       else:
+#         start_idx = 0
+#       end_idx = start_idx + result.shape[0]
+#     utils.append_hdf_data(self.outfile, f"{self.outkey}_", np.array([[start_idx, end_idx]], dtype=int), dtype=int, maxshape=(None,2), chunks=True, compression="gzip", compression_opts=4)
+#     utils.append_hdf_data(self.outfile, self.outkey, np.array(result, dtype=np.float32), dtype=np.float32, maxshape=self.outshape, chunks=True, compression="gzip", compression_opts=4)  
 
