@@ -32,7 +32,6 @@ __all__ = [
   "Electronegativity",
   "Hydrophobicity",
 
-
   # Dynamic features
   "DynamicFeature",
   "DensityFlow",
@@ -43,8 +42,6 @@ __all__ = [
   "LabelAffinity",
   "LabelPCDT",
   "LabelRMSD",
-  "LabelResType",
-  
 
   # Other features
   # "VectorizerViewpoint", 
@@ -154,6 +151,20 @@ class Feature:
     The dimensions of the grid
   spacing : float
     The spacing of the grid
+  lengths : np.ndarray
+    The lengths of the grid
+  cutoff : float
+    The cutoff distance for voxelization or marching observers
+  padding : float 
+    The padding of the box when query the atoms within the grid
+  byres : bool 
+    The boolean flag to get the residues within the bounding box (default is by atoms)
+  outfile : str, path-like
+    The path of HDF file to store the result features
+  outkey : str
+    To which key/tag the result features will be dumped 
+  sigma : float
+    The sigma of the Gaussian-based voxelization, applies to static and PDF features 
 
   Methods
   -------
@@ -173,26 +184,7 @@ class Feature:
   The input and the output of the query, run and dump function should be chained together.
   
   """
-  # The input and the output of the query, run and dump function should be chained together.
-  #   Key methods
-  # -----------
-  # - hook: Hook the feature generator back to the feature convolutor and obtain necessary attributes from the featurizer
-  # - cache: Cache the needed weights for each atom in the trajectory for further Feature.query function
-  # - query: Query the atoms and weights within the bounding box
-  # - run: Run the GPU-based feature generator based on the return of the Feature.query function, 
-  # - dump: Dump the feature to the disk
-
-  # Key parameters
-  # --------------
-  # - dims: The dimensions of the grid
-  # - spacing: The spacing of the grid
-  # Hookable to featurizer
-  # - sigma: The sigma of the Gaussian kernel
-  # - cutoff: The cutoff distance
-  # - outfile: The output file
-  # - outkey: The output key
-  # - padding: The padding of the box
-  # - byres: The boolean flag to get the residues within the bounding box
+  
   # Individual parameters
   # - outshape: The shape of the output array
   # - force_recache: The boolean flag to force recache the weights
@@ -224,7 +216,8 @@ class Feature:
     self.sigma = sigma
     self.outfile = outfile
     self.byres = byres
-    self.frame_offset = frame_offset
+    self.cached_array = None
+    self.__frame_offset = frame_offset
 
     # To be used in .query() function
     self.selection = selection
@@ -329,16 +322,29 @@ class Feature:
   @property
   def lengths(self):
     """
-    Lengths of the grid, read-only property calculated by dims and spacing
+    Lengths of the grid. 
     """
     return self.__lengths
 
   @property
   def padding(self):
+    """
+    The padding of the box when query the atoms within the grid. The default padding is set to be the cutoff distance. 
+    """
     return self.__padding
   @padding.setter
   def padding(self, value):
     self.__padding = float(value)
+
+  @property
+  def frame_offset(self): 
+    """
+    The offset of the frame to be used in each frame-slice. This property only applies for static features. 
+    """
+    return self.__frame_offset
+  @frame_offset.setter
+  def frame_offset(self, value):
+    self.__frame_offset = int(value)
 
   def hook(self, featurizer): 
     """
@@ -551,7 +557,8 @@ class AtomicNumber(Feature):
     if frame_coords.shape.__len__() == 3: 
       frame_coords = frame_coords[self.frame_offset]
     idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
-    weights = self.atomic_numbers[idx_inbox]
+    self.cached_array = np.array(self.atomic_numbers, dtype=np.float32)
+    weights = self.cached_array[idx_inbox]
     logger.info(f"{self.classname}: Found {len(weights)} atoms in the bounding box and total weight is {np.sum(weights)}")
     return coord_inbox, weights
 
@@ -562,8 +569,7 @@ class Mass(Feature):
   """
   def cache(self, trajectory):
     super().cache(trajectory)
-    self.mass = np.array([constants.ATOMICMASS[i] for i in self.atomic_numbers], dtype=np.float32)
-
+    self.cached_array = np.array([constants.ATOMICMASS[i] for i in self.atomic_numbers], dtype=np.float32)
 
   def query(self, topology, frame_coords, focal_point): 
     """
@@ -597,7 +603,7 @@ class Mass(Feature):
       frame_coords = frame_coords[self.frame_offset]
     
     idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
-    weights = self.mass[idx_inbox]
+    weights = self.cached_array[idx_inbox]
     logger.debug(f"Query: Sum of weights: {np.sum(weights)}, {weights.shape}, {weights[:5]}, {np.mean(weights)}") 
     return coord_inbox, weights
 
@@ -620,8 +626,8 @@ class HeavyAtom(Feature):
     Prepare the heavy atom weights
     """
     super().cache(trajectory)
-    self.heavy_atoms = np.full(len(self.resids), 0, dtype=np.float32)
-    self.heavy_atoms[np.where(self.atomic_numbers > 1)] = self.default_weight
+    self.cached_array = np.full(len(self.resids), 0, dtype=np.float32)
+    self.cached_array[np.where(self.atomic_numbers > 1)] = self.default_weight
 
   def query(self, topology, frame_coords, focal_point): 
     """
@@ -630,7 +636,7 @@ class HeavyAtom(Feature):
     if frame_coords.shape.__len__() == 3: 
       frame_coords = frame_coords[self.frame_offset] 
     idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
-    weights = self.heavy_atoms[idx_inbox]
+    weights = self.cached_array[idx_inbox]
     return coord_inbox, weights
 
 
@@ -657,15 +663,15 @@ class Aromaticity(Feature):
       logger.warning(f"{self.classname}: The length of feature array {len(atoms_aromatic)} does not match the number of atoms {trajectory.n_atoms} in the topology. ") 
 
     if self.reverse: 
-      self.atoms_aromatic = np.array([1 if i == 0 else 0 for i in atoms_aromatic], dtype=np.float32)
+      self.cached_array = np.array([1 if i == 0 else 0 for i in atoms_aromatic], dtype=np.float32)
     else: 
-      self.atoms_aromatic = np.array(atoms_aromatic, dtype=np.float32)
+      self.cached_array = np.array(atoms_aromatic, dtype=np.float32)
 
   def query(self, topology, frame_coords, focal_point):
     if frame_coords.shape.__len__() == 3: 
       frame_coords = frame_coords[self.frame_offset]
     idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
-    weights = self.atoms_aromatic[idx_inbox]
+    weights = self.cached_array[idx_inbox]
     return coord_inbox, weights
 
 
@@ -693,15 +699,15 @@ class Ring(Feature):
       logger.warning(f"{self.classname}: The length of feature array {len(atoms_in_ring)} does not match the number of atoms {trajectory.n_atoms} in the topology. ") 
 
     if self.reverse: 
-      self.atoms_in_ring = np.array([1 if i == 0 else 0 for i in atoms_in_ring], dtype=np.float32)
+      self.cached_array = np.array([1 if i == 0 else 0 for i in atoms_in_ring], dtype=np.float32)
     else: 
-      self.atoms_in_ring = np.array(atoms_in_ring, dtype=np.float32)
+      self.cached_array = np.array(atoms_in_ring, dtype=np.float32)
   
   def query(self, topology, frame_coords, focal_point): 
     if frame_coords.shape.__len__() == 3: 
       frame_coords = frame_coords[self.frame_offset]
     idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
-    weights = self.atoms_in_ring[idx_inbox]
+    weights = self.cached_array[idx_inbox]
     return coord_inbox, weights
 
 
@@ -724,14 +730,16 @@ class Selection(Feature):
     super().__init__(**kwargs)
     self.default_value = default_value
 
+  def cache(self, trajectory):
+    super().cache(trajectory)
+    self.cached_array = np.full(trajectory.top.n_atoms, 0, dtype=np.float32)
+    self.cached_array[self.selected] = self.default_value
+
   def query(self, topology, frame_coords, focal_point):
-    """
-    No need to cache the weights because of the selection is set by the user 
-    """
     if frame_coords.shape.__len__() == 3: 
       frame_coords = frame_coords[self.frame_offset]
     idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
-    weights = np.full(np.count_nonzero(idx_inbox), self.default_value, dtype=np.float32)
+    weights = self.cached_array[idx_inbox] 
     assert len(weights) == len(coord_inbox), f"{self.classname}: The length of weights {len(weights)} does not match the length of coordinates {len(coord_inbox)}"
     return coord_inbox, weights
   
@@ -749,13 +757,13 @@ class HBondDonor(Feature):
     if len(atoms_hbond_donor) != trajectory.n_atoms:
       logger.warning(f"{self.classname}: The length of feature array {len(atoms_hbond_donor)} does not match the number of atoms {trajectory.n_atoms} in the topology. ") 
     
-    self.atoms_hbond_donor = np.array(atoms_hbond_donor, dtype=np.float32)
+    self.cached_array = np.array(atoms_hbond_donor, dtype=np.float32)
   
   def query(self, topology, frame_coords, focal_point):
     if frame_coords.shape.__len__() == 3: 
       frame_coords = frame_coords[self.frame_offset]
     idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
-    weights = self.atoms_hbond_donor[idx_inbox]
+    weights = self.cached_array[idx_inbox]
     return coord_inbox, weights
 
 
@@ -772,13 +780,13 @@ class HBondAcceptor(Feature):
     if len(atoms_hbond_acceptor) != trajectory.n_atoms:
       logger.warning(f"{self.classname}: The length of feature array {len(atoms_hbond_acceptor)} does not match the number of atoms {trajectory.n_atoms} in the topology. ") 
 
-    self.atoms_hbond_acceptor = np.array(atoms_hbond_acceptor, dtype=np.float32)
+    self.cached_array = np.array(atoms_hbond_acceptor, dtype=np.float32)
 
   def query(self, topology, frame_coords, focal_point):
     if frame_coords.shape.__len__() == 3: 
       frame_coords = frame_coords[self.frame_offset]
     idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
-    weights = self.atoms_hbond_acceptor[idx_inbox]
+    weights = self.cached_array[idx_inbox]
     return coord_inbox, weights
 
 
@@ -795,13 +803,13 @@ class Hybridization(Feature):
     if len(atoms_hybridization) != trajectory.n_atoms:
       logger.warning(f"{self.classname}: The length of feature array {len(atoms_hybridization)} does not match the number of atoms {trajectory.n_atoms} in the topology. ") 
 
-    self.atoms_hybridization = np.asarray(atoms_hybridization, dtype=np.float32)
+    self.cached_array = np.asarray(atoms_hybridization, dtype=np.float32)
 
   def query(self, topology, frame_coords, focal_point):
     if frame_coords.shape.__len__() == 3: 
       frame_coords = frame_coords[self.frame_offset]
     idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
-    weights = self.atoms_hybridization[idx_inbox]
+    weights = self.cached_array[idx_inbox]
     return coord_inbox, weights
 
 
@@ -827,15 +835,15 @@ class Backbone(Feature):
     super().cache(trajectory)
     backboneness = [1 if i.name in ["C", "O", "CA", "HA", "N", "HN"] else 0 for i in trajectory.top.atoms]
     if self.reverse: 
-      self.backboneness = np.array([1 if i == 0 else 0 for i in backboneness], dtype=np.float32)
+      self.cached_array = np.array([1 if i == 0 else 0 for i in backboneness], dtype=np.float32)
     else: 
-      self.backboneness = np.array(backboneness, dtype=np.float32)
+      self.cached_array = np.array(backboneness, dtype=np.float32)
     
   def query(self, topology, frame_coords, focal_point):
     if frame_coords.shape.__len__() == 3: 
       frame_coords = frame_coords[self.frame_offset]
     idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
-    weights = self.backboneness[idx_inbox]
+    weights = self.cached_array[idx_inbox]
     return coord_inbox, weights
   
 
@@ -858,14 +866,15 @@ class AtomType(Feature):
 
   def cache(self, trajectory):
     super().cache(trajectory)
-    self.atom_type = np.array([1 if i.atomic_number == self.focus_element else 0 for i in trajectory.top.atoms], dtype=np.float32)
+    self.cached_array = np.full(trajectory.top.n_atoms, 0, dtype=np.float32)
+    self.cached_array[np.where(self.atomic_numbers == self.focus_element)] = 1
 
   def query(self, topology, frame_coords, focal_point):
     if frame_coords.shape.__len__() == 3: 
       frame_coords = frame_coords[self.frame_offset]
 
     idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
-    weights = self.atom_type[idx_inbox]
+    weights = self.cached_array[idx_inbox]
 
     if np.sum(weights) == 0:
       logger.warning(f"{self.classname}: No atoms of the type {self.focus_element} is found in the bounding box")
@@ -885,14 +894,8 @@ class PartialCharge(Feature):
     The charge parameter. 
     If "topology", Nearl will refer to the charge values in the topology and this parameter will be ignored. 
     In case of "manual", the charge_parm should be a dictionary with its trajectory identity as the key and the charge values as the value. 
-    In case of "chargefw", the charge_parm is the name of the charge method to be used in ChargeFW2. Note that the computation of charge could be very expensive depending on the size of the structure. 
     The "external" type allows the user to pass the reference to an external function to calculate the charge values. 
-
-  Notes
-  -----
-  For more information about the charge types and parameters, please refer to the ChargeFW documentation with the url: 
-  https://github.com/sb-ncbr/ChargeFW2
-
+    In case of "chargefw", the charge_parm is the name of the charge method to be used in `ChargeFW2 <https://github.com/sb-ncbr/ChargeFW2>`_. Note that the computation of charge could be very expensive depending on the size of the structure. For more information about the charge types and parameters, please refer to its documentation.  
   """
   def __init__(self, charge_type="topology", charge_parm=None, keep_sign="both", **kwargs):
     super().__init__(**kwargs)
@@ -920,17 +923,17 @@ class PartialCharge(Feature):
       if np.allclose(trajectory.top.charge, 0): 
         raise ValueError(f"{self.classname}: The charge values in the topology are all zero meaning the topology of the trajectory does not contain necessary charge information. ")
       else: 
-        self.charge_values = trajectory.top.charge
+        self.cached_array = trajectory.top.charge
 
     elif self.charge_type == "manual": 
       # If the charge type is manual, the charge values should be set manually
-      assert len(self.charge_parm) == trajectory.top.n_atoms, f"The number of charge values does not match the number of atoms in the trajectory"
-      self.charge_values = self.charge_parm[trajectory.identity]
-      self.charge_values = np.array(self.charge_values, dtype=np.float32)
+      assert len(self.charge_parm) == trajectory.top.n_atoms, "The number of charge values does not match the number of atoms in the trajectory"
+      self.cached_array = self.charge_parm[trajectory.identity]
+      self.cached_array = np.array(self.cached_array, dtype=np.float32)
 
     elif self.charge_type == "external": 
       # Use external function to calculate the charge values
-      self.charge_values = self.charge_parm(trajectory)
+      self.cached_array = self.charge_parm(trajectory)
 
     elif self.charge_type == "chargefw":
       # Otherwise, compute the charges using the ChargeFW2
@@ -964,7 +967,7 @@ class PartialCharge(Feature):
             if len(charge_values) != trajectory.n_atoms:
               raise ValueError(f"{self.classname}: The number of charge values does not match the number of atoms in the trajectory")
             else: 
-              self.charge_values = charge_values
+              self.cached_array = charge_values
         except Exception as e: 
           # Step 3 (optional): If the default charge method fails, try alternative methods
           subprocess.call(["cp", f.name, "/tmp/chargefailed.pdb"])
@@ -990,7 +993,7 @@ class PartialCharge(Feature):
                   continue
                 else: 
                   printit(f"{self.classname}: Finished the charge computation with {method} method" + (" without parameter file" if len(parmfile) == 0 else " with parameter file"))
-                  self.charge_values = charge_values
+                  self.cached_array = charge_values
                   break
             except Exception as e:
               logger.warning(f"{self.classname}: Failed to calculate molecular charge (Alternative charge types) because of the following error:\n {e}")
@@ -998,39 +1001,38 @@ class PartialCharge(Feature):
 
       if charges is None or charge_values is None:
         logger.warning(f"{self.classname}: The charge computation fails. Setting all charge values to 0. ", file=sys.stderr)
-        self.charge_values = np.zeros(trajectory.n_atoms)
+        self.cached_array = np.zeros(trajectory.n_atoms)
     
-    assert self.charge_values is not None, f"{self.classname}: The charge values are not set. Please check the charge type and parameters. " 
-    assert len(self.charge_values) == trajectory.n_atoms, f"{self.classname}: The number of charge values does not match the number of atoms in the trajectory. " 
+    assert self.cached_array is not None, f"{self.classname}: The charge values are not set. Please check the charge type and parameters. " 
+    assert len(self.cached_array) == trajectory.n_atoms, f"{self.classname}: The number of charge values does not match the number of atoms in the trajectory. " 
 
     # Final check of the needed sign of the charge values
     if self.keep_sign in ["positive", "p"]:
-      self.charge_values = np.maximum(self.charge_values, 0)
+      self.cached_array = np.maximum(self.cached_array, 0)
     elif self.keep_sign in ["negative", "n"]:
-      self.charge_values = np.minimum(self.charge_values, 0)
+      self.cached_array = np.minimum(self.cached_array, 0)
 
   def query(self, topology, frame_coords, focal_point):
     if frame_coords.shape.__len__() == 3: 
       frame_coords = frame_coords[self.frame_offset]
     idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
-    # coord_inbox = frame_coords[idx_inbox]
-    weights = self.charge_values[idx_inbox] 
+    weights = self.cached_array[idx_inbox] 
     return coord_inbox, weights
 
 
 class Electronegativity(Feature):
   """
-  Annotate each atoms with the electronegativity of the atoms. 
+  Annotate each atoms with the electronegativity of the atoms. The electronegativity is from the https://periodictable.com/.
   """
   def cache(self, trajectory):
     super().cache(trajectory)
-    self.electronegativity = np.array([constants.ELECNEG[i] for i in self.atomic_numbers], dtype=np.float32)
+    self.cached_array = np.array([constants.ELECNEG[i] for i in self.atomic_numbers], dtype=np.float32)
 
   def query(self, topology, frame_coords, focal_point):
     if frame_coords.shape.__len__() == 3: 
       frame_coords = frame_coords[self.frame_offset]
     idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
-    weights = self.electronegativity[idx_inbox]
+    weights = self.cached_array[idx_inbox]
     return coord_inbox, weights
   
 
@@ -1045,13 +1047,13 @@ class Hydrophobicity(Feature):
   def cache(self, trajectory):
     super().cache(trajectory)
     elecnegs = np.array([constants.ELECNEG[i] for i in self.atomic_numbers], dtype=np.float32)
-    self.hydrophobicity = np.abs(elecnegs - constants.ELECNEG[6])
+    self.cached_array = np.abs(elecnegs - constants.ELECNEG[6])
   
   def query(self, topology, frame_coords, focal_point):
     if frame_coords.shape.__len__() == 3: 
       frame_coords = frame_coords[self.frame_offset]
     idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
-    weights = self.hydrophobicity[idx_inbox]
+    weights = self.cached_array[idx_inbox]
     return coord_inbox, weights
 
 
@@ -1273,7 +1275,6 @@ class DynamicFeature(Feature):
     #   ret += f"|{key}:{value}"
     # ret += ">"
     return ret
-    
 
   @property
   def agg(self):
@@ -1313,7 +1314,7 @@ class DynamicFeature(Feature):
     Take the required weight type (self.weight_type) and cache the weights for each atom in the trajectory
     """
     super().cache(trajectory)   # Obtain the atomic number and residue IDs
-    self.cached_weights = cache_properties(trajectory, self.weight_type, **self.feature_args)
+    self.cached_array = cache_properties(trajectory, self.weight_type, **self.feature_args)
 
   def query(self, topology, frame_coords, focal_point):
     """
@@ -1345,7 +1346,7 @@ class DynamicFeature(Feature):
       atomnr_inbox = min(atomnr_inbox, self.MAX_ALLOWED_ATOMS)
 
       coords[idx, :atomnr_inbox] = coord_inbox[:atomnr_inbox]
-      weights[idx, :atomnr_inbox] = self.cached_weights[idx_inbox][:atomnr_inbox]
+      weights[idx, :atomnr_inbox] = self.cached_array[idx_inbox][:atomnr_inbox]
       max_atom_nr = max(max_atom_nr, atomnr_inbox)
     
     if zero_count > 0 and config.verbose(): 
@@ -1421,7 +1422,7 @@ class MarchingObservers(DynamicFeature):
   +------------------------+------------------+
   | Property Name          | Property Type    |
   +========================+==================+
-  | particle_existance     | 1                |
+  | existence              | 1                |
   +------------------------+------------------+
   | direct_count           | 2                |
   +------------------------+------------------+
@@ -1451,7 +1452,7 @@ class MarchingObservers(DynamicFeature):
   For aggregation types, please refer to the :class:`nearl.features.DynamicFeature` .
   
   """
-  def __init__(self, obs="particle_existance", **kwargs): 
+  def __init__(self, obs="existence", **kwargs): 
     # Just omit the sigma parameter while the inheritance. 
     # while initialization of the parent class, weight_type, cutoff, agg are set
     super().__init__(**kwargs)
@@ -1501,15 +1502,12 @@ class MarchingObservers(DynamicFeature):
     ret_arr : np.array
       The feature array with the dimensions of self.dims 
     """
-    st = time.perf_counter()
     ret_arr = commands.marching_observer(
       coords, weights, 
       self.dims, self.spacing, 
       self.cutoff, 
       self.obs, self.agg
     ) 
-    printit(f"{self}: {'Timing_MO':15} {time.perf_counter() - st} seconds, shape: {coords.shape}")  # TODO
-
     return ret_arr.reshape(self.dims)
 
 
@@ -1623,15 +1621,13 @@ class LabelAffinity(Feature):
       printit(f"{self.classname}: The affinity value is {affinity_val:4.2f}")
     return affinity_val
 
+
 class LabelStepping(LabelAffinity):
   """
   Convert the base class affinity value to a steping function. Could convert the regression problem to a classification problem. 
   """
-  def __init__(self, **kwargs):
-    super().__init__(**kwargs)
-
   def query(self, *args):
-    assert not (self.base_value is None), "The base value should be set before the query"
+    assert self.base_value is not None, "The base value should be set before the query"
     final_label = self.base_value // 2
     final_label = min(final_label, 5)
     return (final_label, )
