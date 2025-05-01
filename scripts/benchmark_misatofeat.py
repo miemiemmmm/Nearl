@@ -41,15 +41,19 @@ def get_features(sigma):
   features = OrderedDict()
 
   # Modify the feature type here. 
-  features["feat_prot"] = nearl.features.Mass(selection="!:MOL", outkey="mass_prot", sigma=sigma)
-  features["feat_lig"] = nearl.features.Mass(selection=":MOL", outkey="mass_lig", sigma=sigma)
+  # features["feat_prot"] = nearl.features.Mass(selection="!:MOL", outkey="mass_prot", sigma=sigma)
+  # features["feat_lig"] = nearl.features.Mass(selection=":MOL", outkey="mass_lig", sigma=sigma)
   
   
-  features["mo_prot2"] = nearl.features.MarchingObservers(weight_type="mass", selection="!:MOL", obs="mean_distance", agg="standard_deviation", outkey="mobs_prot")
-  features["mo_lig2"] = nearl.features.MarchingObservers(weight_type="mass", selection=":MOL", obs="mean_distance", agg="standard_deviation", outkey="mobs_lig")
+  # features["mo_prot2"] = nearl.features.MarchingObservers(weight_type="mass", selection="!:MOL", obs="mean_distance", agg="standard_deviation", outkey="mobs_prot")
+  # features["mo_lig2"] = nearl.features.MarchingObservers(weight_type="mass", selection=":MOL", obs="mean_distance", agg="standard_deviation", outkey="mobs_lig")
   
-  features["pdf_prot2"] = nearl.features.DensityFlow(weight_type="mass", selection="!:MOL", agg="standard_deviation", outkey="pdb_prot", sigma=sigma)
-  features["pdf_lig2"] = nearl.features.DensityFlow(weight_type="mass", selection=":MOL", agg="standard_deviation", outkey="pdb_lig", sigma=sigma)
+  # features["pdf_prot2"] = nearl.features.DensityFlow(weight_type="mass", selection="!:MOL", agg="standard_deviation", outkey="pdb_prot", sigma=sigma)
+  # features["pdf_lig2"] = nearl.features.DensityFlow(weight_type="mass", selection=":MOL", agg="standard_deviation", outkey="pdb_lig", sigma=sigma)
+
+  features["stat"] = nearl.features.Mass(outkey="mass_feat", sigma=sigma)
+  features["mo"] = nearl.features.MarchingObservers(weight_type="mass", obs="mean_distance", agg="standard_deviation", outkey="mobs_feat")
+  features["pdf"] = nearl.features.DensityFlow(weight_type="mass", agg="standard_deviation", outkey="pdf_feat", sigma=sigma)
 
   return features 
 
@@ -87,7 +91,7 @@ if __name__ == "__main__":
   FEATURIZER_PARMS = {
     "dimensions": [args.get("dimension")]*3, 
     "lengths": args.get("length"), 
-    "time_window": WINDOW_SIZE,               # TODO: Temporal setting for simple test 
+    "time_window": WINDOW_SIZE, 
     "outfile": outputfile, 
     "cutoff": VOX_cutoff,
     "padding": VOX_cutoff, 

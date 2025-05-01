@@ -504,10 +504,7 @@ class Feature:
       return np.zeros(self.dims, dtype=np.float32)
     st = time.perf_counter()
     ret = commands.frame_voxelize(coords, weights, self.dims, self.spacing, self.cutoff, self.sigma)
-    # if not np.isclose(np.sum(weights),  np.sum(ret), rtol=1e-2):
-    #   logger.warning(f"{self.classname}: The sum of the weights not match {np.sum(weights)} vs {np.sum(ret)}") 
-    logger.info(f"{'Feature generation':15}: {time.perf_counter()-st:8.6f} seconds. ") 
-    
+    print(f"{'Timing_STAT':15} {time.perf_counter() - st:10f} seconds for {coords.shape[0]} atoms")  # TODO
     return ret
 
   def dump(self, result):
@@ -640,6 +637,19 @@ class HeavyAtom(Feature):
     return coord_inbox, weights
 
 
+class Radius(Feature):
+  def cache(self, trajectory):
+    super().cache(trajectory)
+    self.cached_array = np.array([constants.ATOMICRADIUS[i] for i in self.atomic_numbers], dtype=np.float32)
+
+  def query(self, topology, frame_coords, focal_point):
+    if frame_coords.shape.__len__() == 3: 
+      frame_coords = frame_coords[self.frame_offset]
+    idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
+    weights = self.cached_array[idx_inbox]
+    return coord_inbox, weights
+
+
 class Aromaticity(Feature):
   """
   Annotate each atoms as aromatic atom or not (aromatic atoms are encoded 1, otherwise 0). 
@@ -673,7 +683,7 @@ class Aromaticity(Feature):
     idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
     weights = self.cached_array[idx_inbox]
     return coord_inbox, weights
-
+    
 
 class Ring(Feature):
   """
@@ -1406,7 +1416,7 @@ class DensityFlow(DynamicFeature):
     """
     st = time.perf_counter()
     ret_arr = commands.density_flow(frames, weights, self.dims, self.spacing, self.cutoff, self.sigma, self.agg)
-    printit(f"{self}: {'Timing_PDF':15} {time.perf_counter() - st} seconds, shape: {frames.shape}")  # TODO
+    print(f"{'Timing_PDF':15} {time.perf_counter() - st:10f} seconds for {frames.shape[1]} atoms")  # TODO
     
     return ret_arr.reshape(self.dims)  
 
@@ -1502,12 +1512,14 @@ class MarchingObservers(DynamicFeature):
     ret_arr : np.array
       The feature array with the dimensions of self.dims 
     """
+    st = time.perf_counter()
     ret_arr = commands.marching_observer(
       coords, weights, 
       self.dims, self.spacing, 
       self.cutoff, 
       self.obs, self.agg
     ) 
+    print(f"{'Timing_OBS':15} {time.perf_counter() - st:10f} seconds for {coords.shape[1]} atoms")  # TODO 
     return ret_arr.reshape(self.dims)
 
 
