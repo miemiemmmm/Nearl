@@ -7,9 +7,8 @@ channels:
   - nvidia
 
 dependencies:
-  - python=3.9                # Tested with Python 3.9
-  - ambertools                # For PyTraj support
-  - numpy<2.0.0               # Numpy>2.0 breaks some dependencies 
+  - python=3.12                # Tested with Python 3.12
+  - numpy
   - openbabel
   - h5py
   - scipy
