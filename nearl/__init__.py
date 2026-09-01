@@ -141,7 +141,6 @@ def get_example_data(path="./"):
     os.chdir(path)
 
     # Download the example data 
-    # TODO: Add the link to the example data
     if not os.path.exists("example_data.tar.gz"):
       printit(f"Downloading example data to {path}")
       datafile_url = "https://miemiemmmm.b-cdn.net/shared_files/example_data.tar.gz" 
@@ -156,18 +155,19 @@ def get_example_data(path="./"):
       printit("Extracting the example data...")
       subprocess.run(["tar", "-xf", "example_data.tar.gz"], cwd=path) 
     
-    # Obtain the data paths as a dictionary 
+    # Obtain the data paths as a dictionary
     os.chdir("example_data")
     if not os.path.exists("data.py"):
       raise OSError(f"Data index file not found in the extracted folder {os.getcwd()}")
-    import data
-    paths = data.get_data()
+    # NOTE: Load data.py by explicit file path rather than `import data`.
+    # `import data` depends on the extracted folder being on sys.path, and 
+    # it collides with the data directory in Nearl. 
+    import importlib.util
+    data_index_path = os.path.join(os.getcwd(), "data.py")
+    spec = importlib.util.spec_from_file_location("nearl_example_data_index", data_index_path)
+    data_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(data_module)
+    paths = data_module.get_data()
 
     return paths
-
-# from nearl import io, features, models, utils, data, commands
-# from . import features, featurizer, io, utils
-# from .features import Feature
-# from .featurizer import Featurizer
-# from .io import Dataset, Trajectory, TrajectoryLoader
 
