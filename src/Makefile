@@ -1,17 +1,19 @@
 # Prepare default environment variable for compilation
 CUDA_HOME ?= /usr/local/cuda
-CUDA_COMPUTE_CAPABILITY ?= sm_80
+
+DETECTED_ARCH := $(shell nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -n1 | tr -d '. \r')
+ifeq ($(strip $(DETECTED_ARCH)),)
+DETECTED_ARCH := 80
+endif
+CUDA_COMPUTE_CAPABILITY ?= sm_$(DETECTED_ARCH)
 
 # Python-related variables
-# PYTHON_INC := $(shell python3 -c "import sysconfig; print(sysconfig.get_path('include'))")
-# PYBIND_INC := $(shell python3 -c "import pybind11; print(pybind11.get_include())")
 PYTHON_INC := $(shell python3-config --includes)
 PYTHON_TAIL := $(shell python3-config --extension-suffix)
 PYBIND_INC := $(shell python3 -m pybind11 --includes)
 
 # Compiler and compiler flags
 NVCC=nvcc
-# NVCCFLAGS=-use_fast_math -std=c++17 --compiler-options "-fPIC" -O3 -arch=$(CUDA_COMPUTE_CAPABILITY)
 NVCCFLAGS=-Xcompiler -fPIC -std=c++17 -use_fast_math -O3 -arch=$(CUDA_COMPUTE_CAPABILITY)
 
 CC=g++

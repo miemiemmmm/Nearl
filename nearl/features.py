@@ -137,7 +137,7 @@ def selection_to_mol(traj, frameidx, selection):
           print(tmp.read())
         rdmol = Chem.MolFromMol2File(temp.name, sanitize=False, removeHs=False)
     return rdmol
-  except:
+  except Exception:
     return None
 
 
@@ -1010,8 +1010,7 @@ class PartialCharge(Feature):
               continue
 
       if charges is None or charge_values is None:
-        logger.warning(f"{self.classname}: The charge computation fails. Setting all charge values to 0. ", file=sys.stderr)
-        self.cached_array = np.zeros(trajectory.n_atoms)
+        raise RuntimeError(f"{self.classname}: The charge computation failed for all attempted ChargeFW2 methods.")
     
     assert self.cached_array is not None, f"{self.classname}: The charge values are not set. Please check the charge type and parameters. " 
     assert len(self.cached_array) == trajectory.n_atoms, f"{self.classname}: The number of charge values does not match the number of atoms in the trajectory. " 

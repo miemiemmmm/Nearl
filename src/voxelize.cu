@@ -4,6 +4,7 @@
 #include <iostream>
 
 #include "constants.h"
+#include "cpuutils.h"     // For gaussian_map
 #include "gpuutils.cuh"   // For CUDA kernels
 #include "voxelize.cuh"
 
@@ -151,7 +152,7 @@ void voxelize_host_cpu(
 
   // std::cout << "damax: " << damax << std::endl;
 
-  float dvec[3],pvec[3],grid_spac[3],grid_llim[3];
+  float dvec[3],pvec[3],grid_spac[3],grid_llim[3] = {0.0f, 0.0f, 0.0f};
   float c2 = cutoff*cutoff, d2=0.0, netw=0.0;
 
   for (int dd=0;dd<3;dd++) {grid_spac[dd] = spacing; } // ??????????????????
@@ -184,7 +185,7 @@ void voxelize_host_cpu(
           dvec[2] = coord[offset+2]-(grid_llim[2]+(kk+0.5)*grid_spac[2]);
           d2 = dvec[0]*dvec[0]+dvec[1]*dvec[1]+dvec[2]*dvec[2];
           if (d2 > c2) {continue;}
-          netw += exp(-0.5/sigma);
+          netw += gaussian_map(std::sqrt(d2), 0.0, sigma);
         }
       }
     }
@@ -194,12 +195,12 @@ void voxelize_host_cpu(
       for (int jj=aj-damax;jj<=aj+damax;jj++) {
         dvec[1] = coord[offset+1]-(grid_llim[1]+(jj+0.5)*grid_spac[1]);
         for (int kk=ak-damax;kk<=ak+damax;kk++) {
-          gix = ii*dims[0]*dims[0]+jj*dims[1]+kk;
-          if ((gix < 0) || (gix >= gridpoint_nr)) {continue;} 
+          gix = ii*dims[0]*dims[1]+jj*dims[0]+kk;
+          if ((gix < 0) || (gix >= gridpoint_nr)) {continue;}
           dvec[2] = coord[offset+2]-(grid_llim[2]+(kk+0.5)*grid_spac[2]);
           d2 = dvec[0]*dvec[0]+dvec[1]*dvec[1]+dvec[2]*dvec[2];
           if (d2 > c2) {continue;}
-          interpolated[gix] += netw*weight[atm_idx]*exp(-0.5/sigma);
+          interpolated[gix] += netw*weight[atm_idx]*gaussian_map(std::sqrt(d2), 0.0, sigma);
         }
       } 
     }

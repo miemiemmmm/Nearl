@@ -121,7 +121,7 @@ class TrajectoryLoader:
     Update the loading options (stride, frame_indices, mask)
     """
     for key, value in kwargs.items():
-      if key in kwargs:
+      if key in self.__loading_options:
         self.__loading_options[key] = value
 
   def get_loading_options(self, index): 

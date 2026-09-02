@@ -46,6 +46,7 @@ def commandline_interface(args, trajlist, pdbids):
   VOX_dim = args.get("dimension")
   VOX_cutoff = args.get("cutoff")
   VOX_SIGMA = args.get("sigma")
+  outputfile = os.path.join(os.path.abspath(args["output_dir"]), f"{args.get('h5prefix')}{args.get('task_index')}.h5")
 
   FEATURIZER_PARMS = {
     "dimensions": VOX_dim, 
@@ -136,8 +137,6 @@ if __name__ == "__main__":
 
   task_nr = args.get("task_nr")
   task_index = args.get("task_index")
-  prefix = args.get("h5prefix")
-  outputfile = os.path.join(os.path.abspath(args["output_dir"]), f"{prefix}{task_index}.h5") 
 
   # Find the complex files and their PDB code
   template = args.get("complex_template")

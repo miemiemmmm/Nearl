@@ -21,7 +21,8 @@ class RFScore(RandomForestRegressor):
   def save(self, filename):
     joblib.dump(self, filename)
   
-  def load(self, filename):
-    self = joblib.load(filename)
+  @classmethod
+  def load(cls, filename):
+    return joblib.load(filename)
 
 

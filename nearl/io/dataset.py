@@ -89,7 +89,7 @@ def readdata(input_file, keyword, theslice, normalize=False):
 
 
 def readlabel(input_file, position):
-  with h5py.hdffile(input_file, "r") as h5file:
+  with h5py.File(input_file, "r") as h5file:
     ret_data = h5file["label"][position]
   return ret_data
 
