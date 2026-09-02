@@ -6,7 +6,7 @@ from builtins import print as __builtinprint
 from datetime import datetime
 from inspect import stack as __call_stack
 
-__version__ = "0.0.1"
+__version__ = "0.0.3.dev0"
 
 CONFIG = {
     "tempfolder": "/tmp/",
