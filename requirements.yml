@@ -14,19 +14,19 @@ name: nearl_env
 channels:
   - conda-forge
   - anaconda
-  - pytorch
-  - nvidia
 
 dependencies:
   - python=3.12               # Tested with Python 3.12
+  - clang-format=23           # Major version pinned by scripts/format_cpp.sh
   - h5py
   - line_profiler
   - matplotlib
   - numpy
   - pandas
-  - pytorch                   # Pytorch support
-  - pytorch-cuda=12.4         # NOTE: Modify according to your CUDA device  
+  - pybind11                  # Required to build nearl.all_actions
+  - pytorch-gpu>=2.13         # CUDA build; conda-forge resolves the variant
   - pip>=20.1
+  - ruff=0.16.5               # Version pinned by scripts/format_python.sh
   - scipy
   - seaborn
   - scikit-learn
