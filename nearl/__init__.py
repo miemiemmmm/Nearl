@@ -91,11 +91,17 @@ def _stdout_filter(record):
     return False
   return record.levelno > logging.DEBUG or config.debug()
 
+def _bootstrap_file_handler(record):
+  _ensure_file_handler()
+  return True
+
 _stdout_handler = _ColorStreamHandler(sys.stdout)
+_stdout_handler.addFilter(_bootstrap_file_handler)
 _stdout_handler.addFilter(_stdout_filter)
 _stdout_handler.setFormatter(logging.Formatter("%(message)s"))
 _stderr_handler = _ColorStreamHandler(sys.stderr)
 _stderr_handler.setLevel(logging.WARNING)
+_stderr_handler.addFilter(_bootstrap_file_handler)
 _stderr_handler.setFormatter(logging.Formatter("%(message)s"))
 _package_logger.addHandler(_stdout_handler)
 _package_logger.addHandler(_stderr_handler)
