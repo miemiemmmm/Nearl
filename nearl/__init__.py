@@ -216,61 +216,55 @@ def get_example_data(path="./"):
     """
     Download the example data from the data repository to the target folder.
 
+    The target folder is created if it does not exist yet.
+
     Notes
     -----
     Keywords of the returned dictionary:
     MINI_TRAJSET, MINI_PDBSET, PDBBIND_REFINED, PDBBIND_GENERAL
 
     """
-    if not os.path.exists(path):
-        raise OSError(f"Path {path} does not exist")
-    elif not os.path.isdir(path):
+    import subprocess
+
+    path = os.path.abspath(path)
+    os.makedirs(path, exist_ok=True)
+    if not os.path.isdir(path):
         raise OSError(f"Path {path} is not a directory")
     elif not os.access(path, os.W_OK):
         raise OSError(f"Path {path} is not writable")
+
+    archive = os.path.join(path, "example_data.tar.gz")
+    datadir = os.path.join(path, "example_data")
+
+    # Download the example data
+    if not os.path.exists(archive):
+        log(f"Downloading example data to {path}")
+        datafile_url = "https://miemiemmmm.b-cdn.net/shared_files/example_data.tar.gz"
+        subprocess.run(["wget", "--directory-prefix", path, datafile_url], check=False)
     else:
-        import subprocess
-
-        os.chdir(path)
-
-        # Download the example data
-        if not os.path.exists("example_data.tar.gz"):
-            log(f"Downloading example data to {path}")
-            datafile_url = (
-                "https://miemiemmmm.b-cdn.net/shared_files/example_data.tar.gz"
-            )
-            subprocess.run(
-                ["wget", "--directory-prefix", path, datafile_url], check=False
-            )
-        else:
-            log(
-                "The example data (example_data.tar.gz) already exists! Skip downloading..."
-            )
-
-        # Extract the compressed file
-        if os.path.exists("example_data"):
-            log("The example data folder already exists! Skip extracting...")
-        else:
-            log("Extracting the example data...")
-            subprocess.run(["tar", "-xf", "example_data.tar.gz"], cwd=path, check=False)
-
-        # Obtain the data paths as a dictionary
-        os.chdir("example_data")
-        if not os.path.exists("data.py"):
-            raise OSError(
-                f"Data index file not found in the extracted folder {os.getcwd()}"
-            )
-        # NOTE: Load data.py by explicit file path rather than `import data`.
-        # `import data` depends on the extracted folder being on sys.path, and
-        # it collides with the data directory in Nearl.
-        import importlib.util
-
-        data_index_path = os.path.join(os.getcwd(), "data.py")
-        spec = importlib.util.spec_from_file_location(
-            "nearl_example_data_index", data_index_path
+        log(
+            "The example data (example_data.tar.gz) already exists! Skip downloading..."
         )
-        data_module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(data_module)
-        paths = data_module.get_data()
 
-        return paths
+    # Extract the compressed file
+    if os.path.exists(datadir):
+        log("The example data folder already exists! Skip extracting...")
+    else:
+        log("Extracting the example data...")
+        subprocess.run(["tar", "-xf", archive], cwd=path, check=False)
+
+    # Obtain the data paths as a dictionary
+    data_index_path = os.path.join(datadir, "data.py")
+    if not os.path.exists(data_index_path):
+        raise OSError(f"Data index file not found in the extracted folder {datadir}")
+    # NOTE: Load data.py by explicit file path rather than `import data`.
+    # `import data` depends on the extracted folder being on sys.path, and
+    # it collides with the data directory in Nearl.
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "nearl_example_data_index", data_index_path
+    )
+    data_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(data_module)
+    return data_module.get_data()

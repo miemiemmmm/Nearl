@@ -9,6 +9,7 @@ Before installing Nearl, ensure that the following software is installed on your
   - A Python environment manager: `conda <https://docs.conda.io/en/latest/miniconda.html>`_, `micromamba <https://mamba.readthedocs.io/en/latest/user_guide/micromamba.html>`_ or others
   - A partial charge calculator (if partial charge is not readily available from the topology): `ChargeFW2 <https://github.com/sb-ncbr/ChargeFW2>`_ 
   - Visualization and surface calculation: `SiESTA-Surf <https://github.com/miemiemmmm/SiESTA>`_ and `Open3D <https://www.open3d.org/>`_
+  - In-notebook trajectory viewing (``Trajectory.visualize()``): `NGLView <https://github.com/nglviewer/nglview>`_
 
 .. tip:: 
 

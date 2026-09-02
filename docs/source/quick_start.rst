@@ -70,7 +70,7 @@ Below is an example of initializing a simple trajectory loader:
       ..., 
       (trajn, topn)
     ]
-    trajloader = nearl.TrajectoryLoader(traj_list)
+    trajloader = nearl.io.TrajectoryLoader(traj_list)
 
 
 .. Some examples of link to API document
@@ -90,13 +90,15 @@ The following code initializes a simple featurizer with the following parameters
 
 .. code-block:: python
 
+  import nearl.featurizer
+
   FEATURIZER_PARMS = {
-    "dimensions": 32,       # Dimension of the 3D grid 
-    "lengths": 16,          # Length of the 3D grid in Angstrom, it yields 0.5 resolution 
-    "time_window": 10,      # Number of frames to slice each trajectory 
-    "sigma": 1.5, 
-    "cutoff": 3.5, 
-    "outfile": "/tmp/features.h5",   # Output structured HDF file 
+    "dimensions": 32,       # Dimension of the 3D grid
+    "lengths": 16,          # Length of the 3D grid in Angstrom, it yields 0.5 resolution
+    "time_window": 10,      # Number of frames to slice each trajectory
+    "sigma": 1.5,
+    "cutoff": 3.5,
+    "outfile": "/tmp/features.h5",   # Output structured HDF file
   }
   featurizer = nearl.featurizer.Featurizer(FEATURIZER_PARMS)
 
@@ -113,7 +115,9 @@ The argument ``outkey`` for each individual feauture should be defined separatel
 1. **Register a list of features:** Typical way to register features
 
 .. code-block:: python
-  
+
+  import nearl.features
+
   # Use a simple list of features
   features_list = [
     nearl.features.Aromaticity(selection=":LIG", outkey="arom_lig"),

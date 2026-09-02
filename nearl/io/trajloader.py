@@ -35,16 +35,12 @@ class TrajectoryLoader:
     .. code-block:: python
 
       import nearl
-      import nearl.data
-      trajs = [
-        nearl.data.MINI_TRAJ,
-        nearl.data.MINI_TRAJ,
-        nearl.data.MINI_TRAJ,
-        nearl.data.MINI_TRAJ,
-      ]
-      loader = nearl.TrajectoryLoader(trajs)
-      print(f"{len(loader)} trajectories detected")  # 4 trajectories detected
-      loader[3].visualize()  # Visualize the last trajectory
+      import nearl.io
+
+      EXAMPLE_DATA = nearl.get_example_data("/tmp/nearl_test")
+      loader = nearl.io.TrajectoryLoader(EXAMPLE_DATA["MINI_TRAJSET"])
+      print(f"{len(loader)} trajectories detected")
+      loader[0].visualize()  # Visualize the first trajectory
       print(loader.loading_options)  # Print the loading options
       for traj in loader:
         print(traj)  # Print the trajectory information

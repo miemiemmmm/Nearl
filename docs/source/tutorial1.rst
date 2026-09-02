@@ -9,7 +9,7 @@ In this tutorial, we will delve into the process of feature customization within
 
 General concept
 ---------------
-When defining a new feature, you need to inherit the base class ``Features`` and implement the feature function. 
+When defining a new feature, you need to inherit the base class ``Feature`` and implement the feature function.
 The ``cache`` method is designed to store the structural information (``self.cached_props``) that will be used during the following steps. 
 It is designed to be called only once when processing each trajectory, unless the trajectory is reloaded from time to time. 
 The returned variables from the ``query`` method are directly put to the ``run`` method. 
@@ -19,34 +19,34 @@ The following is a simple implementation of a feature.
 
   import numpy as np
   from nearl import commands, utils
-  from nearl.features import Features
-  
-  class MyFirstFeature(Features): 
+  from nearl.features import Feature
+
+  class MyFirstFeature(Feature):
     def __init__(self, **kwargs):
       super().__init__(**kwargs)
       # Add your own initialization
 
     def cache(self, trajectory):
       super().cache(trajectory)
-      # this example is to generate a random number for each atom
+      # this example gives every atom the same unit weight
       self.cached_props = np.full(trajectory.top.n_atoms, 1)
 
-    def query(self, topology, frames, focus): 
-      # Retrieve the concerned substructure for further feature calculation 
-      mask_inbox, coords = super().query(topology, frame, focus)
+    def query(self, topology, frame_coords, focal_point):
+      # Retrieve the concerned substructure for further feature calculation
+      mask_inbox, coords = super().query(topology, frame_coords, focal_point)
       weights = self.cached_props[mask_inbox]
-      return coords, weights 
+      return coords, weights
 
-    def run(self, coords, weights): 
-      # Transform the frame-slice into a feature vector 
+    def run(self, coords, weights):
+      # Transform the frame-slice into a feature vector
       feature_vector = commands.frame_voxelize(coords, weights, self.dims, self.spacing, self.cutoff, self.sigma)
       return feature_vector
 
     def dump(self, feature_vector):
-      # Put the output feature ``feature_vector`` into HDF file 
-      utils.append_hdf_data(self.outfile, self.outkey, 
-                            np.asarray([result], dtype=np.float32), 
-                            dtype=np.float32, maxshape=(None, *self.dims), 
+      # Put the output feature ``feature_vector`` into HDF file
+      utils.append_hdf_data(self.outfile, self.outkey,
+                            np.asarray([feature_vector], dtype=np.float32),
+                            dtype=np.float32, maxshape=(None, *self.dims),
                             chunks=True, compression="gzip", compression_opts=4)
 
 
@@ -68,7 +68,8 @@ Since applying a bounding box is unnecessary in this example, the ``query`` meth
 The ``run`` method then receives the output coordinates from the ``query`` method and computes the contact map based on the cached properties and the ``cutoff``. 
 
 Note that ``RFScore`` is a static feature, and we use only the first frame of each frame-slice. 
-Since this is not a voxel-based feature, the ``outshape`` for feature initialization is manually set to ``[1, 36]``.
+Since this is not a voxel-based feature, the ``outshape`` for feature initialization is manually set to ``[None, 36]``.
+``outshape`` is used as the ``maxshape`` of the HDF5 dataset, so the first axis has to be ``None`` for the results of successive frame-slices to be appended.
 Hydrogen atoms are included during the structure processing, although they do not affect the final count of contacts. 
 
 .. code-block:: python
@@ -85,7 +86,7 @@ Hydrogen atoms are included during the structure processing, although they do no
 
   class RFScoreFeat(Feature): 
     def __init__(self, moiety_of_interest, cutoff, **kwargs):
-      super().__init__(outshape = [1, 36], **kwargs)
+      super().__init__(outshape = [None, 36], **kwargs)
       self.moi = moiety_of_interest
       self.cutoff = cutoff
     

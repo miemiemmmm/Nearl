@@ -6,7 +6,20 @@ import h5py
 import numpy as np
 import open3d as o3d
 from matplotlib import colormaps
-from siesta.scripts import view_obj
+
+try:
+    from siesta.scripts import view_obj
+except ImportError:
+    view_obj = None
+
+
+def _require_siesta():
+    if view_obj is None:
+        raise ImportError(
+            "SiESTA-Surf is required for rendering; install it from "
+            "https://github.com/miemiemmmm/SiESTA"
+        )
+
 
 element_color_map = {
     # BASIC ELEMENTS
@@ -192,6 +205,7 @@ def get_geo_coordi(coordi) -> list:
 
 # TODO: Already put this to the SiESTA
 def add_bounding_box(dims):
+    _require_siesta()
     boxpoints = np.array(
         [
             [0, 0, 0],
@@ -232,6 +246,7 @@ def add_bounding_box(dims):
 
 
 def render_slices(inputfile: str, index: int, args):
+    _require_siesta()
     print("Reading the voxel and meta-data from the hdf file")
     st = time.perf_counter()
     with h5py.File(inputfile, "r") as hdf:
@@ -449,6 +464,7 @@ def parse_view_voxel():
 
 
 def render_voxels(inputfile: str, index: int, args):
+    _require_siesta()
     print("Reading the voxel and meta-data from the hdf file")
     st = time.perf_counter()
     with h5py.File(inputfile, "r") as hdf:
