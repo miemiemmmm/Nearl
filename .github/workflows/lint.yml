@@ -1,0 +1,43 @@
+# Formatting gates: ruff for Python, clang-format for the C++/CUDA in src/.
+# Both versions are enforced by the scripts, so bump them here in lockstep.
+#
+# Ruff version: 0.16.5
+# Clang-format version: 23.1.0
+
+name: Lint and format
+
+"on":
+  push:
+    branches: ["main"]
+  pull_request:
+
+jobs:
+  ruff-format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install ruff
+        run: pip install ruff==0.16.5
+
+      - name: Check lint rules and formatting
+        run: bash scripts/format_python.sh check
+
+  clang-format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install clang-format
+        run: pip install clang-format==23.1.0
+
+      - name: Check C++/CUDA formatting
+        run: bash scripts/format_cpp.sh check

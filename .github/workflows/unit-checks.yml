@@ -1,0 +1,51 @@
+# Unit-level checks only: parameter validation, IO plumbing, logging, model
+# construction. There is no CUDA extension on this runner, so featurization
+# never runs -- green here does NOT mean voxelization/aggregation work.
+name: Unit checks (no GPU)
+
+"on":
+  push:
+    branches: ["main"]
+  pull_request:
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pulls pytraj in via ambertools (conda-forge's pre-built binary)
+      # rather than scripts/instant_pytraj.sh's from-source build: this job
+      # just needs *a* working pytraj to run the test suite reliably. 
+      - name: Set up micromamba
+        uses: mamba-org/setup-micromamba@v1
+        with:
+          environment-name: nearl_ci
+          create-args: >-
+            python=3.12
+            ambertools
+            numpy
+            h5py
+            scipy
+            pytorch-cpu
+            rdkit
+            openbabel
+            scikit-learn
+            joblib
+            pytest
+          channels: conda-forge
+
+      - name: Install nearl
+        shell: bash -el {0}
+        run: pip install . --no-build-isolation
+
+      # Excluded: test_actions/test_benchmark/test_features need the CUDA
+      # extension; test_visualization needs a display.
+      - name: Run unit checks
+        shell: bash -el {0}
+        run: |
+          pytest pytests/ -q \
+            --ignore=pytests/test_actions.py \
+            --ignore=pytests/test_benchmark.py \
+            --ignore=pytests/test_features.py \
+            --ignore=pytests/test_visualization.py

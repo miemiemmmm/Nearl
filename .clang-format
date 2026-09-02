@@ -1,0 +1,8 @@
+# Style for the C++/CUDA sources in src/. LLVM's default already matches the
+# 2-space indentation and `float *x` pointer style used there.
+BasedOnStyle: LLVM
+
+ColumnLimit: 100        # long CUDA kernel signatures; GROMACS uses the same
+SortIncludes: Never     # never reorder headers - keep this purely cosmetic
+Standard: c++17         # matches -std=c++17 in src/Makefile
+MaxEmptyLinesToKeep: 2  # preserve the blank-line section breaks already in src/
