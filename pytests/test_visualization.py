@@ -4,7 +4,7 @@ import open3d as o3d
 
 from nearl import commands
 
-view_time = 3
+view_time = 1
 
 def test_view_ret():
   ret = np.random.normal(size=(32, 32, 32), loc=5, scale=2).astype(np.float32)

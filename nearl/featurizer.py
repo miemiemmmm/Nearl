@@ -98,9 +98,11 @@ class Featurizer:
     # assert ("lengths" in parms) or ("spacing" in parms), "Please define the 'lengths' or 'spacing' in the parameter set"
 
     # Basic parameters for the featurizer to communicate with cuda code
-    self.__dims = parms.get("dimensions", None)   # Set the dimensions of the 3D grid
+    self.__dims = None
     self.__lengths = None
     self.__spacing = None
+    if parms.get("dimensions", None) is not None:
+      self.dims = parms.get("dimensions")   # Normalize scalar/list/tuple into a 3-element array
     if "lengths" in parms:
       self.__lengths = parms.get("lengths", 16)   # Set the lengths of the 3D grid
       self.__spacing = np.mean(self.lengths / self.dims)

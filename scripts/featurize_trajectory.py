@@ -128,4 +128,4 @@ if __name__ == '__main__':
 
   feat.register_features(features)
   
-  feat.main_loop(8)
+  feat.run()

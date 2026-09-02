@@ -61,7 +61,7 @@ Register features and run
   # Register the trajectory loader, focus and run the featurization
   featurizer.register_trajloader(loader)  # Register the trajectory loader in the first step
   featurizer.register_focus([":LIG"], "mask")  # focus on the ligand
-  featurizer.main_loop()
+  featurizer.run()
   
 
 .. Result visualization

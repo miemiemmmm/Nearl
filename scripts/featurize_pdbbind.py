@@ -124,7 +124,7 @@ def commandline_interface(args, trajlist, pdbids):
   featurizer.register_trajloader(trajloader)
   featurizer.register_focus([":LIG"], "mask")
   featurizer.register_features(featureset)
-  featurizer.main_loop(args.get("cpu_nr"))
+  featurizer.run()
 
 
 if __name__ == "__main__":

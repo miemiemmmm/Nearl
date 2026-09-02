@@ -157,7 +157,7 @@ After registering the features, trajectory loader and substructure of interest h
   featurizer.register_trajloader(loader) 
   # focus on the protein-ligand binding site 
   featurizer.register_focus([":LIG"], "mask")  
-  featurizer.main_loop()
+  featurizer.run()
 
 
 .. _ref_quick_start_viewoutput:

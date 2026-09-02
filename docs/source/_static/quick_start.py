@@ -48,4 +48,4 @@ if __name__ == "__main__":
   # Register the trajectory loader, focused selection and start the main loop
   featurizer.register_trajloader(loader) 
   featurizer.register_focus([":LIG"], "mask") 
-  featurizer.main_loop()
+  featurizer.run()

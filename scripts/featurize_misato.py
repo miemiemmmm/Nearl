@@ -218,5 +218,5 @@ if __name__ == "__main__":
 
   print(f"There are {len(features)} features registered: {features.keys()}")
   feat.register_features(features)
-  feat.main_loop()
+  feat.run()
 
