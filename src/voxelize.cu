@@ -68,7 +68,7 @@ __global__ void frame_interp_global(
   const int num_threads = blockDim.x; 
 
   float local_sum = 0.0f; 
-  int x, y, z, rem; 
+  int x, y, z;
   float grid_x, grid_y, grid_z, dist_sq; 
 
   // For each block, compute the partial sum 
@@ -145,14 +145,11 @@ void voxelize_host_cpu(
   const float sigma
 ){
   unsigned int gridpoint_nr = dims[0] * dims[1] * dims[2];
-  unsigned int grid_size = (gridpoint_nr + BLOCK_SIZE - 1) / BLOCK_SIZE;
 
   int ai=0,aj=0,ak=0,gix=-1;
   int damax = ceil(cutoff/spacing);
 
-  // std::cout << "damax: " << damax << std::endl;
-
-  float dvec[3],pvec[3],grid_spac[3],grid_llim[3] = {0.0f, 0.0f, 0.0f};
+  float dvec[3],grid_spac[3],grid_llim[3] = {0.0f, 0.0f, 0.0f};
   float c2 = cutoff*cutoff, d2=0.0, netw=0.0;
 
   for (int dd=0;dd<3;dd++) {grid_spac[dd] = spacing; } // ??????????????????
@@ -301,7 +298,6 @@ void voxelize_host(
   const float sigma
 ){
   unsigned int gridpoint_nr = dims[0] * dims[1] * dims[2];
-  unsigned int grid_size = (gridpoint_nr + BLOCK_SIZE - 1) / BLOCK_SIZE;
 
   float *coord_gpu;
   cudaMalloc(&coord_gpu, atom_nr * 3 * sizeof(float));
@@ -430,10 +426,7 @@ void trajectory_voxelization_host_cpu(
   const float sigma,
   const int type_agg
 ){
-  const unsigned int gridpoint_nr = dims[0] * dims[1] * dims[2];
-  const unsigned int grid_size = (gridpoint_nr + BLOCK_SIZE - 1) / BLOCK_SIZE;
-
-  for (int frame_idx = 0; frame_idx < frame_nr; ++frame_idx) { 
+  for (int frame_idx = 0; frame_idx < frame_nr; ++frame_idx) {
     voxelize_host_cpu(
       voxelize_dynamics, 
       coord + frame_idx * atom_nr * 3, 

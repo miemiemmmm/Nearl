@@ -9,9 +9,16 @@ description = "Nearl: A generalizable framework for 3D dynamic feature extractio
 authors = [
     {name = "Yang Zhang", email = "yangz3@kth.se"},
 ]
-# Reconsider dependencies when publishing the package
-# Ambertools and Openbabel should be installed separately
+# Core dependencies
+# NOTE: PyTraj 3.0.X.X should be installed separately
 dependencies = [
+    "numpy",
+    "h5py",
+    "scipy",
+    "torch",
+    "rdkit",
+    "openbabel",
+    "pybind11",
 ]
 requires-python = ">=3.9"
 readme = "README.md"

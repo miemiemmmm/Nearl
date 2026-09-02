@@ -1,5 +1,7 @@
 import os
+import shutil
 import subprocess
+import warnings
 
 from setuptools import Extension, find_packages, setup
 from setuptools.command.build_ext import build_ext as _build_ext
@@ -12,6 +14,14 @@ class build_ext_nearl(_build_ext):
     def build_extension(self, ext):
         if ext.name != "nearl.all_actions":
             return super().build_extension(ext)
+        if shutil.which("nvcc") is None:
+            warnings.warn(
+                "nvcc not found on PATH; skipping the nearl.all_actions CUDA "
+                "extension. GPU-based featurization/aggregation will be "
+                "unavailable until it's built (see src/Makefile).",
+                stacklevel=2,
+            )
+            return
         subprocess.check_call(["make", "all_actions"], cwd=SRC_DIR)
         built_so = os.path.join(SRC_DIR, "all_actions.so")
         if not os.path.isfile(built_so):

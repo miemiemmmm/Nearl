@@ -1,0 +1,26 @@
+# Runs scripts/format_python.sh in check mode (ruff lint rules + format
+# check) against the whole repo. Unlike validate-pytraj-install.yml, this is
+# a real gate -- failure fails the workflow.
+name: Lint and format
+
+"on":
+  push:
+    branches: ["main"]
+  pull_request:
+
+jobs:
+  ruff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # scripts/format_python.sh pins and enforces this exact ruff version.
+      - name: Install ruff
+        run: pip install ruff==0.16.5
+
+      - name: Check lint rules and formatting
+        run: bash scripts/format_python.sh check
