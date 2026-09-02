@@ -86,8 +86,13 @@ class _ColorStreamHandler(logging.StreamHandler):
     color = self._colors.get(record.levelno)
     return f"{color}{msg}\033[0m" if color and self.stream.isatty() else msg
 
+def _stdout_filter(record):
+  if record.levelno >= logging.WARNING:
+    return False
+  return record.levelno > logging.DEBUG or config.debug()
+
 _stdout_handler = _ColorStreamHandler(sys.stdout)
-_stdout_handler.addFilter(lambda r: r.levelno < logging.WARNING)
+_stdout_handler.addFilter(_stdout_filter)
 _stdout_handler.setFormatter(logging.Formatter("%(message)s"))
 _stderr_handler = _ColorStreamHandler(sys.stderr)
 _stderr_handler.setLevel(logging.WARNING)
@@ -105,7 +110,7 @@ def _ensure_file_handler():
     _package_logger.addHandler(_file_handler)
   return _file_handler
 
-def log(*arg, **kwarg):
+def _log(level, arg, kwarg):
   _ensure_file_handler()
   if config.debug():
     log_msg = loginfo_debug()
@@ -113,10 +118,7 @@ def log(*arg, **kwarg):
     log_msg = loginfo_datetime()
   else:
     log_msg = loginfo_runtime()
-
   message = log_msg + " ".join((str(i) for i in arg))
-  lowered = message.lower()
-  level = logging.WARNING if "warning" in lowered else logging.ERROR if "error" in lowered else logging.INFO
 
   override_stream = kwarg.pop("file", None)
   if override_stream is not None:
@@ -126,6 +128,14 @@ def log(*arg, **kwarg):
     _file_handler.handle(_package_logger.makeRecord(_package_logger.name, level, __file__, 0, message, None, None))
   else:
     _package_logger.log(level, message)
+
+def log(*arg, **kwarg):
+  _log(logging.INFO, arg, kwarg)
+
+log.info = log
+log.debug = lambda *arg, **kwarg: _log(logging.DEBUG, arg, kwarg)
+log.warning = lambda *arg, **kwarg: _log(logging.WARNING, arg, kwarg)
+log.error = lambda *arg, **kwarg: _log(logging.ERROR, arg, kwarg)
 
 
 def summary(): 

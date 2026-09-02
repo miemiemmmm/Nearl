@@ -42,16 +42,16 @@ def traj_to_rdkit(traj, atomidx, frameidx):
       if np.isnan(atom.GetDoubleProp('_GasteigerCharge')):
         atomsymbol = atom.GetSymbol().upper()
         if atomsymbol in DEFAULT_PARTIAL_CHARGE.keys():
-          log(f"Warning: Found Nan in rdkit molecule; Setting the atom {atomsymbol} to its default partial charge {DEFAULT_PARTIAL_CHARGE[atomsymbol]}")
+          log.warning(f"Found Nan in rdkit molecule; Setting the atom {atomsymbol} to its default partial charge {DEFAULT_PARTIAL_CHARGE[atomsymbol]}")
           atom.SetDoubleProp('_GasteigerCharge', DEFAULT_PARTIAL_CHARGE[atomsymbol])
         else:
           atom.SetDoubleProp('_GasteigerCharge', 0.0)
-          log(f"Warning: Found NaN in rdkit molecule; Atom {atomsymbol} not found in default preset. _GasteigerCharge set to 0.0")
+          log.warning(f"Found NaN in rdkit molecule; Atom {atomsymbol} not found in default preset. _GasteigerCharge set to 0.0")
     if True in np.isnan([atom.GetDoubleProp('_GasteigerCharge') for atom in mol.GetAtoms()]):
-      log("DEBUG Warning: Still found nan in the charge", [atom.GetDoubleProp('_GasteigerCharge') for atom in mol.GetAtoms()])
+      log.warning("Still found nan in the charge", [atom.GetDoubleProp('_GasteigerCharge') for atom in mol.GetAtoms()])
     return mol
   except Exception as e:
-    log(f"Caught exception during rdkit mol generation: ", e)
+    log.error(f"Caught exception during rdkit mol generation: {e}")
     if config.debug():
       print("Please check the following PDB string:")
       print(pdbstr)
@@ -120,15 +120,15 @@ def DACbytraj(traj, frameidx, themask, **kwargs):
   donor_pattern = "[!H0;#7,#8,#9]"
   selection = traj.top.select(themask)
   if len(selection) == 0:
-    log(f"No atom in the selected mask. Skipping it.")
+    log.warning(f"No atom in the selected mask. Skipping it.")
     return np.array([]), np.array([])
   if (">" in themask) or ("<" in themask):
-    log(f"Detected distance based mash. Please make sure that the reference is set to the trajectory, otherwise, all of the atoms will be processed");
+    log.warning(f"Detected distance based mash. Please make sure that the reference is set to the trajectory, otherwise, all of the atoms will be processed");
   tmp_traj = traj.copy_traj()
   if traj.top.select(f"!({themask})").__len__() > 0:
     tmp_traj.strip(f"!({themask})")
   if (tmp_traj.top.n_atoms == traj.top.n_atoms) and config.verbose():
-    log(f"All atoms are kept after applying the mask. Please make sure if this is wanted.")
+    log.warning(f"All atoms are kept after applying the mask. Please make sure if this is wanted.")
 
   pdbstr = write_pdb_block(traj, selection, frame_index=frameidx)
   mol = Chem.MolFromPDBBlock(pdbstr, sanitize=False, removeHs=False)
@@ -314,10 +314,10 @@ def correct_mol_by_smiles(refmol2, prob_smiles):
   # NOTE: Ligand PDB format does not contain bond information; PDB might be the more robust format
   # NOTE: Smiles has to correctly represent the molecule structure
   if mol1 is None:
-    log("Failed to process the smiles. Please check the validity of the smiles")
+    log.error("Failed to process the smiles. Please check the validity of the smiles")
     return None
   elif mol2 is None:
-    log("Failed to process the mol2 file. Please check the validity of the mol2 file")
+    log.error("Failed to process the mol2 file. Please check the validity of the mol2 file")
     return None
 
   mol1 = Chem.AddHs(mol1, addCoords=True)
@@ -414,7 +414,7 @@ def sanitize_bond(mol_raw):
 
     bond_length_expected = BOND_LENGTH_MAP[bond_rep]
     if (bond_length > bond_length_expected) and (not np.isclose(bond_length, bond_length_expected, rtol=0.1)):
-      log(f"Removing abnormal bond {bond_rep} lengthed {bond_length:.2f}/{bond_length_expected} angstorm, formed by {begin_atom_idx}@{elem1} - {end_atom_idx}@{elem2}")
+      log.warning(f"Removing abnormal bond {bond_rep} lengthed {bond_length:.2f}/{bond_length_expected} angstorm, formed by {begin_atom_idx}@{elem1} - {end_atom_idx}@{elem2}")
       bonds_to_remove.append((begin_atom_idx, end_atom_idx))
   # Remove the bonds outside of the iteration loop
   for bond in bonds_to_remove:
@@ -424,7 +424,7 @@ def sanitize_bond(mol_raw):
     Chem.SanitizeMol(new_mol)
     return new_mol
   except Exception as e:
-    log(f"Caught exception during sanitizing the molecule: {e}")
+    log.error(f"Caught exception during sanitizing the molecule: {e}")
     
     # raise ValueError("Failed to sanitize the molecule")
     # print("Failed to use the rdkit to sanitize the molecule, trying to use Biopython.")
@@ -480,7 +480,7 @@ class Mol2Supplier:
         if mol != None:
           self.molecules.append(mol)
         else:
-          log("Failed to read MOL")
+          log.error("Failed to read MOL")
 
   def __iter__(self):
     return iter(self.molecules)

@@ -113,20 +113,20 @@ class Featurizer:
     # Get common feature parameters to hook the features
     self.FEATURE_PARMS = {}
     for key in constants.COMMON_FEATURE_PARMS:
-      if key in parms.keys():
+      if key in parms:
         self.FEATURE_PARMS[key] = parms[key]
-      elif key in kwargs.keys():
+      elif key in kwargs:
         self.FEATURE_PARMS[key] = kwargs[key]
       else: 
         self.FEATURE_PARMS[key] = None
 
     self.OTHER_PARMS = {}
-    for key in parms.keys():
+    for key in parms:
       if key not in constants.COMMON_FEATURE_PARMS:
         self.OTHER_PARMS[key] = parms[key]
       else:
         continue
-    for key in kwargs.keys():
+    for key in kwargs:  # noqa: PLC0206
       if key not in constants.COMMON_FEATURE_PARMS:
         self.OTHER_PARMS[key] = kwargs[key]
       else:
@@ -156,7 +156,7 @@ class Featurizer:
     if config.verbose():
       log(f"{self.classname}: Featurizer is initialized successfully with dimensions: {self.dims} and lengths: {self.lengths}")
 
-    if "outfile" in parms.keys():
+    if "outfile" in parms:
       # Dump the parm dict to that hdf file 
       log(f"{self.classname}: Dumping the parameters to {parms['outfile']} : {self.parms}")
       utils.dump_dict(parms["outfile"], "featurizer_parms", self.parms)
@@ -357,7 +357,7 @@ class Featurizer:
       for midx, mask in enumerate(self.FOCALPOINTS_PROTOTYPE): 
         selection = self.traj.top.select(mask)
         if len(selection) == 0:
-          log(f"{self.classname} Warning: The trajectory {self.traj.identity} does not have any atoms in the selection {mask}")
+          log.warning(f"{self.classname}: The trajectory {self.traj.identity} does not have any atoms in the selection {mask}")
           return False
         for fidx in range(self.SLICENUMBER):
           frame = self.traj.xyz[fidx*self.time_window]
@@ -412,7 +412,7 @@ class Featurizer:
         # Expected output shape is (self.SLICENUMBER, self.FOCALNUMBER, 3) array 
         focus_state = self.parse_focus()
         if focus_state == 0:
-          log(f"{self.classname} Warning: Skipping the trajectory {self.traj.identity}(index {tid+1}) because focal points parsing is failed. ")
+          log.warning(f"{self.classname}: Skipping the trajectory {self.traj.identity}(index {tid+1}) because focal points parsing is failed. ")
           continue 
         if config.verbose() or config.debug():
           log(f"{self.classname}: Parsing of focal points on trajectory ({tid+1}/{self.traj.identity}) yeield the shape: {self.FOCALPOINTS.shape}. ")
@@ -487,8 +487,8 @@ class Featurizer:
       for bid in range(self.SLICENUMBER): 
         frames = self.traj.xyz[self.FRAMESLICES[bid]]
         if restype == "single":  
-          for single_resname in (constants.RES + [i for i in constants.RES_PATCH.keys()]): 
-            if single_resname in constants.RES_PATCH.keys():
+          for single_resname in (constants.RES + [i for i in constants.RES_PATCH]): 
+            if single_resname in constants.RES_PATCH:
               label = constants.RES2LAB[constants.RES_PATCH[single_resname]]
             else: 
               label = constants.RES2LAB[single_resname]

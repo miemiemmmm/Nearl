@@ -6,7 +6,7 @@ from . import log, utils
 try: 
   from . import all_actions
 except ImportError:
-  log("Warning: Could not import all_actions submodule. Please check if the package is compiled correctly.") 
+  log.warning("Could not import all_actions submodule. Please check if the package is compiled correctly.")
 
 __all__ = [
   # Single frame methods
@@ -186,7 +186,7 @@ def density_flow(traj, weights, grid_dims, spacing, cutoff, sigma, type_agg):
 
   ret_arr = all_actions.density_flow(traj, weights, grid_dims, spacing, cutoff, sigma, type_agg)
   if np.isnan(ret_arr).any():
-    log(f"Warning: Found nan in the return: {np.count_nonzero(np.isnan(ret_arr))}")
+    log.warning(f"Found nan in the return: {np.count_nonzero(np.isnan(ret_arr))}")
   return ret_arr.reshape(grid_dims)
 
 

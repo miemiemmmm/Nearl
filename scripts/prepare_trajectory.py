@@ -45,15 +45,13 @@ class FeatureLabel(features.Feature):
 
     self.pdist_mean = self.pdist.mean(axis=1)
     if self.pdist.mean() > 8:
-      log("Warning: the mean distance between the atom of interest and its counterpart is larger than 8 Angstrom");
-      log("Please check the atom selection");
+      log.warning("The mean distance between the atom of interest and its counterpart is larger than 8 Angstrom. Please check the atom selection");
     elif np.percentile(self.pdist, 85) > 12:
-      log("Warning: the 85th percentile of the distance between the atom of interest and its counterpart is larger than 12 Angstrom");
-      log("Please check the atom selection");
+      log.warning("The 85th percentile of the distance between the atom of interest and its counterpart is larger than 12 Angstrom. Please check the atom selection");
 
     info_lengths = [len(self.pdistinfo[key]) for key in self.pdistinfo];
     if len(set(info_lengths)) != 1:
-      log("Warning: The length of the pdistinfo is not consistent", self.pdistinfo);
+      log.warning("The length of the pdistinfo is not consistent", self.pdistinfo);
 
   def featurize(self):
     if self.FAIL_FLAG == True:

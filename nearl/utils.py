@@ -50,7 +50,7 @@ def get_hash(theinput="", mode="md5"):
   elif len(theinput) == 0:
     return hash_func(bytes(time.perf_counter().__str__(), "utf-8")).hexdigest()
   else:
-    log("Warning: Not a valid input, should be (string, tuple, list, np.ndarray, bytes). Using time.perf_counter() by default.")
+    log.warning("Not a valid input, should be (string, tuple, list, np.ndarray, bytes). Using time.perf_counter() by default.")
     return hash_func(bytes(time.perf_counter().__str__(), "utf-8")).hexdigest()
 
 
