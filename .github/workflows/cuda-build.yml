@@ -1,11 +1,6 @@
-# Compiles nearl.all_actions' CUDA extension via nvcc, without a GPU (nvcc
-# cross-compiles for -arch=sm_XX without needing a device present -- this
-# runner has none, so src/Makefile's arch auto-detection falls back to
-# sm_80). A real gate: catches a broken .cu/.cuh change that nothing else in
-# CI covers -- tests.yml skips this extension entirely (no nvcc on that
-# runner) and validate-pytraj-install.yml is unrelated. Can't catch a
-# numerically wrong kernel, only a build failure -- that needs a GPU runner
-# or your own machine.
+# Builds nearl.all_actions with nvcc on a GPU-less runner (no nvidia-smi, so
+# src/Makefile falls back to sm_80), then installs it and checks the extension
+# imports. Catches build breakage only; a wrong kernel needs a real GPU.
 name: CUDA build
 
 "on":
@@ -38,3 +33,29 @@ jobs:
           cd src
           make all_actions
           test -f all_actions.so
+
+  install:
+    runs-on: ubuntu-latest
+    needs: compile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ python3-dev
+          pip install pybind11 setuptools wheel
+
+      - uses: Jimver/cuda-toolkit@v0.2.36
+        with:
+          cuda: "12.6.0"
+
+      - name: Install nearl with CUDA extension
+        run: |
+          pip install . --no-deps --no-build-isolation
+          # cd out of the repo so the import resolves to the install, not src
+          cd /tmp && python -c "from nearl import all_actions"
