@@ -1,6 +1,7 @@
-# Builds nearl.all_actions with nvcc on a GPU-less runner (no nvidia-smi, so
-# src/Makefile falls back to sm_80), then installs it and checks the extension
-# imports. Catches build breakage only; a wrong kernel needs a real GPU.
+# Cross-compiles nearl.all_actions with nvcc on a GPU-less runner, across the
+# target archs (sm_90 = GH200) and both CUDA majors, then installs it and
+# checks the extension imports. Catches build breakage only; a wrong kernel
+# needs a real GPU.
 name: CUDA build
 
 "on":
@@ -11,6 +12,15 @@ name: CUDA build
 jobs:
   compile:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {arch: sm_80, cuda: "12.6.0"}  # A100
+          - {arch: sm_86, cuda: "12.6.0"}  # RTX 30xx, dev box
+          - {arch: sm_90, cuda: "12.6.0"}  # GH200
+          - {arch: sm_90, cuda: "13.2.0"}  # GH200, CUDA 13
+    name: compile ${{ matrix.arch }} / CUDA ${{ matrix.cuda }}
     steps:
       - uses: actions/checkout@v4
 
@@ -26,13 +36,14 @@ jobs:
 
       - uses: Jimver/cuda-toolkit@v0.2.36
         with:
-          cuda: "12.6.0"
+          cuda: ${{ matrix.cuda }}
 
       - name: Compile nearl.all_actions
         run: |
           cd src
-          make all_actions
+          make all_actions CUDA_COMPUTE_CAPABILITY=${{ matrix.arch }}
           test -f all_actions.so
+          cuobjdump --list-elf voxelize.o | grep -q "${{ matrix.arch }}"
 
   install:
     runs-on: ubuntu-latest
