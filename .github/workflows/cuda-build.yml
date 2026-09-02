@@ -1,0 +1,72 @@
+# Cross-compiles nearl.all_actions with nvcc on a GPU-less runner, across the
+# target archs (sm_90 = GH200) and both CUDA majors, then installs it and
+# checks the extension imports. Catches build breakage only; a wrong kernel
+# needs a real GPU.
+name: CUDA build
+
+"on":
+  push:
+    branches: ["main"]
+  pull_request:
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {arch: sm_80, cuda: "12.6.0"}  # A100
+          - {arch: sm_86, cuda: "12.6.0"}  # RTX 30xx, dev box
+          - {arch: sm_90, cuda: "12.6.0"}  # GH200
+          - {arch: sm_90, cuda: "13.2.0"}  # GH200, CUDA 13
+    name: compile ${{ matrix.arch }} / CUDA ${{ matrix.cuda }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ python3-dev
+          pip install pybind11
+
+      - uses: Jimver/cuda-toolkit@v0.2.36
+        with:
+          cuda: ${{ matrix.cuda }}
+
+      - name: Compile nearl.all_actions
+        run: |
+          cd src
+          make all_actions CUDA_COMPUTE_CAPABILITY=${{ matrix.arch }}
+          test -f all_actions.so
+          cuobjdump --list-elf voxelize.o | grep -q "${{ matrix.arch }}"
+
+  install:
+    runs-on: ubuntu-latest
+    needs: compile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ python3-dev
+          pip install pybind11 setuptools wheel
+
+      - uses: Jimver/cuda-toolkit@v0.2.36
+        with:
+          cuda: "12.6.0"
+
+      - name: Install nearl with CUDA extension
+        run: |
+          pip install . --no-deps --no-build-isolation
+          # cd out of the repo so the import resolves to the install, not src
+          cd /tmp && python -c "from nearl import all_actions"

@@ -47,6 +47,7 @@ Welcome to Nearl's documentation!
    modules_traj
    modules_trajloader
    modules_commands
+   modules_nearl
 
 
 Indices and tables

@@ -16,11 +16,6 @@ reinstall:
 	pip install --force-reinstall ./ 
 
 
-install_mamba: 
-	echo "Installing mamba into MAMBA_ROOT_PREFIX -> $(MAMBA_ROOT_PREFIX); "
-	curl -s https://gist.githubusercontent.com/miemiemmmm/40d2e2b49e82d682ef5a7b2aa94a243f/raw/b9a3e3c916cbee42b2cfedcda69d2db916e637c0/install_micromamba.sh | bash -s -- $(MAMBA_ROOT_PREFIX)
-
-
 # TODO: Add the installation later 
 install_dependencies: 
 	$(MAMBA_ROOT_PREFIX)/bin/micromamba install -f requirements.yml -y 

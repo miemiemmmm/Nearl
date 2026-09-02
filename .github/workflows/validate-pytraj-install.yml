@@ -1,0 +1,45 @@
+# Builds pytraj from source via scripts/instant_pytraj.sh to catch upstream
+# (cpptraj/pytraj) drift or a broken script before a user hits it. Not part
+# of the normal build/test gate: continue-on-error keeps a failure here from
+# blocking pushes/PRs -- check the Actions tab to see if it broke.
+name: Validate pytraj install script
+
+"on":
+  schedule:
+    - cron: "0 6 * * 1"  # Weekly, Monday 06:00 UTC
+  workflow_dispatch: {}
+  push:
+    paths:
+      - "scripts/instant_pytraj.sh"
+      - ".github/workflows/validate-pytraj-install.yml"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up micromamba
+        uses: mamba-org/setup-micromamba@v1
+        with:
+          environment-name: pytraj_env
+          create-args: >-
+            python=3.12
+            gcc
+            gxx
+            gfortran
+            make
+            netcdf4
+            openblas
+            zlib
+            bzip2
+          channels: conda-forge
+
+      - name: Run instant_pytraj.sh
+        shell: bash -el {0}
+        run: bash scripts/instant_pytraj.sh
+
+      - name: Verify pytraj import
+        shell: bash -el {0}
+        run: python -c "import pytraj; print(pytraj.__version__)"

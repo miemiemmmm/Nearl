@@ -39,7 +39,7 @@ For more details, please refer to the `documentation <https://nearl.readthedocs.
   feat.register_feature(nearl.features.Mass(outkey='mass', outfile="/tmp/test.h5", sigma=1.5, cutoff=5.0))
   feat.register_focus([":ARG"], "mask")
   feat.register_trajloader(loader)
-  feat.main_loop()
+  feat.run()
 
 
 License

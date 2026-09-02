@@ -26,7 +26,7 @@ They are stored in the following class attributes:
 
   from nearl.io import Trajectory
 
-  traj = Trajectory("path/to/trajectory.nc", top="path/to/topology.pdb")
+  traj = Trajectory("path/to/trajectory.nc", "path/to/topology.pdb")
   print(traj.top)         # pytraj.Topology:  21375 atoms, 6474 residues, 6324 mols
   print(traj.xyz.shape)   # numpy.ndarray: (1001, 21375, 3) -> 1001 frames, 21375 atoms
   print(traj.identity)    # str: path/to/trajectory.nc -> trajectory file path by default
@@ -178,7 +178,7 @@ Similar to tutorial 1, the following code converts the MISATO trajectories into 
   feature = nearl.features.Mass(selection="!:MOL", outkey="feat_static", cutoff=2.5, sigma=1.0)
   feat.register_feature(feature)
   print(len(feat.FEATURESPACE))
-  feat.run(8)
+  feat.run()
 
 
 

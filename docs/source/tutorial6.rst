@@ -9,19 +9,22 @@ In this tutorial, we will go through the steps to use the static structures (lik
 Load PDB structures
 -------------------
 
-In the package, there is 100 protein-ligand complexes from PDBBind dataset for demonstration purposes. 
-The PDB paths are stored in the `nearl.data.MINI_SET` variable.
-In Nearl, each static structure are treated as a trajectory with only one frame. 
-If this is the case, you only needs to load that these PDB files for trajectory initialization. 
+There are 100 protein-ligand complexes from PDBBind dataset for demonstration purposes.
+:func:`nearl.get_example_data` downloads them and returns their paths under the ``MINI_PDBSET`` key.
+In Nearl, each static structure are treated as a trajectory with only one frame.
+If this is the case, you only needs to load that these PDB files for trajectory initialization.
 
 .. code-block:: python
 
   import nearl
-  import nearl.data
+  import nearl.features
+  import nearl.featurizer
+  import nearl.io
 
-  # Make up the list of tuple with the PDB files
-  trajs = [(i,) for i in nearl.data.MINI_SET]
-  loader = nearl.TrajectoryLoader(trajs)
+  # Get the example data and make up the list of tuple with the PDB files
+  EXAMPLE_DATA = nearl.get_example_data("/tmp/nearl_test")
+  trajs = [(i,) for i in EXAMPLE_DATA["MINI_PDBSET"]]
+  loader = nearl.io.TrajectoryLoader(trajs)
 
   # The protein and ligands are combined and ligands are named as LIG
   for traj in loader:
@@ -61,7 +64,7 @@ Register features and run
   # Register the trajectory loader, focus and run the featurization
   featurizer.register_trajloader(loader)  # Register the trajectory loader in the first step
   featurizer.register_focus([":LIG"], "mask")  # focus on the ligand
-  featurizer.main_loop()
+  featurizer.run()
   
 
 .. Result visualization

@@ -3,17 +3,23 @@ Visualize the features
 
 Several command line interfaces (CLI) are provided to perform visual inspection on the 3D-voxel features.
 
+.. note::
+
+  Rendering requires the optional `SiESTA-Surf <https://github.com/miemiemmmm/SiESTA>`_ and `Open3D <https://www.open3d.org/>`_ packages.
+
 View slices of the voxel
 ------------------------
 
 .. code-block:: bash
 
   $ nearl-view-slice --help
-  usage: View the slice of the voxel for each axes [-h] [-f FILEINPUT] [-i INDEX]
-                                                  [-t TAGNAME] [-c CMAP] [-b BOUNDINGBOX]
-                                                  [-s SAVEPLY] [-x X] [-y Y] [-z Z]
+  usage: View the slice of the voxel for each axes [-h] [-f FILEINPUT]
+                                                   [-i INDEX] [-t TAGNAME]
+                                                   [-c CMAP] [-b BOUNDINGBOX]
+                                                   [-s SAVEPLY] [-x X] [-y Y]
+                                                   [-z Z]
 
-  optional arguments:
+  options:
     -h, --help            show this help message and exit
     -f FILEINPUT, --fileinput FILEINPUT
                           The input HDF5 file
@@ -23,7 +29,8 @@ View slices of the voxel
                           The tag name of the voxel, default: voxel
     -c CMAP, --cmap CMAP  The colormap to be used, default: inferno
     -b BOUNDINGBOX, --boundingbox BOUNDINGBOX
-                          Whether or not to add a bounding box of the voxel. Default: 1
+                          Whether or not to add a bounding box of the voxel.
+                          Default: 1
     -s SAVEPLY, --saveply SAVEPLY
                           The output file to save the ply object
     -x X, --x X           The x slice to be viewed, default: -1 (hide)
@@ -53,11 +60,11 @@ View grid of the voxel
 .. code-block:: bash
 
   $ nearl-view-voxel --help
-  usage: View the slice of the voxel for each axes [-h] [-f FILEINPUT] [-i INDEX]
-                                                  [-t TAGNAME] [-c CMAP] [-b BOUNDINGBOX]
-                                                  [-s SAVEPLY] [-x X] [-y Y] [-z Z]
+  usage: View 3D voxels  [-h] [-f FILEINPUT] [-i INDEX] [-t TAGNAME] [-c CMAP]
+                         [-p PERCENTILE] [--hide HIDE] [-b BOUNDINGBOX]
+                         [-so SAVEOBJ] [-si SAVEIMG]
 
-  optional arguments:
+  options:
     -h, --help            show this help message and exit
     -f FILEINPUT, --fileinput FILEINPUT
                           The input HDF5 file
@@ -66,13 +73,17 @@ View grid of the voxel
     -t TAGNAME, --tagname TAGNAME
                           The tag name of the voxel, default: voxel
     -c CMAP, --cmap CMAP  The colormap to be used, default: inferno
+    -p PERCENTILE, --percentile PERCENTILE
+                          The percentile to be used for the cutoff, default: 95
+    --hide HIDE           Whether or not to hide the zero voxels, default: 1
     -b BOUNDINGBOX, --boundingbox BOUNDINGBOX
-                          Whether or not to add a bounding box of the voxel. Default: 1
-    -s SAVEPLY, --saveply SAVEPLY
-                          The output file to save the ply object
-    -x X, --x X           The x slice to be viewed, default: -1 (hide)
-    -y Y, --y Y           The y slice to be viewed, default: 15
-    -z Z, --z Z           The z slice to be viewed, default: 15
+                          Whether or not to add a bounding box of the voxel,
+                          default: 1
+    -so SAVEOBJ, --saveobj SAVEOBJ
+                          The output file to save the obj object, default: None
+    -si SAVEIMG, --saveimg SAVEIMG
+                          The output file to save the image upon closing the 3D
+                          viewer, default: None
 
 .. image:: _static/visual_demo2.png
   :width: 800
