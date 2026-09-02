@@ -7,11 +7,11 @@ from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
 from scipy import stats
 
-from Nearl import utils, data_io, models, printit
+from Nearl import utils, data_io, models, log
 
 
 st = time.perf_counter() 
-printit("Loading data...")
+log("Loading data...")
 
 input_files = [
   "/MieT5/Nearl/data/trainingdata/misato_trainset_randomforest.h5",
@@ -38,7 +38,7 @@ with data_io.hdf_operator(testset_file, "r") as h5file:
   rf_testset = h5file.data("rf")
   label_testset = h5file.data("label").ravel()
 
-printit("Data loaded!!! Good luck!!!")
+log("Data loaded!!! Good luck!!!")
 
 # Split your data into training and testing sets.
 # E.G. 75% training, 25% testing.
@@ -56,18 +56,18 @@ rf_regressor = models.rfscore();
 # Fit the regressor with the training data.
 rf_regressor.fit(X_train, y_train)
 
-printit(f"Training time: {time.perf_counter()-st:.4f} seconds")
+log(f"Training time: {time.perf_counter()-st:.4f} seconds")
 
-printit(f"Summary of the model: ")
+log(f"Summary of the model: ")
 # print(f"estimators: {rf_regressor.estimators_}")
-printit(f"estimator: {rf_regressor.estimator_}")
-printit(f"feature_importances: {rf_regressor.feature_importances_}")
-printit(f"n_features_in_: {rf_regressor.n_features_in_}")
+log(f"estimator: {rf_regressor.estimator_}")
+log(f"feature_importances: {rf_regressor.feature_importances_}")
+log(f"n_features_in_: {rf_regressor.n_features_in_}")
 # print(f"base_estimator: {rf_regressor.base_estimator_}")
 # print(f"feature_names_in_: {rf_regressor.feature_names_in_}")
-printit(f"n_outputs: {rf_regressor.n_outputs_}")
-printit(f"oob_score: {rf_regressor.oob_score_}")
-printit(f"oob_prediction: {rf_regressor.oob_prediction_}")
+log(f"n_outputs: {rf_regressor.n_outputs_}")
+log(f"oob_score: {rf_regressor.oob_score_}")
+log(f"oob_prediction: {rf_regressor.oob_prediction_}")
 
 print("###############################################################")
 # Result of the prediction on the training data.

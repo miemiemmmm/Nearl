@@ -1,7 +1,7 @@
 import sys
 import numpy as np
 from .traj import  Trajectory
-from .. import config, printit
+from .. import config, log
 
 
 __all__ = [
@@ -110,7 +110,7 @@ class TrajectoryLoader:
     """
     options = {key: value for key, value in self.__loading_options.items() if value is not None}
     if config.verbose or config.debug:
-      printit(f"{self.__class__.__name__}: Loading the trajectory {self.i_} whose identity is {self.trajids[self.i_]}")
+      log(f"{self.__class__.__name__}: Loading the trajectory {self.i_} whose identity is {self.trajids[self.i_]}")
     if self.trajids is not None: 
       options["identity"] = self.trajids[self.i_]
     return options
@@ -159,7 +159,7 @@ class TrajectoryLoader:
     for i in range(len(self)): 
       options = self.get_loading_options(i)
       self.i_ = i
-      printit(f"Loading the trajectory {i+1}/{len(self.trajs)}")
+      log(f"Loading the trajectory {i+1}/{len(self.trajs)}")
       yield self.OUTPUT_TYPE[i](*self.trajs[i], **options)
 
   def __len__(self):
@@ -184,7 +184,7 @@ class TrajectoryLoader:
     """
     if isinstance(index, int):
       if config.verbose or config.debug:
-        printit(f"{self.__class__.__name__}: Setting the trajectory index to {index}")
+        log(f"{self.__class__.__name__}: Setting the trajectory index to {index}")
       self.i_ = index
       options = self.get_loading_options(index)
       ret = self.OUTPUT_TYPE[index](*self.trajs[index], **options)

@@ -5,7 +5,7 @@ import numpy as np
 import pytraj as pt
 
 from .. import utils
-from .. import printit, config
+from .. import log, config
 
 
 __all__ = [
@@ -80,8 +80,8 @@ class Trajectory(pt.Trajectory):
     mask = kwarg.get("mask", None)
 
     if config.verbose():
-      printit(f"{self.__class__.__name__}: Loading trajectory {traj_src} with topology {pdb_src}")
-      printit(f"{self.__class__.__name__}: stride: {stride}; frame_indices: {frame_indices}; mask: {mask}")
+      log(f"{self.__class__.__name__}: Loading trajectory {traj_src} with topology {pdb_src}")
+      log(f"{self.__class__.__name__}: stride: {stride}; frame_indices: {frame_indices}; mask: {mask}")
 
     # NOTE: If both stride and frame_indices are given, stride will be respected;
     # NOTE: If none of stride or frame_indices are given, all frames will be loaded;
@@ -138,7 +138,7 @@ class Trajectory(pt.Trajectory):
       self.identity_ = None
 
     if config.verbose() or config.debug():
-      printit(f"The identity of this trajectory is: {self.identity}", file=sys.stderr)
+      log(f"The identity of this trajectory is: {self.identity}", file=sys.stderr)
 
     # Prepare the per-atom/per-residue index for the further trajectory processing;
     self.atoms = None
@@ -358,7 +358,7 @@ class MisatoTraj(Trajectory):
     # NOTE: Get the PDB code in the standard format, lowercase and replace superceded PDB codes
     self.pdbcode = pdbcode
     if config.verbose():
-      printit(f"{self.__class__.__name__}: Loading trajectory {pdbcode} with topology {self.topfile}")
+      log(f"{self.__class__.__name__}: Loading trajectory {pdbcode} with topology {self.topfile}")
 
     top = pt.load_topology(self.topfile)
     # ! IMPORTANT: Remove water and ions to align the coordinates with the topology
@@ -371,14 +371,14 @@ class MisatoTraj(Trajectory):
       top.strip(":Na+")
 
     if config.verbose():
-      printit(f"{self.__class__.__name__}: Topology loaded with {top.n_atoms} atoms")
+      log(f"{self.__class__.__name__}: Topology loaded with {top.n_atoms} atoms")
 
     with h5py.File(self.trajfile, "r") as hdf:
       keys = hdf.keys()
       if pdbcode.upper() in keys:
         coord = hdf[f"/{pdbcode.upper()}/trajectory_coordinates"]
         if config.verbose():
-          printit(f"{self.__class__.__name__}: Trajectory loaded with {coord.shape[0]} frames and {coord.shape[1]} atoms")
+          log(f"{self.__class__.__name__}: Trajectory loaded with {coord.shape[0]} frames and {coord.shape[1]} atoms")
         # Parse frames (Only one from stride and frame_indices will take effect) and masks
         if "stride" in kwarg.keys() and kwarg["stride"] is not None:
           slice_frame = np.s_[::int(kwarg["stride"])]
@@ -397,14 +397,14 @@ class MisatoTraj(Trajectory):
 
     if kwarg.get("superpose", False): 
       if kwarg.get("mask", None) is not None:
-        printit(f"{self.__class__.__name__}: Superpose the trajectory with mask {kwarg['mask']}")
+        log(f"{self.__class__.__name__}: Superpose the trajectory with mask {kwarg['mask']}")
         pt.superpose(ret_traj, mask="@CA")
       else:
-        printit(f"{self.__class__.__name__}: Superpose the trajectory with default mask @CA")
+        log(f"{self.__class__.__name__}: Superpose the trajectory with default mask @CA")
         pt.superpose(ret_traj, mask="@CA")
     
     assert ret_traj.xyz.shape.__len__() == 3 , f"Fatal: The shape of the trajectory {self.identity} is {ret_traj.xyz.shape}!!! It should be (n_frames, n_atoms, 3). "
-    printit("Result traj: ", ret_traj)
+    log("Result traj: ", ret_traj)
 
     # Pytraj trajectory-based initialization
     super().__init__(ret_traj)

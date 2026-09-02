@@ -7,7 +7,7 @@ import pytraj as pt
 from scipy.spatial import distance_matrix
 
 from . import constants
-from . import printit, config
+from . import log, config
 
 
 def get_hash(theinput="", mode="md5"):
@@ -50,7 +50,7 @@ def get_hash(theinput="", mode="md5"):
   elif len(theinput) == 0:
     return hash_func(bytes(time.perf_counter().__str__(), "utf-8")).hexdigest()
   else:
-    printit("Warning: Not a valid input, should be (string, tuple, list, np.ndarray, bytes). Using time.perf_counter() by default.")
+    log("Warning: Not a valid input, should be (string, tuple, list, np.ndarray, bytes). Using time.perf_counter() by default.")
     return hash_func(bytes(time.perf_counter().__str__(), "utf-8")).hexdigest()
 
 
@@ -829,7 +829,7 @@ def test_model(model, dataset, criterion, test_number, batch_size, use_cuda=1, p
       targets.append(target)
 
   if config.verbose or config.debug: 
-    printit(f"Tested {tested_sample_nr} samples")
+    log(f"Tested {tested_sample_nr} samples")
   predictions = torch.cat(predictions, dim=0).cpu().numpy()
   targets = torch.cat(targets, dim=0).cpu().numpy()
   losses = np.array(losses)

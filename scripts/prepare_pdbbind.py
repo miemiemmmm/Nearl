@@ -15,7 +15,7 @@ from dask.distributed import Client, performance_report, LocalCluster
 
 # from BetaPose import chemtools,
 import nearl
-from nearl import features, utils, printit, savelog, _tempfolder
+from nearl import features, utils, log, savelog, _tempfolder
 
 class FeatureLabel(features.Feature):
   def __init__(self, affinity_file, delimiter=",", header=0):
@@ -162,7 +162,7 @@ def parallelize_traj(traj_list):
     ret_list.append(features_traji);
 
     if ((trajidx+1) % 25 == 0):
-      printit(f"Processed {len(ret_list)}/({len(traj_list)}) trajectories; Time elapsed: {time.perf_counter() - st} seconds");
+      log(f"Processed {len(ret_list)}/({len(traj_list)}) trajectories; Time elapsed: {time.perf_counter() - st} seconds");
 
     if ((trajidx+1) % 10 == 0 or trajidx == len(traj_list)-1):
       tempfilename =os.path.join(_tempfolder, f"temp{os.getpid()}.npy");
@@ -216,8 +216,8 @@ if __name__ == '__main__':
       futures = client.compute(tasks)
       results = client.gather(futures)
 
-    printit(f"Complex combination finished. Used {time.perf_counter() - st:.2f} seconds.")
-    printit(f"Success: {np.sum(results)}, Failed: {len(results) - np.sum(results)}");
+    log(f"Complex combination finished. Used {time.perf_counter() - st:.2f} seconds.")
+    log(f"Success: {np.sum(results)}, Failed: {len(results) - np.sum(results)}");
 
   #################################################################################
   ########### Part2: Check the existence of required PDB complexes ################
@@ -277,11 +277,11 @@ if __name__ == '__main__':
     with Client(cluster) as client:
       with performance_report(filename="dask-report.html"):
         tasks = [dask.delayed(parallelize_traj)(traj_list) for traj_list in split_groups];
-        printit("##################Tasks are generated##################")
+        log("##################Tasks are generated##################")
         futures = client.compute(tasks);
         results = client.gather(futures);
 
-  printit(f"Tasks are finished, Collecting data... Pure computation time: {time.perf_counter() - st_compute:.2f} seconds.")
+  log(f"Tasks are finished, Collecting data... Pure computation time: {time.perf_counter() - st_compute:.2f} seconds.")
 
   # Process the results from the computation
   os.remove(output_hdffile) if os.path.exists(output_hdffile) else None;
@@ -325,7 +325,7 @@ if __name__ == '__main__':
   with nearl.io.hdf_operator(output_hdffile, append=True) as h5file:
     h5file.draw_structure();
 
-  printit(f"##################Data are collected {time.perf_counter()-st:.3f} ################")
+  log(f"##################Data are collected {time.perf_counter()-st:.3f} ################")
 # 239.7 seconds for 80 complexes: 20 workers, OMP_NUM_THREADS=20
 # 257.9 seconds for 80 complexes: 20 workers, OMP_NUM_THREADS=12
 # 284.0 seconds for 80 complexes: 20 workers, OMP_NUM_THREADS=8

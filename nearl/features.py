@@ -5,7 +5,7 @@ import numpy as np
 import pytraj as pt
 
 from . import utils, commands, constants, chemtools   # local modules 
-from . import printit, config   # local static methods/objects
+from . import log, config   # local static methods/objects
 
 # TODO: 
 # - Add description of each features in the docstring 
@@ -225,12 +225,12 @@ class Feature:
     self.classname = self.__class__.__name__
     self.force_recache = False if force_recache is None else True
     if self.force_recache:
-      printit(f"{self.classname}: Forcing recache the weights")
+      log(f"{self.classname}: Forcing recache the weights")
     self.translate = translate
     if self.translate == "center": 
-      printit(f"{self.classname}: Will translate the coordinates of focused substructure to center of the bounding box. ")
+      log(f"{self.classname}: Will translate the coordinates of focused substructure to center of the bounding box. ")
     elif self.translate == "origin":
-      printit(f"{self.classname}: Will translate the coordinates of focused substructure to align the origin of the bounding box. ")
+      log(f"{self.classname}: Will translate the coordinates of focused substructure to align the origin of the bounding box. ")
     else: 
       logger.warning(f"{self.classname}: The translate parameter is not recognized. ") 
     
@@ -361,7 +361,7 @@ class Feature:
     If the following attributes are not set manually, hook function will try to inherit them from the featurizer object: 
     sigma, cutoff, outfile, outkey, padding, byres
     """
-    printit(f"{self}: Hooking feature ({self.__str__()}) to the featurizer. ")
+    log(f"{self}: Hooking feature ({self.__str__()}) to the featurizer. ")
     if self.dims is None and featurizer.dims is not None:
       self.dims = featurizer.dims
     if self.spacing is None and featurizer.spacing is not None:
@@ -373,7 +373,7 @@ class Feature:
         if key in featurizer.FEATURE_PARMS.keys() and featurizer.FEATURE_PARMS[key] is not None:
           keyval = featurizer.FEATURE_PARMS[key]
           setattr(self, key, keyval)
-          printit(f"{self}: Inheriting the parameter from the featurizer: {key} {keyval}")
+          log(f"{self}: Inheriting the parameter from the featurizer: {key} {keyval}")
           self.PARAMSPACE[key] = keyval
     
     # Setting coupled parameters or defaults if not set manually 
@@ -413,14 +413,14 @@ class Feature:
       selected = trajectory.top.select(self.selection)
       self.selected = np.full(len(self.atomic_numbers), False, dtype=bool)
       self.selected[selected] = True
-      printit(f"{self}: Selected {np.count_nonzero(self.selected)} atoms based on the selection string")
+      log(f"{self}: Selected {np.count_nonzero(self.selected)} atoms based on the selection string")
     elif isinstance(self.selection, (list, tuple, np.ndarray)):
       if len(self.selection) != len(self.atomic_numbers):
         logger.warning(f"{self.classname}: The length of selection array does not match the number of atoms {trajectory.n_atoms} in the topology. ")
       selected = np.array(self.selection)
       self.selected = np.full(len(self.atomic_numbers), False, dtype=bool)
       self.selected[selected] = True
-      printit(f"{self}: Selected {np.count_nonzero(self.selected)} atoms based on the selection string")
+      log(f"{self}: Selected {np.count_nonzero(self.selected)} atoms based on the selection string")
 
 
   def query(self, topology, frame_coords, focal_point):
@@ -990,9 +990,9 @@ class PartialCharge(Feature):
             else: 
               parmfile = parmfile[0].split(".")[0]
             if len(parmfile) > 0:
-              printit(f"{self.classname}: Trying alternative charge methods {method} with {parmfile} parameter")
+              log(f"{self.classname}: Trying alternative charge methods {method} with {parmfile} parameter")
             else: 
-              printit(f"{self.classname}: Trying alternative charge methods {method} without parameter file")
+              log(f"{self.classname}: Trying alternative charge methods {method} without parameter file")
             try:
               charges = cfw.calculate_charges(mol, method, parmfile)
               if filename not in charges.keys():
@@ -1002,7 +1002,7 @@ class PartialCharge(Feature):
                 if len(charge_values) != trajectory.n_atoms:
                   continue
                 else: 
-                  printit(f"{self.classname}: Finished the charge computation with {method} method" + (" without parameter file" if len(parmfile) == 0 else " with parameter file"))
+                  log(f"{self.classname}: Finished the charge computation with {method} method" + (" without parameter file" if len(parmfile) == 0 else " with parameter file"))
                   self.cached_array = charge_values
                   break
             except Exception as e:
@@ -1619,7 +1619,7 @@ class LabelAffinity(Feature):
     # IMPORTANT: Retrieve the base value based on the trajectory identity
     self.base_value = self.search_baseline(trajectory.identity)
     if config.verbose():
-      printit(f"{self.classname}: Affinity value of {trajectory.identity} is {self.base_value}")
+      log(f"{self.classname}: Affinity value of {trajectory.identity} is {self.base_value}")
 
   def query(self, *args):
     """
@@ -1629,7 +1629,7 @@ class LabelAffinity(Feature):
 
   def run(self, affinity_val):
     if config.verbose() or config.debug():
-      printit(f"{self.classname}: The affinity value is {affinity_val:4.2f}")
+      log(f"{self.classname}: The affinity value is {affinity_val:4.2f}")
     return affinity_val
 
 
@@ -1753,7 +1753,7 @@ class LabelPCDT(LabelAffinity):
 
     # Avoid the potential division by zero
     if np.any(std_0 == 0):
-      # printit(f"DEBUG: The standard deviation of the cached PCDT array is zero for some atoms")
+      # log(f"DEBUG: The standard deviation of the cached PCDT array is zero for some atoms")
       if self.search_cutoff is not None:
         std_0[std_0 == 0] = self.search_cutoff
       else: 
@@ -1813,12 +1813,12 @@ class LabelPCDT(LabelAffinity):
 #     if self.restype == "single" and resname in constants.RES2LAB:
 #       retval = constants.RES2LAB[resname]
 #     elif self.restype == "single" and resname not in constants.RES2LAB:
-#       printit(f"DEBUG: The residue type {resname} is not recognized, there might be some problem in the trajectory cropping")
+#       log(f"DEBUG: The residue type {resname} is not recognized, there might be some problem in the trajectory cropping")
 #       retval = 0 
 #     elif self.restype == "dual" and resname in constants.RES2LAB_DUAL:
 #       retval = constants.RES2LAB_DUAL[resname]
 #     elif self.restype == "dual" and resname not in constants.RES2LAB_DUAL:
-#       printit(f"DEBUG: The residue type {resname} is not recognized, there might be some problem in the trajectory cropping")
+#       log(f"DEBUG: The residue type {resname} is not recognized, there might be some problem in the trajectory cropping")
 #       retval = 0
 #     return retval
 

@@ -4,7 +4,7 @@ import torch
 import numpy as np 
 import multiprocessing as mp
 
-from .. import config, printit
+from .. import config, log
 
 __all__ = [
   "Dataset",
@@ -172,7 +172,7 @@ def data_augment(batch_array, trans=0, add_noise=False):
     msg = f"Flipped axes: {flip_axes}; "
     if trans > 0:
       msg += "Translation: {trans}"
-    printit(msg)
+    log(msg)
 
   # Apply a gaussian noise to the array
   if add_noise:
@@ -240,7 +240,7 @@ class Dataset:
         else: 
           label_nr = hdf[label_key].shape[0]
         if config.verbose(): 
-          printit(f"Found {label_nr} labels in {filename}")
+          log(f"Found {label_nr} labels in {filename}")
         self.sample_sizes.append(label_nr)
         self.total_entries += label_nr
 
@@ -365,7 +365,7 @@ class Dataset:
       raise ValueError("Either batch_nr or batch_size should be specified")
   
     if config.verbose():
-      printit(f"Iterating the dataset: {len(batches)} batches with batch size {batch_size}. Using {process_nr} processes.")
+      log(f"Iterating the dataset: {len(batches)} batches with batch size {batch_size}. Using {process_nr} processes.")
     
     result_shape = [-1, self.channel_nr] + self.size.tolist()
     

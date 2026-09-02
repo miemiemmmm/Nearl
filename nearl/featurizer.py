@@ -3,7 +3,7 @@ import time, json, logging
 import numpy as np
 
 from . import utils, constants
-from . import printit, config
+from . import log, config
 
 __all__ = [
   "Featurizer",
@@ -154,11 +154,11 @@ class Featurizer:
     
     self.classname = self.__class__.__name__  
     if config.verbose():
-      printit(f"{self.classname}: Featurizer is initialized successfully with dimensions: {self.dims} and lengths: {self.lengths}")
+      log(f"{self.classname}: Featurizer is initialized successfully with dimensions: {self.dims} and lengths: {self.lengths}")
 
     if "outfile" in parms.keys():
       # Dump the parm dict to that hdf file 
-      printit(f"{self.classname}: Dumping the parameters to {parms['outfile']} : {self.parms}")
+      log(f"{self.classname}: Dumping the parameters to {parms['outfile']} : {self.parms}")
       utils.dump_dict(parms["outfile"], "featurizer_parms", self.parms)
 
   def __str__(self):
@@ -279,7 +279,7 @@ class Featurizer:
     elif isinstance(features, dict):
       for _, feature in features.items():
         if config.verbose() or config.debug():
-          printit(f"{self.classname}: Registering the feature named: {_} from {feature.classname} class")
+          log(f"{self.classname}: Registering the feature named: {_} from {feature.classname} class")
         self.register_feature(feature)
 
   def register_trajloader(self, trajloader):
@@ -293,7 +293,7 @@ class Featurizer:
     """
     self.TRAJLOADER = trajloader
     self.TRAJECTORYNUMBER = len(trajloader)
-    printit(f"{self.classname}: Registered {self.TRAJECTORYNUMBER} trajectories")
+    log(f"{self.classname}: Registered {self.TRAJECTORYNUMBER} trajectories")
 
 
   def register_focus(self, focus, format):
@@ -357,7 +357,7 @@ class Featurizer:
       for midx, mask in enumerate(self.FOCALPOINTS_PROTOTYPE): 
         selection = self.traj.top.select(mask)
         if len(selection) == 0:
-          printit(f"{self.classname} Warning: The trajectory {self.traj.identity} does not have any atoms in the selection {mask}")
+          log(f"{self.classname} Warning: The trajectory {self.traj.identity} does not have any atoms in the selection {mask}")
           return False
         for fidx in range(self.SLICENUMBER):
           frame = self.traj.xyz[fidx*self.time_window]
@@ -404,7 +404,7 @@ class Featurizer:
       # Setup the trajectory and its related parameters such as slicing of the trajectory
       self.traj = self.TRAJLOADER[tid]
       msg = f"Processing the trajectory {tid+1} ({self.traj.identity}) with {self.SLICENUMBER} frame slices"
-      printit(f"{self.classname}: {msg:=^80}")
+      log(f"{self.classname}: {msg:=^80}")
       st = time.perf_counter()
 
       if self.FOCALPOINTS_PROTOTYPE is not None:
@@ -412,15 +412,15 @@ class Featurizer:
         # Expected output shape is (self.SLICENUMBER, self.FOCALNUMBER, 3) array 
         focus_state = self.parse_focus()
         if focus_state == 0:
-          printit(f"{self.classname} Warning: Skipping the trajectory {self.traj.identity}(index {tid+1}) because focal points parsing is failed. ")
+          log(f"{self.classname} Warning: Skipping the trajectory {self.traj.identity}(index {tid+1}) because focal points parsing is failed. ")
           continue 
         if config.verbose() or config.debug():
-          printit(f"{self.classname}: Parsing of focal points on trajectory ({tid+1}/{self.traj.identity}) yeield the shape: {self.FOCALPOINTS.shape}. ")
+          log(f"{self.classname}: Parsing of focal points on trajectory ({tid+1}/{self.traj.identity}) yeield the shape: {self.FOCALPOINTS.shape}. ")
 
       # Cache the weights for each atoms in the trajectory (run once for each trajectory)
       for feat in self.FEATURESPACE:
         if config.verbose(): 
-          printit(f"{self.classname}: Caching the weights of feature {feat.classname} for the trajectory {tid+1}")
+          log(f"{self.classname}: Caching the weights of feature {feat.classname} for the trajectory {tid+1}")
         feat.cache(self.traj)
 
       tasks = []
@@ -447,14 +447,14 @@ class Featurizer:
             tasks.append([self.FEATURESPACE[fidx].run, queried])
             feature_map.append((tid, bid, fidx))
 
-      printit(f"{self.classname}: Trajectory {tid+1} yields {len(tasks)} frame-slices (tasks) for the featurization. ")
+      log(f"{self.classname}: Trajectory {tid+1} yields {len(tasks)} frame-slices (tasks) for the featurization. ")
       
       # Remove the dependency on the multiprocessing due to high overhead
       results = [wrapper_runner(*task) for task in tasks] 
-      printit(f"{self.classname}: Tasks are finished, dumping the results to the feature space...")
+      log(f"{self.classname}: Tasks are finished, dumping the results to the feature space...")
 
       if config.verbose() or config.debug():
-        printit(f"{self.classname}: Dumping the results to the feature space...")
+        log(f"{self.classname}: Dumping the results to the feature space...")
         
       # Dump to file for each feature
       for feat_meta, result in zip(feature_map, results):
@@ -465,8 +465,8 @@ class Featurizer:
       msg = f"{msg:=^80}"
       if tid < self.SLICENUMBER - 1:
         msg += "\n"
-      printit(f"{self.classname}: {msg}")
-    printit(f"{self.classname}: All trajectories and tasks are finished. \n")
+      log(f"{self.classname}: {msg}")
+    log(f"{self.classname}: All trajectories and tasks are finished. \n")
 
   def loop_by_residue(self, restype, tag_limit=0): 
     """
@@ -475,7 +475,7 @@ class Featurizer:
     for tid in range(self.TRAJECTORYNUMBER):
       # Setup the trajectory and its related parameters such as slicing of the trajectory
       self.traj = self.TRAJLOADER[tid]
-      printit(f"{self.classname}: Start processing the trajectory {tid+1} with {self.SLICENUMBER} frames")
+      log(f"{self.classname}: Start processing the trajectory {tid+1} with {self.SLICENUMBER} frames")
 
       # Cache the weights for each atoms in the trajectory (run once for each trajectory)
       for feat in self.FEATURESPACE:
@@ -531,10 +531,10 @@ class Featurizer:
                   tasks.append([self.FEATURESPACE[fidx].run, queried])
                   feature_map.append((tid, bid, fidx, label))
       
-      printit(f"{self.classname}: Task set containing {len(tasks)} tasks are created for the trajectory {tid+1}; ")
+      log(f"{self.classname}: Task set containing {len(tasks)} tasks are created for the trajectory {tid+1}; ")
       results = [wrapper_runner(*task) for task in tasks]
 
-      printit(f"{self.classname}: Tasks are finished, dumping the results to the feature space...")
+      log(f"{self.classname}: Tasks are finished, dumping the results to the feature space...")
 
       # Dump to file for each feature
       for feat_meta, result in zip(feature_map, results):
@@ -550,6 +550,6 @@ class Featurizer:
           utils.append_hdf_data(self.FEATURE_PARMS["outfile"], "label", labels[:int(len(feature_map)/len(self.FEATURESPACE))], dtype=int, maxshape=(None, ), chunks=True)
       
       if config.verbose() or config.debug():
-        printit(f"{self.classname}: Finished the trajectory {tid+1} with {len(tasks)} tasks")
-    printit(f"{self.classname}: All trajectories and tasks are finished")
+        log(f"{self.classname}: Finished the trajectory {tid+1} with {len(tasks)} tasks")
+    log(f"{self.classname}: All trajectories and tasks are finished")
 

@@ -2,11 +2,11 @@ import os
 
 import numpy as np 
 
-from . import printit, utils
+from . import log, utils
 try: 
   from . import all_actions
 except ImportError:
-  printit("Warning: Could not import all_actions submodule. Please check if the package is compiled correctly.") 
+  log("Warning: Could not import all_actions submodule. Please check if the package is compiled correctly.") 
 
 __all__ = [
   # Single frame methods
@@ -186,7 +186,7 @@ def density_flow(traj, weights, grid_dims, spacing, cutoff, sigma, type_agg):
 
   ret_arr = all_actions.density_flow(traj, weights, grid_dims, spacing, cutoff, sigma, type_agg)
   if np.isnan(ret_arr).any():
-    printit(f"Warning: Found nan in the return: {np.count_nonzero(np.isnan(ret_arr))}")
+    log(f"Warning: Found nan in the return: {np.count_nonzero(np.isnan(ret_arr))}")
   return ret_arr.reshape(grid_dims)
 
 
@@ -209,7 +209,7 @@ def viewpoint_histogram_xyzr(xyzr_arr, viewpoint, bin_nr, write_ply=False, retur
 
   if write_ply: 
     filename = os.path.join("/tmp/", f"segment_{utils.get_timestamp()}.ply")
-    printit(f"Writing the surface to {filename}")
+    log(f"Writing the surface to {filename}")
     o3d.io.write_triangle_mesh(filename, mesh, write_ascii=True)
 
   v_view = viewpoint - c_vertices

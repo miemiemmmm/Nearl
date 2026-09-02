@@ -5,7 +5,7 @@ import dask
 from dask.distributed import Client
 
 from Nearl import representations, trajloader, features, data_io
-from Nearl import utils, printit, savelog
+from Nearl import utils, log, savelog
 
 
 class FeatureLabel(features.Feature):
@@ -45,15 +45,15 @@ class FeatureLabel(features.Feature):
 
     self.pdist_mean = self.pdist.mean(axis=1)
     if self.pdist.mean() > 8:
-      printit("Warning: the mean distance between the atom of interest and its counterpart is larger than 8 Angstrom");
-      printit("Please check the atom selection");
+      log("Warning: the mean distance between the atom of interest and its counterpart is larger than 8 Angstrom");
+      log("Please check the atom selection");
     elif np.percentile(self.pdist, 85) > 12:
-      printit("Warning: the 85th percentile of the distance between the atom of interest and its counterpart is larger than 12 Angstrom");
-      printit("Please check the atom selection");
+      log("Warning: the 85th percentile of the distance between the atom of interest and its counterpart is larger than 12 Angstrom");
+      log("Please check the atom selection");
 
     info_lengths = [len(self.pdistinfo[key]) for key in self.pdistinfo];
     if len(set(info_lengths)) != 1:
-      printit("Warning: The length of the pdistinfo is not consistent", self.pdistinfo);
+      log("Warning: The length of the pdistinfo is not consistent", self.pdistinfo);
 
   def featurize(self):
     if self.FAIL_FLAG == True:
@@ -78,8 +78,8 @@ class FeatureLabel(features.Feature):
       disti = np.linalg.norm(disti);
       dists[c] = disti;
       c += 1;
-    printit("Active frame index: ", self.active_frame_index)
-    printit(dists, self.pdist[:,self.active_frame_index])
+    log("Active frame index: ", self.active_frame_index)
+    log(dists, self.pdist[:,self.active_frame_index])
 
     # Panelty 1: the cosine similarity between the framei distance and the mean pairwise distance
     panelty1 = utils.cosine_similarity(dists, self.pdist_mean);
@@ -94,7 +94,7 @@ def parallelize_traj(traj_list):
   """
   Featurizer and the features initialized within the scope of this function
   """
-  printit(traj_list)
+  log(traj_list)
   trajfiles = [i[0] for i in traj_pair];
   topfiles = [i[1] for i in traj_pair];
   traj_loader = trajloader.TrajectoryLoader(trajfiles, topfiles);
@@ -158,16 +158,16 @@ if __name__ == "__main__":
   # Check the existence of the trajectory before putting the trajectory array into the feature label index
   file_exist = [os.path.exists(traj) for traj in trajectories]
   if np.count_nonzero(file_exist) != len(file_exist):
-    printit("Please check the file name template");
+    log("Please check the file name template");
     raise IOError("File not found");
   else:
-    printit("All trajectories are found");
+    log("All trajectories are found");
   file_exist = [os.path.exists(top) for top in topologies]
   if np.count_nonzero(file_exist) != len(file_exist):
-    printit("Please check the file name template");
+    log("Please check the file name template");
     raise IOError("File not found");
   else:
-    printit("All topologies are found");
+    log("All topologies are found");
 
   traj_loader = trajloader.TrajectoryLoader(trajectories, topologies);
   # Top level parallelization: parallelize over trajectories;
@@ -186,7 +186,7 @@ if __name__ == "__main__":
     result1 = parallelize_traj(traj_top_pairs[:5]);
     results = [result1];
 
-  printit("##################Tasks are finished################")
+  log("##################Tasks are finished################")
   box_array = utils.data_from_tbagresults(results, 0);
   penalty_array = utils.data_from_tbagresults(results, 1)
   rf_array = utils.data_from_tbagresults(results, 2)
@@ -200,7 +200,7 @@ if __name__ == "__main__":
     h5file.create_dataset("rf", rf_array)
     h5file.create_dataset("label", label_array)
     h5file.draw_structure()
-  printit("##################Data are collected################")
+  log("##################Data are collected################")
 
   savelog("prodrun.log")
 
