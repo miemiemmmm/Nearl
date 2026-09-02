@@ -178,7 +178,7 @@ def commandline_interface(args, outputdim):
     print(f"Job parameters: {FEATURIZER_PARMS}")
     featureset, feat_key = get_features(feattype)
 
-    with open(trajfile, "r") as f:
+    with open(trajfile) as f:
         files = f.read().strip().split("\n")
         trajlists = [(i.split()[0], i.split()[1]) for i in files]
 

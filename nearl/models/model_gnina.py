@@ -21,9 +21,10 @@ class GninaNetwork2017(nn.Module):
         input_channels: int,
         output_dimension: int,
         input_shape,
-        conv=[32, 64, 128],
+        conv=None,
     ):
         super().__init__()
+        conv = [32, 64, 128] if conv is None else conv
         self.n_classes = output_dimension
         if isinstance(input_shape, int):
             self.input_shape = (input_shape, input_shape, input_shape)

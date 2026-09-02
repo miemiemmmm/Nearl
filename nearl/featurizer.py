@@ -92,10 +92,12 @@ class Featurizer:
 
     """
 
-    def __init__(self, parms={}, **kwargs):
+    def __init__(self, parms=None, **kwargs):
         """
         Initialize the featurizer with the given parameters
         """
+        if parms is None:
+            parms = {}
         # Check the essential parameters for the featurizer
         # assert "dimensions" in parms, "Please define the 'dimensions' in the parameter set"
         # assert ("lengths" in parms) or ("spacing" in parms), "Please define the 'lengths' or 'spacing' in the parameter set"
@@ -104,7 +106,7 @@ class Featurizer:
         self.__dims = None
         self.__lengths = None
         self.__spacing = None
-        if parms.get("dimensions", None) is not None:
+        if parms.get("dimensions") is not None:
             self.dims = parms.get(
                 "dimensions"
             )  # Normalize scalar/list/tuple into a 3-element array
@@ -139,7 +141,7 @@ class Featurizer:
                 self.OTHER_PARMS[key] = parms[key]
             else:
                 continue
-        for key in kwargs:  # noqa: PLC0206
+        for key in kwargs:
             if key not in constants.COMMON_FEATURE_PARMS:
                 self.OTHER_PARMS[key] = kwargs[key]
             else:
@@ -212,7 +214,7 @@ class Featurizer:
             assert len(newdims) == 3, "length should be 3"
             self.__dims = np.array(newdims, dtype=int)
         else:
-            raise Exception(
+            raise TypeError(
                 "Unexpected data type, either be a number or a list of 3 integers"
             )
         if self.__lengths is not None:
@@ -236,7 +238,7 @@ class Featurizer:
             assert len(new_length) == 3, "length should be 3"
             self.__lengths = np.array(new_length, dtype=float)
         else:
-            raise Exception(
+            raise TypeError(
                 "Unexpected data type, either be a number or a list of 3 floats"
             )
         if self.__dims is not None:
@@ -275,7 +277,7 @@ class Featurizer:
         )
         logger.debug(f"Having {self.SLICENUMBER} frame slices in the trajectory ")
         frame_array = np.array(
-            [0] + np.cumsum([self.time_window] * self.SLICENUMBER).tolist()
+            [0, *np.cumsum([self.time_window] * self.SLICENUMBER).tolist()]
         )
         self.FRAMESLICES = [
             np.s_[frame_array[i] : frame_array[i + 1]] for i in range(self.SLICENUMBER)
@@ -425,14 +427,14 @@ class Featurizer:
             for focusidx, focus in enumerate(self.FOCALPOINTS_PROTOTYPE):
                 assert len(focus) == 3, "The focus should be a 3D coordinate"
                 logger.debug(f"Shape of the focus: {focus.shape}")
-                for idx, frame in enumerate(self.traj.xyz[:: self.time_window]):
+                for idx, _frame in enumerate(self.traj.xyz[:: self.time_window]):
                     if idx >= self.SLICENUMBER:
                         break
                     self.FOCALPOINTS[idx, focusidx] = focus
             return 1
 
         elif self.FOCALPOINTS_TYPE == "json":
-            with open(self.FOCALPOINTS_PROTOTYPE, "r") as f:
+            with open(self.FOCALPOINTS_PROTOTYPE) as f:
                 focus = json.load(f)
                 indices = focus[utils.get_pdbcode(self.traj.identity)]
             indices = np.array(indices, dtype=int)
@@ -579,16 +581,14 @@ class Featurizer:
 
                 elif restype == "dual":
                     # for label, dual_resname in constants.LAB2RES_DUAL.items():
-                    for res1 in constants.RES + [i for i in constants.RES_PATCH.keys()]:
-                        for res2 in constants.RES + [
-                            i for i in constants.RES_PATCH.keys()
-                        ]:
+                    for res1 in constants.RES + [i for i in constants.RES_PATCH]:
+                        for res2 in constants.RES + [i for i in constants.RES_PATCH]:
                             tmp_key = ""
-                            if res1 in constants.RES_PATCH.keys():
+                            if res1 in constants.RES_PATCH:
                                 tmp_key += constants.RES_PATCH[res1]
                             else:
                                 tmp_key += res1
-                            if res2 in constants.RES_PATCH.keys():
+                            if res2 in constants.RES_PATCH:
                                 tmp_key += constants.RES_PATCH[res2]
                             else:
                                 tmp_key += res2

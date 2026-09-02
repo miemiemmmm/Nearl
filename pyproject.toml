@@ -7,22 +7,46 @@ name = "nearl"  # as it would appear on PyPI
 version = "0.0.3.dev0"
 description = "Nearl: A generalizable framework for 3D dynamic feature extraction"
 authors = [
-    {name = "Yang Zhang", email = "y.zhang@bioc.uzh.ch"},
+    {name = "Yang Zhang", email = "yangz3@kth.se"},
 ]
 # Reconsider dependencies when publishing the package
 # Ambertools and Openbabel should be installed separately
 dependencies = [
 ]
-requires-python = ">=3.7"
+requires-python = ">=3.9"
 readme = "README.md"
 license = {text = "MIT"}
+
+[project.urls]
+Publication = "https://doi.org/10.1093/bioinformatics/btaf321"
+Repository = "https://github.com/miemiemmmm/Nearl"
+Documentation = "https://nearl.readthedocs.io/"
 
 [tool.setuptools]
 include-package-data = true
 
 [tool.ruff]
-target-version = "py311"
+target-version = "py39"
 line-length = 88
+
+[tool.ruff.lint]
+select = [
+    "E",
+    "F",
+    "I",
+    "B",
+    "UP",
+    "SIM",
+    "RUF",
+]
+ignore = [
+    "E501",  # line too long
+    "B005",  # false-positives strip method
+    "B008",  # function call in default argument
+    "RUF022",  # unsorted list
+    "E402",  # import not at the top
+    "BLE001",  # unclear exception type
+]
 
 [project.entry-points.console_scripts]
 nearl-view-slice = "nearl.visual:CLI_view_slice"

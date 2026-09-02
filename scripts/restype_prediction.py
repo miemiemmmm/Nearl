@@ -75,9 +75,6 @@ class SimpleNN(nn.Module):
 # Instantiate and test the model
 if __name__ == "__main__":
 
-    def standardize(data, means=[], stds=[]):
-        return (data - means) / (stds + 1e-9)
-
     def standardize(arr):
         # Avoid division by zero
         min_val = np.min(arr, axis=0, keepdims=True)
@@ -359,7 +356,7 @@ if __name__ == "__main__":
 
     with tempfile.NamedTemporaryFile(suffix=".npy") as file1:
         np.save(file1.name, confusion_matrix)
-        subprocess.run(["python", "testplt.py", file1.name])
+        subprocess.run(["python", "testplt.py", file1.name], check=False)
         print("Finished drawing the confusion matrix")
 
     # _matrix = np.zeros((20, 20))

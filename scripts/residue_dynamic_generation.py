@@ -81,7 +81,7 @@ def generate_features(settings):
     }
 
     # Get the pair arguments for MisatoTraj
-    with open(pdbcode_file, "r") as f:
+    with open(pdbcode_file) as f:
         pdbcodes = f.read().strip("\n").split("\n")
     trajlists = [(i, misatodir) for i in pdbcodes]
     # Load trajectories

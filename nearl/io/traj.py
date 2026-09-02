@@ -75,9 +75,9 @@ class Trajectory(pt.Trajectory):
           The topology like or filename to be loaded
         """
         # Set the keyword arguments for slicing/masking trajectory;
-        stride = kwarg.get("stride", None)
-        frame_indices = kwarg.get("frame_indices", None)
-        mask = kwarg.get("mask", None)
+        stride = kwarg.get("stride")
+        frame_indices = kwarg.get("frame_indices")
+        mask = kwarg.get("mask")
 
         if config.verbose():
             log(
@@ -105,10 +105,7 @@ class Trajectory(pt.Trajectory):
 
         elif isinstance(traj_src, (pt.Trajectory, self.__class__)):
             # Pytraj or self-based trajectory initialization
-            if mask is not None:
-                tmptraj = traj_src[mask]
-            else:
-                tmptraj = traj_src
+            tmptraj = traj_src[mask] if mask is not None else traj_src
             timeinfo = tmptraj.time
             boxinfo = tmptraj._boxes
 
@@ -144,10 +141,7 @@ class Trajectory(pt.Trajectory):
         self.top_filename = pdb_src
         self.traj_filename = traj_src
         self.mask = mask
-        if "identity" in kwarg:
-            self.identity_ = kwarg["identity"]
-        else:
-            self.identity_ = None
+        self.identity_ = kwarg.get("identity")
 
         if config.verbose() or config.debug():
             log(f"The identity of this trajectory is: {self.identity}", file=sys.stderr)
@@ -387,7 +381,7 @@ class MisatoTraj(Trajectory):
 
         top = pt.load_topology(self.topfile)
         # ! IMPORTANT: Remove water and ions to align the coordinates with the topology
-        res = set([i.name for i in top.residues])
+        res = {i.name for i in top.residues}
         if "WAT" in res:
             top.strip(":WAT")
         if "Cl-" in res:
@@ -425,7 +419,7 @@ class MisatoTraj(Trajectory):
                 )
 
         if kwarg.get("superpose", False):
-            if kwarg.get("mask", None) is not None:
+            if kwarg.get("mask") is not None:
                 log(
                     f"{self.__class__.__name__}: Superpose the trajectory with mask {kwarg['mask']}"
                 )

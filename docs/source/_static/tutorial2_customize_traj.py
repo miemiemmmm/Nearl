@@ -1,3 +1,4 @@
+import contextlib
 import os
 import sys
 
@@ -21,17 +22,13 @@ class MisatoTraj(Trajectory):
         # IMPORTANT: Remove them to align the coordinates with the topology
         top = pt.load_topology(self.topfile)
         top.strip(":WAT")
-        try:
+        with contextlib.suppress(Exception):
             top.strip(":Cl-")
-        except:
-            pass
-        try:
+        with contextlib.suppress(Exception):
             top.strip(":Na+")
-        except:
-            pass
 
         with h5py.File(self.trajfile, "r") as hdf:
-            if pdbcode.upper() in hdf.keys():
+            if pdbcode.upper() in hdf:
                 coord = hdf[f"/{pdbcode.upper()}/trajectory_coordinates"]
                 # Parse frames (Only one from stride and frame_indices will take effect) and masks
                 if "stride" in kwarg and kwarg["stride"] is not None:
@@ -160,4 +157,4 @@ if __name__ == "__main__":
     )
     feat.register_feature(feature)
     print(len(feat.FEATURESPACE))
-    feat.run(8)
+    feat.run()

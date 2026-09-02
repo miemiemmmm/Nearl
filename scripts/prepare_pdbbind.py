@@ -4,6 +4,7 @@
 ##############################################################################
 
 import os
+import sys
 import time
 
 import dask
@@ -58,22 +59,22 @@ def combine_complex(idx, row, ref_filedir):
     if False not in [profile, ligfile]:
         print(f"Processing Molecule {idx}: {row[0]}")
         try:
-            complex_str = utils.combine_molpdb(
+            utils.combine_molpdb(
                 ligfile,
                 profile,
                 outfile=os.path.join(out_filedir, f"{row[0]}_complex.pdb"),
             )
             return True
-        except:
+        except Exception:
             try:
                 ligfile = os.path.join(ref_filedir, f"{row[0]}/{row[0]}_ligand.sdf")
-                complex_str = utils.combine_molpdb(
+                utils.combine_molpdb(
                     ligfile,
                     profile,
                     outfile=os.path.join(out_filedir, f"{row[0]}_complex.pdb"),
                 )
                 return True
-            except:
+            except Exception:
                 print(f"Failed to process molecule {idx}: {row[0]}")
                 return False
     else:
@@ -100,7 +101,6 @@ def parallelize_traj(traj_list):
         if trajectory.top.select(":T3P,HOH,WAT").__len__() > 0:
             trajectory.strip(":T3P,HOH,WAT")
         trajectory.top.set_reference(trajectory[0])
-        mask = ":LIG"
 
         # Initialize the featurizer since different trajectory might have distinct parameters
         feat = features.Featurizer3D(FEATURIZER_PARMS)
@@ -153,7 +153,7 @@ def parallelize_traj(traj_list):
             f"The number of atoms selected is {len(index_selected)}, "
             + f"Total generated molecule block is {feat.FRAMENUMBER * len(index_selected)}"
         )
-        repr_traji, features_traji = feat.run_by_atom(index_selected, focus_mode="cog")
+        _repr_traji, features_traji = feat.run_by_atom(index_selected, focus_mode="cog")
         ret_list.append(features_traji)
         if (trajidx + 1) % 25 == 0:
             log(
@@ -172,8 +172,6 @@ def parallelize_traj(traj_list):
             else:
                 nearl.io.temporary_dump(ret_list, tempfilename)
                 ret_list = []
-            repr_traji = None
-            features_traji = None
     return str(tempfilename)
 
 
@@ -191,7 +189,7 @@ if __name__ == "__main__":
     # Read the PDBBind dataset
     table = pd.read_csv(PDBBind_datafile, delimiter=",", header=0)
     PDBNUMBER = len(table)
-    if SKIP_COMBINE != True:
+    if not SKIP_COMBINE:
         refdirs = []
         for pdbcode in table.pdbcode.tolist():
             if os.path.exists(os.path.join(ref_filedir1, pdbcode)):
@@ -200,7 +198,7 @@ if __name__ == "__main__":
                 refdirs.append(ref_filedir2)
             else:
                 print(f"Cannot find the reference directory for {pdbcode}")
-                exit(1)
+                sys.exit(1)
 
         if len(refdirs) == len(table.pdbcode.tolist()):
             print("All reference directories are found.")
@@ -240,12 +238,9 @@ if __name__ == "__main__":
         "4knz": "6nnr",
     }
 
-    with open(pdb_listfile, "r") as f1:
+    with open(pdb_listfile) as f1:
         pdb_to_featurize = f1.read().strip("\n").split("\n")
-        pdb_to_featurize = [
-            SUPERSEDES[i.lower()] if i.lower() in SUPERSEDES else i
-            for i in pdb_to_featurize
-        ]
+        pdb_to_featurize = [SUPERSEDES.get(i.lower(), i) for i in pdb_to_featurize]
 
     # Serial check the existence of the output complex files
     complex_files = [
@@ -261,12 +256,8 @@ if __name__ == "__main__":
         print(
             f"Error: {len(found_state) - np.count_nonzero(found_state)}/{len(found_state)} complexes are not found in the complex directory"
         )
-        print(
-            np.array(pdb_to_featurize)[
-                np.where(np.array(found_state) == False)[0]
-            ].tolist()
-        )
-        exit(0)
+        print(np.array(pdb_to_featurize)[np.where(~np.array(found_state))[0]].tolist())
+        sys.exit(0)
 
     #################################################################################
     ########### Part3: Featurize the required PDB complexes #########################

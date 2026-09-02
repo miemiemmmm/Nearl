@@ -25,7 +25,7 @@ def parallelize_traj(traj_list, focused_res):
     nearl.update_config()
     if not os.path.isdir(nearl._tempfolder):
         print("Creating the temp folder", nearl._tempfolder)
-        subprocess.run(["mkdir", "-p", nearl._tempfolder])
+        subprocess.run(["mkdir", "-p", nearl._tempfolder], check=False)
 
     for complex_idx, complex_file in enumerate(traj_list):
         print(
@@ -52,7 +52,7 @@ def parallelize_traj(traj_list, focused_res):
                 feat.register_frames([0])
 
                 # Compute the representation vector and concatenate it to the return array
-                repr_traji, features_traji = feat.run_by_atom(index_selected)
+                repr_traji, _features_traji = feat.run_by_atom(index_selected)
                 if len(ret_array) == 0:
                     ret_array = np.array(repr_traji)
                 else:
@@ -87,7 +87,7 @@ if __name__ == "__main__":
     st = time.perf_counter()
     complex_folder = "/MieT5/Nearl/data/complexes/"
     complex_file_list = "complex_filelist.txt"
-    with open(os.path.join(complex_folder, complex_file_list), "r") as f:
+    with open(os.path.join(complex_folder, complex_file_list)) as f:
         complex_files = [i for i in f.read().strip("\n").split("\n") if i != ""]
     complex_files = [os.path.join(complex_folder, i) for i in complex_files]
 

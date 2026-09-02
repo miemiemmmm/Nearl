@@ -55,7 +55,7 @@ def split_dataset(datafile, trainingset_nrs, output_folder):
     selected_final = []
     selected_labels = []
     selected_restypes = []
-    for tnr in trainingset_nrs:
+    for _tnr in trainingset_nrs:
         selected_final.append([])
         selected_labels.append([])
         selected_restypes.append([])
@@ -74,7 +74,7 @@ def split_dataset(datafile, trainingset_nrs, output_folder):
             locations = np.where(labels == tagi)
             locations = locations[0]
             sample_bins = fractions * len(locations)
-            sample_bins_cumsum = [0] + np.cumsum(sample_bins).astype(int).tolist()
+            sample_bins_cumsum = [0, *np.cumsum(sample_bins).astype(int).tolist()]
 
             if len(locations) > needed_nr:
                 # In the case that the number of available residues is more than the target number: Randomly select the residues
@@ -94,7 +94,7 @@ def split_dataset(datafile, trainingset_nrs, output_folder):
                 print(
                     f"Class {tagi} has {len(locations)} residues; Selecting all of them ..."
                 )
-                for bin_idx, target_nr in enumerate(trainingset_nrs):
+                for bin_idx, _target_nr in enumerate(trainingset_nrs):
                     bini = locations[
                         sample_bins_cumsum[bin_idx] : sample_bins_cumsum[bin_idx + 1]
                     ]  # Elements fall into the each bin
@@ -181,25 +181,25 @@ def process_dataset(
             )
     else:
         with feater.io.hdffile(output_hdf, "a") as f:
-            if "dimensions" not in f.keys():
+            if "dimensions" not in f:
                 feater.utils.add_data_to_hdf(
                     f, "dimensions", VOX_SETTINGS["dims"], dtype=np.int32, maxshape=[3]
                 )
-            if "cutoff" not in f.keys():
+            if "cutoff" not in f:
                 feater.utils.add_data_to_hdf(
                     f,
                     "cutoff",
                     np.array([VOX_SETTINGS["cutoff"]], dtype=np.float32),
                     maxshape=[1],
                 )
-            if "sigma" not in f.keys():
+            if "sigma" not in f:
                 feater.utils.add_data_to_hdf(
                     f,
                     "sigma",
                     np.array([VOX_SETTINGS["sigma"]], dtype=np.float32),
                     maxshape=[1],
                 )
-            if "boxsize" not in f.keys():
+            if "boxsize" not in f:
                 feater.utils.add_data_to_hdf(
                     f,
                     "boxsize",

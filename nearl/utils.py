@@ -131,7 +131,7 @@ def compute_pcdt(traj, mask1, mask2, use_mean=False, ref=None, return_info=False
         return None, None
 
     # Compute the distance matrix between the target and reference atoms
-    if use_mean == True:
+    if use_mean:
         frame_mean = np.mean(traj.xyz, axis=0)
         mask1_xyz = frame_mean[selmask1]
         mask2_xyz = frame_mean[selmask2]
@@ -169,11 +169,8 @@ def compute_pcdt(traj, mask1, mask2, use_mean=False, ref=None, return_info=False
             "indices_group2": [],
         }
 
-        if hasattr(traj, "atoms"):
-            # With the nearl.io.traj class
-            atoms = traj.atoms
-        else:
-            atoms = [i for i in traj.top.atoms]
+        # With the nearl.io.traj class
+        atoms = traj.atoms if hasattr(traj, "atoms") else [i for i in traj.top.atoms]
         for idx in selmask1:
             pdist_info["atom_name_group1"].append(atoms[idx].name)
             pdist_info["indices_group1"].append(atoms[idx].index)
@@ -231,7 +228,7 @@ def get_pdbcode(pdbcode):
 
     """
     pdbcode = pdbcode.lower()
-    if pdbcode in constants.PDBCODE_SUPERCEDES.keys():
+    if pdbcode in constants.PDBCODE_SUPERCEDES:
         pdbcode = constants.PDBCODE_SUPERCEDES[pdbcode]
     return pdbcode
 
@@ -473,7 +470,7 @@ def get_pdb_title(pdbcode):
     assert len(pdb) == 4, "Please enter a valid PDB name"
     pdbstr = fetch(pdb)
     title = " ".join(
-        [i.strip("TITLE").strip() for i in pdbstr.split("\n") if "TITLE" in i]
+        [i.removeprefix("TITLE").strip() for i in pdbstr.split("\n") if "TITLE" in i]
     )
     return title
 
@@ -624,7 +621,7 @@ def update_hdf_data(hdffile, dataset_name: str, data: np.ndarray, hdf_slice, **k
             #     hdf[dataset_name].resize(hdf_slice.stop, axis=0)
             #   hdf[dataset_name][hdf_slice] = data
     elif isinstance(hdffile, h5py.File):
-        if dataset_name not in hdffile.keys():
+        if dataset_name not in hdffile:
             hdffile.create_dataset(dataset_name, data=data, **kwargs)
         else:
             if hdf_slice.stop > hdffile[dataset_name].shape[0]:
@@ -634,7 +631,7 @@ def update_hdf_data(hdffile, dataset_name: str, data: np.ndarray, hdf_slice, **k
 
 def dump_dict(outfile: str, groupname: str, dic: dict):
     with h5py.File(outfile, "a") as hdf:
-        if groupname not in hdf.keys():
+        if groupname not in hdf:
             hdf.create_group(groupname)
         else:
             del hdf[groupname]
@@ -716,10 +713,10 @@ def find_block_dual(traj, key):
 
                     if (
                         previous_res.name
-                        not in constants.RES + [i for i in constants.RES_PATCH.keys()]
+                        not in constants.RES + [i for i in constants.RES_PATCH]
                     ) or (
                         this_res.name
-                        not in constants.RES + [i for i in constants.RES_PATCH.keys()]
+                        not in constants.RES + [i for i in constants.RES_PATCH]
                     ):
                         print(
                             f"Residue pair {previous_res.name}-{this_res.name} is not supported yet",
@@ -778,7 +775,7 @@ def index_partition(input_seq, partition_nr):
     element_nrs = []
     for k, g in groupby(input_seq):
         lst = list(g)
-        if k == True:
+        if k:
             element_nrs.append(len(lst))
             slices.append(np.s_[cidx : cidx + len(lst)])
         cidx += len(lst)
@@ -790,7 +787,7 @@ def index_partition(input_seq, partition_nr):
 
 
 def check_filelist(training_set):
-    with open(training_set, "r") as f:
+    with open(training_set) as f:
         pdbcodes = f.read().strip("\n").split("\n")
     return pdbcodes
 

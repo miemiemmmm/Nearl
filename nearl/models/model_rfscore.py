@@ -7,6 +7,7 @@ class RFScore(RandomForestRegressor):
     def __init__(self, n_jobs=-1, *args, **kwargs):
         mtry = 21
         super().__init__(
+            *args,
             n_estimators=500,
             oob_score=True,
             n_jobs=n_jobs,
@@ -15,7 +16,6 @@ class RFScore(RandomForestRegressor):
             min_samples_split=2,
             # min_samples_leaf=1,
             max_depth=20,
-            *args,
             **kwargs,
         )
 

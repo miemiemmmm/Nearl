@@ -95,7 +95,7 @@ class TrajectoryLoader:
         self.loading_options = kwarg
 
         # Update the loading options if they are individially set for each trajectory
-        if kwarg.get("strides", None) is None:
+        if kwarg.get("strides") is None:
             self.strides = [None] * len(self.trajs)
         else:
             if len(kwarg.get("strides")) != len(self.trajs):
@@ -104,7 +104,7 @@ class TrajectoryLoader:
                 )
             self.strides = [int(i) for i in kwarg.get("strides")]
 
-        if kwarg.get("masks", None) is None:
+        if kwarg.get("masks") is None:
             self.masks = [None] * len(self.trajs)
         else:
             if len(kwarg.get("masks")) != len(self.trajs):
@@ -242,7 +242,7 @@ class TrajectoryLoader:
         """
         # Determine the number of trajectories to add
         if not isinstance(trajs, (list, tuple)):
-            raise ValueError(
+            raise TypeError(
                 f"The input should be a list or tuple of trajectory arguments rather than {type(trajs)}"
             )
         traj_nr = len(trajs)
@@ -253,15 +253,15 @@ class TrajectoryLoader:
         for idx, traj_arg in enumerate(trajs):
             self.trajs.append(traj_arg)
             self.OUTPUT_TYPE.append(trajtype)
-            if kwarg.get("trajids", None) is not None:
+            if kwarg.get("trajids") is not None:
                 self.trajids.append(kwarg.get("trajids")[idx])
             else:
                 self.trajids.append(None)
-            if kwarg.get("strides", None) is not None:
+            if kwarg.get("strides") is not None:
                 self.strides.append(kwarg.get("strides")[idx])
             else:
                 self.strides.append(None)
-            if kwarg.get("masks", None) is not None:
+            if kwarg.get("masks") is not None:
                 self.masks.append(kwarg.get("masks")[idx])
             else:
                 self.masks.append(None)

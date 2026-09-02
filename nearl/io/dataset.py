@@ -105,8 +105,9 @@ def split_array(input_array, batch_size):
         if bin_nr - 1 == 0:
             return [input_array[-final_batch_size:]]
         else:
-            return np.array_split(input_array[:-final_batch_size], bin_nr - 1) + [
-                input_array[-final_batch_size:]
+            return [
+                *np.array_split(input_array[:-final_batch_size], bin_nr - 1),
+                input_array[-final_batch_size:],
             ]
 
 
@@ -201,8 +202,10 @@ class Dataset:
 
     # TODO Check if the Label is not defined in the file
     def __init__(
-        self, files, grid_dim=None, label_key="label", feature_keys=[], normalize=True
+        self, files, grid_dim=None, label_key="label", feature_keys=None, normalize=True
     ):
+        if feature_keys is None:
+            feature_keys = []
         # self.size = np.array([grid_dim, grid_dim, grid_dim], dtype=int)
         self.FILELIST = files
         self.sample_sizes = []
@@ -229,11 +232,11 @@ class Dataset:
                         self.size = np.array(grid_dim, dtype=int)
                 # Check the existence of the feature keys in the file
                 for k in feature_keys:
-                    if k not in hdf.keys():
+                    if k not in hdf:
                         raise KeyError(
                             f"Feature key {k} is not in the h5 file: {filename}"
                         )
-                if self.label_key not in [i for i in hdf.keys()]:
+                if self.label_key not in hdf:
                     self.label_key = None
                     self.label_dtype = int
                     # raise KeyError(f"Label key {label_key} is not in the h5 file: {filename}")
@@ -255,7 +258,7 @@ class Dataset:
         self.position_map = np.full(self.total_entries, 0, dtype=np.uint64)
 
         tmp_count = 0
-        for fidx, filename in enumerate(self.FILELIST):
+        for fidx, _filename in enumerate(self.FILELIST):
             # Full the file map and position map
             label_nr = self.sample_sizes[fidx]
             self.file_map[tmp_count : tmp_count + label_nr] = fidx
@@ -306,7 +309,7 @@ class Dataset:
                 f"Index {index} is out of range. The dataset has {self.total_entries} entries."
             )
 
-        data = torch.zeros([self.channel_nr] + self.size.tolist(), dtype=torch.float32)
+        data = torch.zeros([self.channel_nr, *self.size.tolist()], dtype=torch.float32)
         for i, key in enumerate(self.feature_keys):
             retdata = readdata(
                 self.filename(index),
@@ -400,7 +403,7 @@ class Dataset:
                 f"Iterating the dataset: {len(batches)} batches with batch size {batch_size}. Using {process_nr} processes."
             )
 
-        result_shape = [-1, self.channel_nr] + self.size.tolist()
+        result_shape = [-1, self.channel_nr, *self.size.tolist()]
 
         with mp.Pool(process_nr) as pool:
             for batch in batches:

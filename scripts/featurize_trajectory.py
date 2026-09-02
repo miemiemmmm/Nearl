@@ -57,7 +57,7 @@ if __name__ == "__main__":
         os.path.abspath(args["output_dir"]), f"InHouseOutput{task_index}.h5"
     )
 
-    with open(args["trajfiles"], "r") as f:
+    with open(args["trajfiles"]) as f:
         files = f.read().strip().split("\n")
         trajlists = [(i.split()[0], i.split()[1]) for i in files]
 

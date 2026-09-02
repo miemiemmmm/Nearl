@@ -22,9 +22,10 @@ class VoxNet(nn.Module):
         input_channels: int,
         output_dimension,
         input_shape,
-        dropout_rates=[0.1, 0.1, 0.1],
+        dropout_rates=None,
     ):
         super().__init__()
+        dropout_rates = [0.1, 0.1, 0.1] if dropout_rates is None else dropout_rates
         self.n_classes = output_dimension
         if isinstance(input_shape, int):
             self.input_shape = (input_shape, input_shape, input_shape)

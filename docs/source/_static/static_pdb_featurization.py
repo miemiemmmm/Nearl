@@ -1,10 +1,12 @@
-import nearl.data
-
 import nearl
+import nearl.features
+import nearl.featurizer
+import nearl.io
 
-# Make up the list of tuple with the PDB files
-trajs = [(i,) for i in nearl.data.MINI_SET]
-loader = nearl.TrajectoryLoader(trajs)
+# Get the example data and make up the list of tuple with the PDB files
+EXAMPLE_DATA = nearl.get_example_data("/tmp/nearl_test")
+trajs = [(i,) for i in EXAMPLE_DATA["MINI_PDBSET"]]
+loader = nearl.io.TrajectoryLoader(trajs)
 
 # The protein and ligands are combined and ligands are named as LIG
 for traj in loader:
@@ -34,4 +36,4 @@ featurizer.register_trajloader(
     loader
 )  # Register the trajectory loader in the first step
 featurizer.register_focus([":LIG"], "mask")  # focus on the ligand
-featurizer.main_loop()
+featurizer.run()

@@ -309,7 +309,7 @@ if __name__ == "__main__":
     # Find the complex files and their PDB code
     template = args.get("complex_template")
     pdbcodes = args.get("pdbcodes")
-    with open(pdbcodes, "r") as f:
+    with open(pdbcodes) as f:
         pdbcodes = f.read().strip("\n").split("\n")
     complex_files = find_files(pdbcodes, template)
     complex_files = np.array_split(complex_files, task_nr)[task_index]

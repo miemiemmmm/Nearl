@@ -12,7 +12,7 @@ class PafnucyNetwork(nn.Module):
     Pytorch implementation of the Pafnucy model.
 
     Original paper:
-    Stepniewska-Dziubinska, M.M., Zielenkiewicz, P. and Siedlecki, P., 2018. Development and evaluation of a deep learning model for protein–ligand binding affinity prediction. Bioinformatics, 34(21), pp.3666-3674.
+    Stepniewska-Dziubinska, M.M., Zielenkiewicz, P. and Siedlecki, P., 2018. Development and evaluation of a deep learning model for protein-ligand binding affinity prediction. Bioinformatics, 34(21), pp.3666-3674.
 
     Code reference:
     https://gitlab.com/cheminfIBB/tfbio/-/blob/master/tfbio/net.py
@@ -29,11 +29,13 @@ class PafnucyNetwork(nn.Module):
         input_shape,
         conv_patch=5,
         pool_patch=2,
-        conv_channels=[32, 64, 128],
-        dense_sizes=[1024, 512, 256],
+        conv_channels=None,
+        dense_sizes=None,
         drop_prob=0.1,
     ):
         super().__init__()
+        conv_channels = [32, 64, 128] if conv_channels is None else conv_channels
+        dense_sizes = [1024, 512, 256] if dense_sizes is None else dense_sizes
         self.n_classes = output_dimension
         if isinstance(input_shape, int):
             self.input_shape = (input_shape, input_shape, input_shape)

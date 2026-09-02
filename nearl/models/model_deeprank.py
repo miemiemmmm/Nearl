@@ -20,10 +20,12 @@ class DeepRankNetwork(nn.Module):
         input_channels: int,
         output_dimension: int,
         input_shape: int,
-        conv=[4, 5],
-        fc=[84],
+        conv=None,
+        fc=None,
     ):
         super().__init__()
+        conv = [4, 5] if conv is None else conv
+        fc = [84] if fc is None else fc
         if isinstance(input_shape, int):
             self.input_shape = (input_shape, input_shape, input_shape)
         elif isinstance(input_shape, (tuple, list)) or "__iter__" in dir(input_shape):

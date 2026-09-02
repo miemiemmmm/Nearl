@@ -15,7 +15,7 @@ class build_ext_nearl(_build_ext):
         subprocess.check_call(["make", "all_actions"], cwd=SRC_DIR)
         built_so = os.path.join(SRC_DIR, "all_actions.so")
         if not os.path.isfile(built_so):
-            raise Exception(
+            raise RuntimeError(
                 f"The shared object file ({built_so}) was not produced; please check the build process"
             )
         target = self.get_ext_fullpath(ext.name)
@@ -23,12 +23,12 @@ class build_ext_nearl(_build_ext):
         self.copy_file(built_so, target)
 
 
-setup_params = dict(
-    cmdclass={"build_ext": build_ext_nearl},
-    packages=find_packages(),
-    ext_modules=[Extension("nearl.all_actions", sources=[])],
-    zip_safe=False,
-)
+setup_params = {
+    "cmdclass": {"build_ext": build_ext_nearl},
+    "packages": find_packages(),
+    "ext_modules": [Extension("nearl.all_actions", sources=[])],
+    "zip_safe": False,
+}
 
 
 if __name__ == "__main__":

@@ -5,6 +5,7 @@ import time
 from builtins import print as __builtinprint
 from datetime import datetime
 from inspect import stack as __call_stack
+from typing import ClassVar, Optional
 
 __version__ = "0.0.3.dev0"
 
@@ -44,7 +45,9 @@ class config:
         return CONFIG.get("reportdatetime", False)
 
 
-def update_config(dict_to_update: dict = {}, **kwargs):
+def update_config(dict_to_update: Optional[dict] = None, **kwargs):
+    if dict_to_update is None:
+        dict_to_update = {}
     for key, value in dict_to_update.items():
         if key in CONFIG:
             CONFIG[key] = value
@@ -74,7 +77,7 @@ def loginfo_datetime():
     """
     Simply adding a timestamp to the log message
     """
-    timestamp = datetime.now().strftime("%y-%m-%dT%H:%M:%S")
+    timestamp = datetime.now().astimezone().strftime("%y-%m-%dT%H:%M:%S")
     log_message = f"{timestamp}: "
     return log_message
 
@@ -83,7 +86,7 @@ def loginfo_debug():
     """
     Report the calling stack of a function
     """
-    timestamp = datetime.now().strftime("%y-%m-%dT%H:%M:%S")
+    timestamp = datetime.now().astimezone().strftime("%y-%m-%dT%H:%M:%S")
     thestack = __call_stack()[::-1][1:-2]
     function_stack = [i.function for i in thestack]
     log_message = f"{timestamp:15s}: {'>'.join(function_stack)}: "
@@ -96,7 +99,7 @@ _package_logger.propagate = False
 
 
 class _ColorStreamHandler(logging.StreamHandler):
-    _colors = {logging.WARNING: "\033[93m", logging.ERROR: "\033[91m"}
+    _colors: ClassVar[dict] = {logging.WARNING: "\033[93m", logging.ERROR: "\033[91m"}
 
     def format(self, record):
         msg = super().format(record)
@@ -236,7 +239,9 @@ def get_example_data(path="./"):
             datafile_url = (
                 "https://miemiemmmm.b-cdn.net/shared_files/example_data.tar.gz"
             )
-            subprocess.run(["wget", "--directory-prefix", path, datafile_url])
+            subprocess.run(
+                ["wget", "--directory-prefix", path, datafile_url], check=False
+            )
         else:
             log(
                 "The example data (example_data.tar.gz) already exists! Skip downloading..."
@@ -247,7 +252,7 @@ def get_example_data(path="./"):
             log("The example data folder already exists! Skip extracting...")
         else:
             log("Extracting the example data...")
-            subprocess.run(["tar", "-xf", "example_data.tar.gz"], cwd=path)
+            subprocess.run(["tar", "-xf", "example_data.tar.gz"], cwd=path, check=False)
 
         # Obtain the data paths as a dictionary
         os.chdir("example_data")

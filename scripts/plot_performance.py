@@ -1,7 +1,7 @@
 import os
 import sys
 
-import h5py as h5py
+import h5py
 import matplotlib.pyplot as plt
 
 # Read data from an HDF5 file

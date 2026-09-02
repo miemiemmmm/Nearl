@@ -1,3 +1,4 @@
+import sys
 import time
 
 from Nearl import chemtools
@@ -35,4 +36,4 @@ if __name__ == "__main__":
         )
     else:
         print("Failed to correct the molecule.")
-        exit(1)
+        sys.exit(1)

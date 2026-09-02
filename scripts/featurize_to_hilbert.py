@@ -14,9 +14,6 @@ import numpy as np
 from feater import io, utils
 from hilbertcurve.hilbertcurve import HilbertCurve
 
-INPUT_TAGNAME = "voxel"
-OUTPUT_TAGNAME = "voxel"
-
 
 def hilbert_map(iteration, dim):
     hbc = HilbertCurve(iteration, dim)
@@ -32,7 +29,7 @@ def transform_entry(hdffile, tagname, idx, map1, map2, transform_settings):
             f"len(map1)={len(map1)} is not a multiple of len(map2)={len(map2)}"
         )
     with io.hdffile(hdffile, "r") as f:
-        if tagname not in f.keys():
+        if tagname not in f:
             raise ValueError(
                 f"Cannot find the input tag {tagname} in the input hdf file"
             )
@@ -54,7 +51,7 @@ def make_hdf(inputhdf: str, outputhdf: str, interp_settings: dict):
     st = time.perf_counter()
     datasets_to_process = []
     with h5.File(inputhdf, "r") as hdf:
-        for datatag in hdf.keys():
+        for datatag in hdf:
             if isinstance(hdf[datatag], h5.Dataset):
                 if hdf[datatag].shape.__len__() < 3:
                     print(f"Directly copying the {datatag} to the output hdf file")
@@ -75,11 +72,11 @@ def make_hdf(inputhdf: str, outputhdf: str, interp_settings: dict):
                 )
                 # Copy the group to the output hdf file
                 with h5.File(outputhdf, "a") as f:
-                    if datatag in f.keys():
+                    if datatag in f:
                         del f[datatag]
                     srcdata = hdf[datatag]
                     dstdata = f.create_group(datatag)
-                    for key in srcdata.keys():
+                    for key in srcdata:
                         srcdata.copy(key, dstdata)
             else:
                 print(f"Not h5.Dataset or h5.Group. Skip the data tag named {datatag}")
@@ -111,13 +108,13 @@ def make_hdf(inputhdf: str, outputhdf: str, interp_settings: dict):
             #     utils.add_data_to_hdf(f, "size", np.array([len_2d, len_2d], dtype=np.int32), dtype=np.int32, maxshape=[2])
             # else:
             with io.hdffile(outputhdf, "a") as f:
-                if "featurizer_parms" not in f.keys():
+                if "featurizer_parms" not in f:
                     raise ValueError(
                         "The output hdf file does not have the 'featurizer_parms' entry"
                     )
 
                 # Update the dimension entry of the output hdf file
-                if "dimensions_3d" not in f["featurizer_parms"].keys():
+                if "dimensions_3d" not in f["featurizer_parms"]:
                     old_dims = f["featurizer_parms"]["dimensions"][:]
                     print(f"Old dimensions: {old_dims}")
                     del f["featurizer_parms"]["dimensions"]
@@ -180,89 +177,6 @@ def make_hdf(inputhdf: str, outputhdf: str, interp_settings: dict):
 
 
 def parser():
-    parser = argparse.ArgumentParser(description="Transform the voxel to hilbert curve")
-    parser.add_argument(
-        "-i", "--input", type=str, required=True, help="The input 3D voxel HDF file"
-    )
-    parser.add_argument(
-        "-o",
-        "--output",
-        type=str,
-        required=True,
-        help="The output 2D hilbert curve HDF file",
-    )
-    parser.add_argument(
-        "-m",
-        "--mode",
-        type=str,
-        default="max",
-        help="The mode of pooling transformation (max, mean); Default: max",
-    )
-    parser.add_argument(
-        "-f",
-        "--force",
-        type=int,
-        default=0,
-        help="Force overwrite the output file; Default: 0",
-    )
-    parser.add_argument(
-        "-c",
-        "--compress-level",
-        type=int,
-        default=0,
-        help="The compression level of the output HDF file; Default: 0",
-    )
-    parser.add_argument(
-        "--input-tagname",
-        type=str,
-        default="voxel",
-        help="The input tag name; Default: voxel",
-    )
-    parser.add_argument(
-        "--output-tagname",
-        type=str,
-        default="voxel",
-        help="The output tag name; Default: voxel",
-    )
-    parser.add_argument(
-        "--processes", type=int, default=8, help="The number of processes; Default: 8"
-    )
-    args = parser.parse_args()
-
-    if (args.input is None) or (not os.path.exists(args.input)):
-        print("Fatal: Please specify the input file", file=sys.stderr)
-        parser.print_help()
-        exit(1)
-    elif args.output is None:
-        print("Fatal: Please specify the output file", file=sys.stderr)
-        parser.print_help()
-        exit(1)
-    elif (os.path.exists(args.output)) and (not args.force):
-        print(
-            f"Fatal: Output file '{args.output}' exists. Use -f to force overwrite the output file. ",
-            file=sys.stderr,
-        )
-        parser.print_help()
-        exit(1)
-    elif (os.path.exists(args.output)) and args.force:
-        os.remove(args.output)
-        print(
-            f"Warning: Output file '{args.output}' exists and the force overwrite flag is specified {args.force}. Overwriting..."
-        )
-    return args
-
-
-def console_interface():
-    # Precompute the hilbert coordinates and splited array
-    args = parser()
-    print(json.dumps(vars(args), indent=2))
-    global INPUT_TAGNAME, OUTPUT_TAGNAME
-    INPUT_TAGNAME = args.input_tagname
-    OUTPUT_TAGNAME = args.output_tagname
-    make_hdf(args.input, args.output, vars(args))
-
-
-def parser():
     parser = argparse.ArgumentParser(
         description="Transform all 3D voxel datasets to hilbert curve and keep the tagname and label"
     )
@@ -306,18 +220,18 @@ def parser():
     if (args.input is None) or (not os.path.exists(args.input)):
         print("Fatal: Please specify the input file", file=sys.stderr)
         parser.print_help()
-        exit(1)
+        sys.exit(1)
     elif args.output is None:
         print("Fatal: Please specify the output file", file=sys.stderr)
         parser.print_help()
-        exit(1)
+        sys.exit(1)
     elif (os.path.exists(args.output)) and (not args.force):
         print(
             f"Fatal: Output file '{args.output}' exists. Use -f to force overwrite the output file. ",
             file=sys.stderr,
         )
         parser.print_help()
-        exit(1)
+        sys.exit(1)
     elif (os.path.exists(args.output)) and args.force:
         os.remove(args.output)
         print(

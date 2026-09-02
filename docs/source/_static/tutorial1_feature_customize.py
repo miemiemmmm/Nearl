@@ -15,7 +15,7 @@ LIG_MAP = {6: 0, 7: 1, 8: 2, 9: 3, 15: 4, 16: 5, 17: 6, 35: 7, 53: 8}
 
 class RFScoreFeat(Feature):
     def __init__(self, moiety_of_interest, cutoff, **kwargs):
-        super().__init__(outshape=[1, 36], **kwargs)
+        super().__init__(outshape=[None, 36], **kwargs)
         self.moi = moiety_of_interest
         self.cutoff = cutoff
 
@@ -35,8 +35,8 @@ class RFScoreFeat(Feature):
         # Construct a hashmap for fast lookup of all possible contacts
         self.idx_hashmap = {}
         for p, p_idx in PROT_MAP.items():
-            for l, l_idx in LIG_MAP.items():
-                self.idx_hashmap[f"{p}_{l}"] = (p_idx, l_idx)
+            for lig, lig_idx in LIG_MAP.items():
+                self.idx_hashmap[f"{p}_{lig}"] = (p_idx, lig_idx)
 
     def query(self, topology, frame_coords, focal_point):
         return (frame_coords,)

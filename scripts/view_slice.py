@@ -1,5 +1,3 @@
-""" """
-
 import argparse
 import os
 import time
@@ -72,8 +70,9 @@ def get_voxeli(hdf, index: int) -> np.ndarray:
 
 
 def get_geo_voxeli(
-    voxel, cmap="inferno", percentile=95, hide=1, scale_factor=[1, 1, 1]
+    voxel, cmap="inferno", percentile=95, hide=1, scale_factor=None
 ) -> list:
+    scale_factor = [1, 1, 1] if scale_factor is None else scale_factor
     dims = np.asarray(voxel.shape)
     cmap = colormaps.get_cmap(cmap)
     vmax = np.max(voxel)
@@ -106,21 +105,22 @@ def get_geo_voxeli(
     return ret
 
 
-def get_geo_slices(voxel, slices: dict, cmap="inferno", scale_factor=[1, 1, 1]) -> list:
+def get_geo_slices(voxel, slices: dict, cmap="inferno", scale_factor=None) -> list:
+    scale_factor = [1, 1, 1] if scale_factor is None else scale_factor
     dims = np.asarray(voxel.shape)
     vmax = np.max(voxel)
     ret = []
     pixel_size = 1 * scale_factor[0] - 0.05
-    for key in slices:
+    for key, value in slices.items():
         if key not in ["x", "y", "z"]:
             raise ValueError(f"Invalid key {key} for the slice")
         cmap = colormaps.get_cmap(cmap)
         if key == "x":
-            theslice = voxel[slices[key], :, :]
+            theslice = voxel[value, :, :]
         elif key == "y":
-            theslice = voxel[:, slices[key], :]
+            theslice = voxel[:, value, :]
         else:
-            theslice = voxel[:, :, slices[key]]
+            theslice = voxel[:, :, value]
         if key == "x":
             for y in range(dims[1]):
                 for z in range(dims[2]):
@@ -130,7 +130,7 @@ def get_geo_slices(voxel, slices: dict, cmap="inferno", scale_factor=[1, 1, 1]) 
                     box.translate(
                         np.asarray(
                             [
-                                slices[key] * scale_factor[0],
+                                value * scale_factor[0],
                                 y * scale_factor[1],
                                 z * scale_factor[2],
                             ],
@@ -151,7 +151,7 @@ def get_geo_slices(voxel, slices: dict, cmap="inferno", scale_factor=[1, 1, 1]) 
                         np.asarray(
                             [
                                 x * scale_factor[0],
-                                slices[key] * scale_factor[1],
+                                value * scale_factor[1],
                                 z * scale_factor[2],
                             ],
                             dtype=np.float64,
@@ -172,7 +172,7 @@ def get_geo_slices(voxel, slices: dict, cmap="inferno", scale_factor=[1, 1, 1]) 
                             [
                                 x * scale_factor[0],
                                 y * scale_factor[1],
-                                slices[key] * scale_factor[2],
+                                value * scale_factor[2],
                             ],
                             dtype=np.float64,
                         )
@@ -242,8 +242,6 @@ def main_render(inputfile: str, index: int, args):
         voxeli = hdf[args.tagname][index]
         dims = np.array(hdf["featurizer_parms"]["dimensions"][:])
         boxsize = np.array(hdf["featurizer_parms"]["lengths"][:])
-        x_slice = int(dims[0] / 2)
-        y_slice = int(dims[1] / 2)
         z_slice = int(dims[2] / 2)
         scale_factor = boxsize / dims
         print(f"Boxsize: {boxsize}, Dims: {dims}, Scale factor: {scale_factor}")

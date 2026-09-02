@@ -43,7 +43,7 @@ def parallelize_traj(traj_list, focused_res):
                 feat.register_frames(range(0, theresidue.n_frames, 1000))
 
                 # Compute the representation vector and concatenate it to the return array
-                repr_traji, features_traji = feat.run_by_atom(index_selected)
+                repr_traji, _features_traji = feat.run_by_atom(index_selected)
                 if len(ret_array) == 0:
                     ret_array = np.array(repr_traji)
                 else:

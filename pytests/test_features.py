@@ -98,7 +98,6 @@ def test_aggregation_functions():
 
     for agg_mode in range(1, 9):
         # for agg_mode in [1, 3, 5, 6]:
-        c = 0
         ret = all_actions.aggregate(x, agg_mode)
         _agg_cpu = []
         for i in range(32 * 32 * 32):

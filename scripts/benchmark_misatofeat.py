@@ -85,7 +85,7 @@ def parser():
 
 
 def get_trajlist(training_set, misatodir):
-    with open(training_set, "r") as f:
+    with open(training_set) as f:
         pdbcodes = f.read().strip("\n").split("\n")
     trajlists = [(i, misatodir) for i in pdbcodes]
     return trajlists

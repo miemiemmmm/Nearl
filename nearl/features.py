@@ -25,27 +25,27 @@ __all__ = [
     # Base class
     "Feature",
     # Static Features
-    "AtomicNumber",
-    "Mass",
-    "HeavyAtom",
     "Aromaticity",
+    "AtomType",
+    "AtomicNumber",
+    "Backbone",
+    "Electronegativity",
+    "HBondAcceptor",
+    "HBondDonor",
+    "HeavyAtom",
+    "Hybridization",
+    "Hydrophobicity",
+    "Mass",
+    "PartialCharge",
     "Ring",
     "Selection",
-    "HBondDonor",
-    "HBondAcceptor",
-    "Hybridization",
-    "Backbone",
-    "AtomType",
-    "PartialCharge",
-    "Electronegativity",
-    "Hydrophobicity",
     # Dynamic features
-    "DynamicFeature",
     "DensityFlow",
+    "DynamicFeature",
     "MarchingObservers",
     # Label-type features
-    "LabelIdentity",
     "LabelAffinity",
+    "LabelIdentity",
     "LabelPCDT",
     "LabelRMSD",
     # Other features
@@ -155,7 +155,7 @@ def selection_to_mol(traj, frameidx, selection):
                 pt.write_traj(
                     temp.name, _traj, frame_indices=[frameidx], overwrite=True
                 )
-                with open(temp.name, "r") as tmp:
+                with open(temp.name) as tmp:
                     print(tmp.read())
                 rdmol = Chem.MolFromMol2File(temp.name, sanitize=False, removeHs=False)
         return rdmol
@@ -252,7 +252,7 @@ class Feature:
         self.selection = selection
         self.selected = None
         self.classname = self.__class__.__name__
-        self.force_recache = False if force_recache is None else True
+        self.force_recache = force_recache is not None
         if self.force_recache:
             log(f"{self.classname}: Forcing recache the weights")
         self.translate = translate
@@ -412,18 +412,18 @@ class Feature:
             self.spacing = featurizer.spacing
         # Update this upon adding more variables to the feature
         for key in constants.COMMON_FEATURE_PARMS:
-            if getattr(self, key, None) is None:
-                # If the variable is not manually set, try to inherit the attributes from the featurizer
-                if (
-                    key in featurizer.FEATURE_PARMS.keys()
-                    and featurizer.FEATURE_PARMS[key] is not None
-                ):
-                    keyval = featurizer.FEATURE_PARMS[key]
-                    setattr(self, key, keyval)
-                    log(
-                        f"{self}: Inheriting the parameter from the featurizer: {key} {keyval}"
-                    )
-                    self.PARAMSPACE[key] = keyval
+            # If the variable is not manually set, try to inherit the attributes from the featurizer
+            if (
+                getattr(self, key, None) is None
+                and key in featurizer.FEATURE_PARMS
+                and featurizer.FEATURE_PARMS[key] is not None
+            ):
+                keyval = featurizer.FEATURE_PARMS[key]
+                setattr(self, key, keyval)
+                log(
+                    f"{self}: Inheriting the parameter from the featurizer: {key} {keyval}"
+                )
+                self.PARAMSPACE[key] = keyval
 
         # Setting coupled parameters or defaults if not set manually
         if self.padding is None:
@@ -1145,7 +1145,7 @@ class PartialCharge(Feature):
                     charges = cfw.calculate_charges(
                         mol, self.charge_type, self.charge_parm
                     )
-                    if filename not in charges.keys():
+                    if filename not in charges:
                         raise ValueError(
                             f"{self.classname}: The charges are not calculated for the file {filename}"
                         )
@@ -1180,7 +1180,7 @@ class PartialCharge(Feature):
                             )
                         try:
                             charges = cfw.calculate_charges(mol, method, parmfile)
-                            if filename not in charges.keys():
+                            if filename not in charges:
                                 continue
                             else:
                                 charge_values = np.array(
@@ -1638,7 +1638,6 @@ class DensityFlow(DynamicFeature):
         return ret
 
     def query(self, topology, frame_coords, focal_point):
-        """ """
         ret_coord, ret_weight = super().query(topology, frame_coords, focal_point)
         return ret_coord, ret_weight
 
@@ -1835,10 +1834,10 @@ class LabelAffinity(Feature):
         super().__init__(outshape=(None,), **kwargs)
         try:
             import pandas as pd
-        except ImportError:
+        except ImportError as e:
             raise ImportError(
                 "The pandas module is required for the LabelAffinity feature"
-            )
+            ) from e
         self.baseline_table = pd.read_csv(baseline_map, header=0, delimiter=",")
         self.base_value = None
         self.colname = colname
@@ -1980,7 +1979,7 @@ class LabelPCDT(LabelAffinity):
         elif isinstance(self.selection_prototype, (list, tuple, np.ndarray)):
             selected = np.array([int(i) for i in self.selection_prototype])
         else:
-            raise ValueError(
+            raise TypeError(
                 "The selection should be either a string or a list of atom indices"
             )
 

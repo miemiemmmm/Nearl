@@ -110,14 +110,14 @@ def perform_testing_API(settings: dict, return_model=False, silent=False):
     """
     The variable "test_data" and "pretrained" should be in the settings.
     """
-    if not settings.get("test_data", None):
+    if not settings.get("test_data"):
         raise ValueError("The test data file is not provided.")
-    elif not settings.get("pretrained", None):
+    elif not settings.get("pretrained"):
         raise ValueError("The pretrained model is not provided.")
-    elif not settings.get("meta_information", None):
+    elif not settings.get("meta_information"):
         raise ValueError("The meta information file is not provided.")
 
-    with open(settings["meta_information"], "r") as f:
+    with open(settings["meta_information"]) as f:
         meta_information = json.load(f)
         print(
             "The original model used the test dataset:", meta_information["test_data"]
@@ -199,7 +199,7 @@ def perform_testing_CLI():
     print("Settings of this training:")
     print(json.dumps(SETTINGS, indent=2))
 
-    with open(SETTINGS["meta_information"], "r") as f:
+    with open(SETTINGS["meta_information"]) as f:
         meta_information = json.load(f)
 
     meta_information.update(SETTINGS)

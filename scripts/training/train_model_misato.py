@@ -394,7 +394,6 @@ def perform_training(training_settings: dict):
     print(f"Number of parameters: {parameter_number}")
 
     for epoch in range(EPOCH_NR):
-        st = time.perf_counter()
         st_training = time.perf_counter()
         if epoch < START_EPOCH:
             print(f"Skip the epoch {epoch}/{START_EPOCH} ...")
@@ -565,7 +564,6 @@ def perform_training(training_settings: dict):
                     # epoch_info = f"{epoch+1}/{EPOCH_NR}:{batch_idx+1}/{batch_nr}"
                     # time_left = (time.perf_counter() - st) / batch_idx * (batch_nr - batch_idx)
                     # msg = f"Epoch {epoch_info:>15}: RMSE: {termse:.4f}/{trrmse:.4f}; Loss: {teloss:.4f}/{trloss:.4f}; Corr: {te_pearson:.4f}/{tr_pearson:.4f}; RHO: {te_spearman:.4f}/{tr_spearman:.4f}; Time left: {time_left:.0f} seconds"
-            st = time.perf_counter()
         scheduler.step()
         print(
             f"Epoch {epoch} took {time.perf_counter() - st_training:6.2f} seconds to train. Current learning rate: {get_lr(optimizer):.6f}. "

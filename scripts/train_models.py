@@ -67,7 +67,7 @@ def draw_scatter(
         plt.clf()
     # Compute the metrics
     rmse = np.sqrt(np.mean((pred_data - target_data) ** 2).sum())
-    R, rho = compute_correlations(target_data, pred_data)
+    R, _rho = compute_correlations(target_data, pred_data)
     title += f"RMSE: {rmse:4.2f}; R: {R:4.2f}"
 
     df = pd.DataFrame({"groundtruth": target_data, "predicted": pred_data})
@@ -128,7 +128,7 @@ def draw_scatter(
         color=color_reg,
         ax=f.ax_joint,
         ci=50,
-        line_kws=dict(linewidth=2),
+        line_kws={"linewidth": 2},
     )
     # Set the legends
     f.ax_joint.legend(loc="lower right", fontsize=15)
@@ -373,7 +373,6 @@ def perform_training(training_settings: dict):
         return (data - mean) / std
 
     for epoch in range(EPOCH_NR):
-        st = time.perf_counter()
         st_training = time.perf_counter()
         if epoch < START_EPOCH:
             print(f"Skip the epoch {epoch}/{START_EPOCH} ...")
@@ -549,7 +548,6 @@ def perform_training(training_settings: dict):
                                 epoch * batch_nr + batch_idx,
                             )
 
-            st = time.perf_counter()
         scheduler.step()
         print(
             f"Epoch {epoch} took {time.perf_counter() - st_training:6.2f} seconds to train. Current learning rate: {get_lr(optimizer):.6f}. "
@@ -722,7 +720,7 @@ if __name__ == "__main__":
     if SETTINGS["model"] in ("resnet", "convnext_iso", "ViT"):
         SETTINGS["dimensions"] = None
     else:
-        with open(SETTINGS["training_data"], "r") as f:
+        with open(SETTINGS["training_data"]) as f:
             hdffile = f.readline().strip()
             with h5.File(hdffile, "r") as hdf:
                 SETTINGS["dimensions"] = int(hdf["featurizer_parms"]["dimensions"][0])

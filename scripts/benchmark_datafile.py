@@ -118,7 +118,7 @@ def console_interface():
     if input_file.endswith(".h5") is True:
         files = [input_file]
     else:
-        with open(input_file, "r") as f:
+        with open(input_file) as f:
             files = f.read().strip("\n").split("\n")
     print(f"Files: {files}")
 

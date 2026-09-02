@@ -3,8 +3,12 @@ import time
 
 import dask
 import numpy as np
+import pandas as pd
 from dask.distributed import Client
 from Nearl import data_io, features, log, savelog, trajloader, utils
+
+# PDB codes later superseded by another entry; unknown for this legacy script.
+SUPERSEDES = {}
 
 
 class FeatureLabel(features.Feature):
@@ -61,7 +65,7 @@ class FeatureLabel(features.Feature):
             log.warning("The length of the pdistinfo is not consistent", self.pdistinfo)
 
     def featurize(self):
-        if self.FAIL_FLAG == True:
+        if self.FAIL_FLAG:
             return -1
         pdbcode = self.traj.top_filename
         pdbcode = pdbcode.lower()
@@ -77,14 +81,12 @@ class FeatureLabel(features.Feature):
             raise ValueError("PDB code not found")
 
         dists = np.zeros(self.pdist.shape[0], dtype=np.float64)
-        c = 0
-        for i, j in zip(
-            self.pdistinfo["indices_group1"], self.pdistinfo["indices_group2"]
+        for c, (i, j) in enumerate(
+            zip(self.pdistinfo["indices_group1"], self.pdistinfo["indices_group2"])
         ):
             disti = self.active_frame.xyz[i] - self.active_frame.xyz[j]
             disti = np.linalg.norm(disti)
             dists[c] = disti
-            c += 1
         log("Active frame index: ", self.active_frame_index)
         log(dists, self.pdist[:, self.active_frame_index])
 
@@ -104,8 +106,8 @@ def parallelize_traj(traj_list):
     Featurizer and the features initialized within the scope of this function
     """
     log(traj_list)
-    trajfiles = [i[0] for i in traj_pair]
-    topfiles = [i[1] for i in traj_pair]
+    trajfiles = [i[0] for i in traj_list]
+    topfiles = [i[1] for i in traj_list]
     traj_loader = trajloader.TrajectoryLoader(trajfiles, topfiles)
     ret_list = []
     for trajectory in traj_loader:
@@ -133,7 +135,7 @@ def parallelize_traj(traj_list):
             f"The number of atoms selected is {len(index_selected)}, "
             + f"Total generated molecule block is {feat.FRAMENUMBER * len(index_selected)}"
         )
-        repr_traji, features_traji = feat.run_by_atom(index_selected, focus_mode="cog")
+        _repr_traji, features_traji = feat.run_by_atom(index_selected, focus_mode="cog")
         ret_list.append(features_traji)
     return ret_list
 
@@ -190,7 +192,7 @@ if __name__ == "__main__":
     # For result retrieval, use the trajectory bag level data-extraction
     traj_top_pairs = list(zip(trajectories, topologies))
     production = True
-    if production == True:
+    if production:
         split_groups = np.array_split(traj_top_pairs, worker_num)
         with Client(
             processes=True, n_workers=worker_num, threads_per_worker=thread_per_worker

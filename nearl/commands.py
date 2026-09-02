@@ -13,8 +13,8 @@ except ImportError:
 
 __all__ = [
     # Single frame methods
-    "frame_voxelize",
     "frame_observation",
+    "frame_voxelize",
     # Trajectory/frame-slice methods
     "density_flow",
     "marching_observer",

@@ -70,8 +70,9 @@ def get_voxeli(hdf, index: int) -> np.ndarray:
 
 
 def get_geo_voxeli(
-    voxel, cmap="inferno", percentile=95, hide=1, scale_factor=[1, 1, 1]
+    voxel, cmap="inferno", percentile=95, hide=1, scale_factor=None
 ) -> list:
+    scale_factor = [1, 1, 1] if scale_factor is None else scale_factor
     dims = np.asarray(voxel.shape)
     cmap = colormaps.get_cmap(cmap)
     vmax = np.max(voxel)

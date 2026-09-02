@@ -173,14 +173,12 @@ def DACbytraj(traj, frameidx, themask, **kwargs):
         conf = mol.GetConformer()
         donors = np.zeros((len(d_hits), 3))
         for idx, hit in enumerate(d_hits):
-            atom = mol.GetAtomWithIdx(hit[0])
             donors[idx, :] = np.array(conf.GetAtomPosition(hit[0]))
         acceptors = np.zeros((len(a_hits), 3))
         for idx, hit in enumerate(a_hits):
-            atom = mol.GetAtomWithIdx(hit[0])
             acceptors[idx, :] = np.array(conf.GetAtomPosition(hit[0]))
         return donors, acceptors
-    except:
+    except Exception:
         print("Error when reading the pdb file. Please check the following PDB string:")
         print(pdbstr)
         return 0, 0
@@ -223,7 +221,6 @@ def Chargebytraj(traj, frameidx, atomidx):
 
     try:
         conf = mol.GetConformer()
-        positions = conf.GetPositions()
         for idx, atom in enumerate(mol.GetAtoms()):
             coord[idx, :] = np.asarray(conf.GetAtomPosition(idx))
             charges[idx] = float(atom.GetDoubleProp("_GasteigerCharge"))
@@ -243,21 +240,16 @@ def Chargebytraj(traj, frameidx, atomidx):
 
 
 def write_pdb_block(
-    thetraj, idxs, pdbfile="", frame_index=0, marks=[], swap4char=False
+    thetraj, idxs, pdbfile="", frame_index=0, marks=None, swap4char=False
 ):
     # Loop over each residue and atom, and write to the PDB file
     idxs = np.asarray(idxs)
-    if (len(marks) > 0) and (len(marks) == len(idxs)):
-        marks = marks
-    else:
+    if marks is None or len(marks) != len(idxs):
         marks = ["ATOM"] * len(idxs)
     xyz_reduce = thetraj.xyz[frame_index].round(3)
     atom_arr = list(thetraj.top.atoms)
     res_arr = list(thetraj.top.residues)
     finalstr = ""
-
-    # create a dictionary to map old indices to new
-    old_to_new_idx = {old: new for new, old in enumerate(idxs)}
 
     for i, idx in enumerate(idxs):
         coord = xyz_reduce[idx]
@@ -330,7 +322,7 @@ def combine_molpdb(molfile, pdbfile, outfile=""):
     # Write the ligand to a PDB file and combine the protein PDB file
     ligpdb = Chem.MolToPDBBlock(lig)
     atomlines = [i.replace("UNL", "LIG") for i in ligpdb.split("\n") if "HETATM" in i]
-    with open(pdbfile, "r") as file1:
+    with open(pdbfile) as file1:
         pdborig = file1.read()
     linesorig = [
         i for i in pdborig.strip("\n").split("\n") if "HETATM" in i or "ATOM" in i
@@ -362,7 +354,7 @@ def correct_mol_by_smiles(refmol2, prob_smiles):
         mol2 = suppl[0]
     else:
         raise ValueError(
-            f"Unrecognized ligand file extension: {molfile.split('.')[-1]}"
+            f"Unrecognized ligand file extension: {refmol2.split('.')[-1]}"
         )
 
     # Check the validity of the given molecules
@@ -531,7 +523,7 @@ def molfile_to_rdkit(file_path, **kwarg):
     elif file_extension == ".smi" or file_extension == ".smiles":
         suppl = Chem.SmilesMolSupplier(file_path, titleLine=False, sanitize=True)
     elif file_extension == ".inchi":
-        with open(file_path, "r") as file1:
+        with open(file_path) as file1:
             mols = file1.read().strip("\n").split("\n")
         suppl = [Chem.MolFromInchi(m, sanitize=True) for m in mols]
     else:
@@ -546,7 +538,7 @@ class Mol2Supplier:
         self._parse_mol2_file(*args, **kwarg)
 
     def _parse_mol2_file(self, *args, **kwarg):
-        with open(self.file_path, "r") as file:
+        with open(self.file_path) as file:
             mol_strs = [
                 f"@<TRIPOS>MOLECULE{i}"
                 for i in file.read().split("@<TRIPOS>MOLECULE")
@@ -554,7 +546,7 @@ class Mol2Supplier:
             ]
             for mol_str in mol_strs:
                 mol = Chem.MolFromMol2Block(mol_str, *args, **kwarg)
-                if mol != None:
+                if mol is not None:
                     self.molecules.append(mol)
                 else:
                     log.error("Failed to read MOL")

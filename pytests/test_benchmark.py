@@ -77,7 +77,7 @@ def test_benchmark_voxel_dim16(benchmark):
         )
         return ret.reshape(dimension)
 
-    ret = benchmark(run_benchmark)
+    benchmark(run_benchmark)
 
     # assert np.isclose(np.sum(ret), np.sum(tmp_weights), rtol=1e-3)
     # assert not np.isnan(ret).any()
@@ -97,7 +97,7 @@ def test_benchmark_voxel_dim24(benchmark):
         )
         return ret.reshape(dimension)
 
-    ret = benchmark(run_benchmark)
+    benchmark(run_benchmark)
 
     # assert np.isclose(np.sum(ret), np.sum(tmp_weights), rtol=1e-3)
     # assert not np.isnan(ret).any()
@@ -117,7 +117,7 @@ def test_benchmark_voxel_dim32(benchmark):
         )
         return ret.reshape(dimension)
 
-    ret = benchmark(run_benchmark)
+    benchmark(run_benchmark)
 
     # assert np.isclose(np.sum(ret), np.sum(tmp_weights), rtol=1e-3)
     # assert not np.isnan(ret).any()
@@ -137,7 +137,7 @@ def test_benchmark_voxel_dim48(benchmark):
         )
         return ret.reshape(dimension)
 
-    ret = benchmark(run_benchmark)
+    benchmark(run_benchmark)
 
     # assert np.isclose(np.sum(ret), np.sum(tmp_weights), rtol=1e-3)
     # assert not np.isnan(ret).any()
@@ -157,7 +157,7 @@ def test_benchmark_voxel_dim64(benchmark):
         )
         return ret.reshape(dimension)
 
-    ret = benchmark(run_benchmark)
+    benchmark(run_benchmark)
 
     # assert np.isclose(np.sum(ret), np.sum(tmp_weights), rtol=1e-3)
     # assert not np.isnan(ret).any()
@@ -177,7 +177,7 @@ def test_benchmark_voxel_dim96(benchmark):
         )
         return ret.reshape(dimension)
 
-    ret = benchmark(run_benchmark)
+    benchmark(run_benchmark)
 
     # assert np.isclose(np.sum(ret), np.sum(tmp_weights), rtol=1e-3)
     # assert not np.isnan(ret).any()
@@ -197,7 +197,7 @@ def test_benchmark_voxel_dim128(benchmark):
         )
         return ret.reshape(dimension)
 
-    ret = benchmark(run_benchmark)
+    benchmark(run_benchmark)
 
     # assert np.isclose(np.sum(ret), np.sum(tmp_weights), rtol=1e-3)
     # assert not np.isnan(ret).any()
