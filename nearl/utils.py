@@ -292,10 +292,15 @@ def get_protein_mask(_structure):
   """
   Get the protein mask for a given structure
 
-  Args:
-    _structure: a string or a pytraj trajectory object
-  Returns:
-    mask: a string of the protein mask
+  Parameters
+  ----------
+  _structure : str or pytraj.Trajectory
+    The input structure, either a file path or a pytraj trajectory object
+
+  Returns
+  -------
+  mask : str
+    The protein mask
   """
   reslst = []
   if isinstance(_structure, str) and os.path.isfile(_structure):
@@ -315,12 +320,16 @@ def get_protein_mask(_structure):
 def color_steps(mapname, steps:int, cmin:float=0.1, cmax:float=0.9):
   """
   Get a list of colors from a matplotlib colormap
-  Args:
+
+  Parameters
+  ----------
     mapname: name of the colormap (importable to matplotlib.pyplot.get_cmap function)
     steps: number of colors to get
     cmin: minimum value of the colormap
     cmax: maximum value of the colormap
-  Returns:
+  
+  Returns
+  -------
     colors: a list of RGB colors
   """
   from matplotlib.pyplot import get_cmap
@@ -349,6 +358,7 @@ def mscv(arr):
 def filter_points_within_bounding_box(thearr, grid_center, grid_length, return_coord=False):
   """
   Filter the coordinates array by a bounding box
+
   Parameters
   ----------
   thearr: array_like

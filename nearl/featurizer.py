@@ -104,7 +104,7 @@ class Featurizer:
     if parms.get("dimensions", None) is not None:
       self.dims = parms.get("dimensions")   # Normalize scalar/list/tuple into a 3-element array
     if "lengths" in parms:
-      self.__lengths = parms.get("lengths", 16)   # Set the lengths of the 3D grid
+      self.lengths = parms.get("lengths", 16)   # Normalize scalar/list/tuple into a 3-element array
       self.__spacing = np.mean(self.lengths / self.dims)
     elif "spacing" in parms:
       self.__spacing = parms.get("spacing", 1.0)

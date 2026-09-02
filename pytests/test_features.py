@@ -124,3 +124,18 @@ def test_aggregation_functions():
     assert np.isclose(np.min(agg_cpu), np.min(ret), rtol=1e-3, atol=1e-3)
     assert np.isclose(np.max(agg_cpu), np.max(ret), rtol=1e-3, atol=1e-3)
     assert np.count_nonzero(~np.isclose(agg_cpu, ret, atol=1e-3)) < 10
+
+
+def test_aggregation_single_sample_per_gridpoint():
+  # With only one frame, mean/median/max/min must equal the input itself,
+  # and std/variance must be exactly zero.
+  np.random.seed(2)
+  x = np.random.rand(1, 64).astype(np.float32)
+
+  for mode in (1, 3, 5, 6):  # mean, median, max, min
+    ret = all_actions.aggregate(x, mode)
+    assert np.allclose(ret, x[0], atol=1e-5)
+
+  for mode in (2, 4):  # std, variance
+    ret = all_actions.aggregate(x, mode)
+    assert np.allclose(ret, 0.0, atol=1e-6)

@@ -92,15 +92,15 @@ class TrajectoryLoader:
     if kwarg.get("strides", None) is None:
       self.strides = [None] * len(self.trajs)
     else:
-      if len(self.strides) != len(self.trajs):
-        raise ValueError(f"The manually defined number of strides {len(self.strides)} does not match the number of trajectories {len(self.trajs)}")
+      if len(kwarg.get("strides")) != len(self.trajs):
+        raise ValueError(f"The manually defined number of strides {len(kwarg.get('strides'))} does not match the number of trajectories {len(self.trajs)}")
       self.strides = [int(i) for i in kwarg.get("strides")]
 
-    if kwarg.get("masks", None) is None: 
+    if kwarg.get("masks", None) is None:
       self.masks = [None] * len(self.trajs)
     else:
-      if len(self.masks) != len(self.trajs):
-        raise ValueError(f"The manually defined number of masks {len(self.masks)} does not match the number of trajectories {len(self.trajs)}") 
+      if len(kwarg.get("masks")) != len(self.trajs):
+        raise ValueError(f"The manually defined number of masks {len(kwarg.get('masks'))} does not match the number of trajectories {len(self.trajs)}")
       self.masks = kwarg.get("masks")
 
   @property
