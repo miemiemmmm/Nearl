@@ -1,5 +1,6 @@
 """Checks for the installation validator, in particular the GPU-less paths."""
 
+import contextlib
 import os
 import subprocess
 import sys
@@ -11,6 +12,22 @@ import pytest
 from nearl import valid_installation as V
 
 
+def _extension_built():
+    try:
+        from nearl import all_actions
+    except ImportError:
+        return False
+    return True
+
+
+# The CPU-only CI runner has no nvcc, so setup.py skips the CUDA extension.
+requires_extension = pytest.mark.skipif(
+    not _extension_built(),
+    reason="nearl.all_actions is not built (no nvcc in this environment)",
+)
+
+
+@requires_extension
 def test_a_cuda_failure_raises_instead_of_returning_zeros():
     """
     Regression test for CUDA_CHECK in src/. Without it, a CUDA call that fails
@@ -58,10 +75,12 @@ def test_parse_arch(arch, expected):
     assert V._parse_arch(arch) == expected
 
 
+@requires_extension
 def test_extension_symbols_are_all_exported():
     assert V._check_extension() == f"{len(V.EXPECTED_SYMBOLS)} symbols"
 
 
+@requires_extension
 def test_extension_check_reports_a_missing_symbol(monkeypatch):
     from nearl import all_actions
 
@@ -114,9 +133,9 @@ def test_runtime_checks_skip_rather_than_pass_without_a_device(monkeypatch, chec
 
 def test_empty_voxel_grid_is_a_failure_not_a_pass(monkeypatch):
     """
-    The CUDA sources check no error codes, so a launch that never ran returns a
-    zero-filled buffer. Asserting only shape/finiteness would pass on a machine
-    with no GPU.
+    CUDA_CHECK in src/ raises on a failed call, but an empty grid still means
+    nothing was computed. Asserting only shape and finiteness would let that
+    through, so the value itself is checked.
     """
     from nearl import commands
 
@@ -147,12 +166,15 @@ def test_require_gpu_escalates_a_missing_device_but_not_a_missing_toolkit():
 
 
 def test_static_checks_do_not_touch_the_device(monkeypatch):
-    """Everything under Static checks must work on a GPU-less machine."""
-
-    def explode():
-        raise AssertionError("a static check queried the CUDA device")
-
-    monkeypatch.setattr(V, "_device_count", explode)
-    monkeypatch.setattr(V, "_device_arch", explode)
+    """
+    Everything under Static checks must work on a GPU-less machine. A check may
+    still fail for an unrelated reason here (no CUDA extension, no cuobjdump);
+    what matters is that none of them queries the device.
+    """
+    touched = []
+    monkeypatch.setattr(V, "_device_count", lambda: touched.append("_device_count"))
+    monkeypatch.setattr(V, "_device_arch", lambda: touched.append("_device_arch"))
     for _name, check in V.STATIC_CHECKS:
-        check()
+        with contextlib.suppress(Exception):
+            check()
+    assert touched == []

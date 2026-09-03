@@ -11,6 +11,19 @@ except ImportError:
         "Could not import all_actions submodule. Please check if the package is compiled correctly."
     )
 
+    class _MissingExtension:
+        """Stands in for the unbuilt extension so use-sites fail with a clear reason."""
+
+        def __getattr__(self, name):
+            raise ImportError(
+                f"nearl.commands.{name} needs the nearl.all_actions CUDA extension, "
+                "which is not built in this environment. Build it by running "
+                "`make all_actions` in src/ (requires nvcc), or reinstall Nearl "
+                "where the CUDA toolkit is available."
+            )
+
+    all_actions = _MissingExtension()
+
 __all__ = [
     # Single frame methods
     "frame_observation",

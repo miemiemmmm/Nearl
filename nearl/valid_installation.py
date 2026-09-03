@@ -108,7 +108,7 @@ def _check_core():
     import nearl.features
     import nearl.featurizer
     import nearl.io
-    import nearl.utils  # noqa: F401
+    import nearl.utils
 
 
 def _check_pytraj():
