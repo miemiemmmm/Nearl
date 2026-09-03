@@ -1381,11 +1381,9 @@ def cache_properties(trajectory, property_type, **kwargs):
 
     elif property_type == 26:
         # Backboneness
-        backboneness = [
-            1 if i.name in ["C", "O", "CA", "HA", "N", "HN"] else 0 for i in atoms
-        ]
         cached_arr = np.array(
-            [1 if i == 0 else 0 for i in backboneness], dtype=np.float32
+            [1 if i.name in ["C", "O", "CA", "HA", "N", "HN"] else 0 for i in atoms],
+            dtype=np.float32,
         )
 
     elif property_type == 27:
