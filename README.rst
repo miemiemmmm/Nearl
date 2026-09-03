@@ -1,7 +1,7 @@
 Nearl
 =====
 
-|pythonver| |license| |rtdlink|
+|pythonver|\ |license|\ |rtdlink|
 
 
 `Nearl <https://github.com/miemiemmmm/Nearl>`_ is an open-source machine learning framework designed to mine protein dynamics information from molecular dynamics (MD) trajectories. 
@@ -42,10 +42,37 @@ For more details, please refer to the `documentation <https://nearl.readthedocs.
   feat.run()
 
 
+Citation
+--------
+
+If Nearl contributes to your work, please cite the following article:
+
+  Zhang, Y. and Vitalis, A. (2025). Nearl: extracting dynamic features from molecular
+  dynamics trajectories for machine learning tasks. *Bioinformatics*, **41**\ (7).
+  `doi:10.1093/bioinformatics/btaf321 <https://doi.org/10.1093/bioinformatics/btaf321>`_
+
+.. code-block:: bibtex
+
+  @article{Zhang2025,
+    title = {Nearl: extracting dynamic features from molecular dynamics trajectories for machine learning tasks},
+    volume = {41},
+    ISSN = {1367-4811},
+    url = {http://dx.doi.org/10.1093/bioinformatics/btaf321},
+    DOI = {10.1093/bioinformatics/btaf321},
+    number = {7},
+    journal = {Bioinformatics},
+    publisher = {Oxford University Press (OUP)},
+    author = {Zhang,  Yang and Vitalis,  Andreas},
+    editor = {Gao,  Xin},
+    year = {2025},
+    month = may
+  }
+
+
 License
 -------
 
-This project is licensed under the `MIT LICENSE <LICENSE>`_.
+This project is licensed under the `MIT LICENSE <https://github.com/miemiemmmm/Nearl/blob/main/LICENSE>`_.
 
 
 
@@ -53,9 +80,9 @@ This project is licensed under the `MIT LICENSE <LICENSE>`_.
   :target: https://opensource.org/licenses/MIT
   :alt: License
 
-.. |pythonver| image:: https://img.shields.io/badge/python-3.9-blue.svg
-  :target: https://www.python.org/downloads/release/python-3917/
-  :alt: Python 3.9
+.. |pythonver| image:: https://img.shields.io/badge/python-3.9%2B-blue.svg
+  :target: https://www.python.org/downloads/
+  :alt: Python 3.9+
 
 .. |rtdlink| image:: https://readthedocs.org/projects/nearl/badge/?version=latest
   :target: https://nearl.readthedocs.io/en/latest/
