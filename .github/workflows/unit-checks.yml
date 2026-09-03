@@ -39,13 +39,12 @@ jobs:
         shell: bash -el {0}
         run: pip install . --no-build-isolation
 
-      # Excluded: test_actions/test_benchmark/test_features need the CUDA
+      # Excluded: test_actions/test_features need the CUDA
       # extension; test_visualization needs a display.
       - name: Run unit checks
         shell: bash -el {0}
         run: |
           pytest pytests/ -q \
             --ignore=pytests/test_actions.py \
-            --ignore=pytests/test_benchmark.py \
             --ignore=pytests/test_features.py \
             --ignore=pytests/test_visualization.py
