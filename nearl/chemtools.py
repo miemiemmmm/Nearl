@@ -75,68 +75,65 @@ def traj_to_rdkit(traj, atomidx, frameidx):
         return None
 
 
-def label_ring_status(molfile):
-    obConversion = ob.OBConversion()
+def traj_to_obmol(trajectory, frame_index=0):
+    """
+    Build an OpenBabel molecule straight from a trajectory frame.
+
+    Notes
+    -----
+    The connectivity comes from the topology rather than from OpenBabel's
+    distance-based perception, which bonds coordinating ions to their neighbours
+    (a K+ 2.6 A from a carboxylate oxygen becomes a covalent bond). Skipping the
+    PDB round trip is also roughly 8x faster on a solvated system.
+    """
+    coords = trajectory.xyz[frame_index]
     mol = ob.OBMol()
-    molformat = os.path.basename(molfile).split(".")[-1]
-    obConversion.SetInFormat(molformat)
-    obConversion.ReadFile(mol, molfile)
-    ret_arr = np.array(
-        [atom.IsInRing() for atom in ob.OBMolAtomIter(mol)], dtype=np.float32
+    mol.BeginModify()
+    for atom, coord in zip(trajectory.top.atoms, coords):
+        obatom = mol.NewAtom()
+        obatom.SetAtomicNum(int(atom.atomic_number))
+        obatom.SetVector(float(coord[0]), float(coord[1]), float(coord[2]))
+    for bond in trajectory.top.bonds:
+        begin, end = bond.indices
+        mol.AddBond(int(begin) + 1, int(end) + 1, 1)
+    mol.EndModify()
+    mol.SetDimension(3)
+    mol.PerceiveBondOrders()
+    return mol
+
+
+def _label_atoms(trajectory, method, frame_index=0):
+    """Read one per-atom OpenBabel property; raise if the molecule came out short."""
+    mol = traj_to_obmol(trajectory, frame_index)
+    labels = np.array(
+        [getattr(atom, method)() for atom in ob.OBMolAtomIter(mol)], dtype=np.float32
     )
-    return ret_arr
+    if len(labels) != trajectory.top.n_atoms:
+        raise ValueError(
+            f"OpenBabel returned {len(labels)} atoms for a topology of "
+            f"{trajectory.top.n_atoms}; the molecule was not built correctly"
+        )
+    return labels
 
 
-def label_hybridization(molfile):
-    obConversion = ob.OBConversion()
-    mol = ob.OBMol()
-    molformat = os.path.basename(molfile).split(".")[-1]
-    obConversion.SetInFormat(molformat)
-    obConversion.ReadFile(mol, molfile)
-    ret_arr = np.array(
-        [atom.GetHyb() for atom in ob.OBMolAtomIter(mol)], dtype=np.float32
-    )
-    return ret_arr
+def label_ring_status(trajectory, frame_index=0):
+    return _label_atoms(trajectory, "IsInRing", frame_index)
 
 
-def label_aromaticity(molfile):
-    obConversion = ob.OBConversion()
-    mol = ob.OBMol()
-    molformat = os.path.basename(molfile).split(".")[-1]
-    obConversion.SetInFormat(molformat)
-    obConversion.ReadFile(mol, molfile)
-    ret_arr = np.array(
-        [atom.IsAromatic() for atom in ob.OBMolAtomIter(mol)], dtype=np.float32
-    )
-    return ret_arr
+def label_hybridization(trajectory, frame_index=0):
+    return _label_atoms(trajectory, "GetHyb", frame_index)
 
 
-def label_hbond_donor(molfile):
-    mol = ob.OBMol()
-    conv = ob.OBConversion()
-    molformat = os.path.basename(molfile).split(".")[-1]
-    conv.SetInFormat(molformat)
-    conv.ReadFile(mol, molfile)
-    retarr = np.full(mol.NumAtoms(), 0)
-    for i in range(mol.NumAtoms()):
-        atom = mol.GetAtom(i + 1)
-        if atom.IsHbondDonor():
-            retarr[i] = 1
-    return retarr
+def label_aromaticity(trajectory, frame_index=0):
+    return _label_atoms(trajectory, "IsAromatic", frame_index)
 
 
-def label_hbond_acceptor(molfile):
-    mol = ob.OBMol()
-    conv = ob.OBConversion()
-    molformat = os.path.basename(molfile).split(".")[-1]
-    conv.SetInFormat(molformat)
-    conv.ReadFile(mol, molfile)
-    retarr = np.full(mol.NumAtoms(), 0)
-    for i in range(mol.NumAtoms()):
-        atom = mol.GetAtom(i + 1)
-        if atom.IsHbondAcceptor():
-            retarr[i] = 1
-    return retarr
+def label_hbond_donor(trajectory, frame_index=0):
+    return _label_atoms(trajectory, "IsHbondDonor", frame_index)
+
+
+def label_hbond_acceptor(trajectory, frame_index=0):
+    return _label_atoms(trajectory, "IsHbondAcceptor", frame_index)
 
 
 def DACbytraj(traj, frameidx, themask, **kwargs):
