@@ -1,7 +1,7 @@
 Nearl
 =====
 
-|pythonver|\ |license|\ |rtdlink|
+|pythonver| |license| |rtdlink|
 
 
 `Nearl <https://github.com/miemiemmmm/Nearl>`_ is an open-source machine learning framework designed to mine protein dynamics information from molecular dynamics (MD) trajectories. 
