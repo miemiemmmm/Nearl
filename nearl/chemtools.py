@@ -89,6 +89,10 @@ def _obmol_key(trajectory, frame_index):
     rejects in-place edits of atomic numbers and bonds, but ``traj.top`` can be
     reassigned wholesale, which changes elements and connectivity while the
     coordinates stay put.
+
+    Both caches hold a single key at a time, which suits the current callers:
+    every one of them labels frame 0, so the slot never turns over. Labelling
+    per frame would evict on every call and needs a dict keyed on the frame.
     """
     topology = trajectory.top
     coords = np.ascontiguousarray(trajectory.xyz[frame_index], dtype=np.float32)
