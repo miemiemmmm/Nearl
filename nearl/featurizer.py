@@ -124,6 +124,13 @@ class Featurizer:
         self.time_window = int(
             parms.get("time_window", 1)
         )  # The time window for the trajectory (default is 1), Simple integer.
+        if self.time_window > constants.MAX_FRAME_NUMBER:
+            logger.warning(
+                f"{self.__class__.__name__}: the time window ({self.time_window}) exceeds "
+                f"the {constants.MAX_FRAME_NUMBER} frames the CUDA kernels can aggregate; "
+                f"only the first {constants.MAX_FRAME_NUMBER} frames of each slice "
+                "will contribute to the dynamic features."
+            )
 
         # Get common feature parameters to hook the features
         self.FEATURE_PARMS = {}

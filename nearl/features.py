@@ -142,27 +142,6 @@ def crop(points, upperbound, padding, spacing):
     return mask_inbox
 
 
-def selection_to_mol(traj, frameidx, selection):
-    from rdkit import Chem
-
-    atom_sel = np.array(selection)
-    try:
-        rdmol = utils.traj_to_rdkit(traj, atom_sel, frameidx)
-        if rdmol is None:
-            with tempfile.NamedTemporaryFile(suffix=".pdb") as temp:
-                outmask = "@" + ",".join((atom_sel + 1).astype(str))
-                _traj = traj[outmask].copy_traj()
-                pt.write_traj(
-                    temp.name, _traj, frame_indices=[frameidx], overwrite=True
-                )
-                with open(temp.name) as tmp:
-                    print(tmp.read())
-                rdmol = Chem.MolFromMol2File(temp.name, sanitize=False, removeHs=False)
-        return rdmol
-    except Exception:
-        return None
-
-
 class Feature:
     """
     Base class for the feature generator
@@ -569,9 +548,9 @@ class Feature:
         ret = commands.frame_voxelize(
             coords, weights, self.dims, self.spacing, self.cutoff, self.sigma
         )
-        print(
-            f"{'Timing_STAT':15} {time.perf_counter() - st:10f} seconds for {coords.shape[0]} atoms"
-        )  # TODO
+        logger.debug(
+            f"Timing_STAT: {time.perf_counter() - st:.6f} seconds for {coords.shape[0]} atoms"
+        )
         return ret
 
     def dump(self, result):
@@ -1470,7 +1449,10 @@ class DynamicFeature(Feature):
         if self._agg_type in SUPPORTED_AGGREGATION:
             return SUPPORTED_AGGREGATION[self._agg_type]
         else:
-            raise ValueError("The aggregation type is not recognized")
+            raise ValueError(
+                f"The aggregation type is not recognized {self._agg_type}; "
+                f"Available types are {list(SUPPORTED_AGGREGATION.keys())}"
+            )
 
     @agg.setter
     def agg(self, value):
@@ -1615,9 +1597,9 @@ class DensityFlow(DynamicFeature):
         ret_arr = commands.density_flow(
             frames, weights, self.dims, self.spacing, self.cutoff, self.sigma, self.agg
         )
-        print(
-            f"{'Timing_PDF':15} {time.perf_counter() - st:10f} seconds for {frames.shape[1]} atoms"
-        )  # TODO
+        logger.debug(
+            f"Timing_PDF: {time.perf_counter() - st:.6f} seconds for {frames.shape[1]} atoms"
+        )
 
         return ret_arr.reshape(self.dims)
 
@@ -1722,9 +1704,9 @@ class MarchingObservers(DynamicFeature):
         ret_arr = commands.marching_observer(
             coords, weights, self.dims, self.spacing, self.cutoff, self.obs, self.agg
         )
-        print(
-            f"{'Timing_OBS':15} {time.perf_counter() - st:10f} seconds for {coords.shape[1]} atoms"
-        )  # TODO
+        logger.debug(
+            f"Timing_OBS: {time.perf_counter() - st:.6f} seconds for {coords.shape[1]} atoms"
+        )
         return ret_arr.reshape(self.dims)
 
 

@@ -1,5 +1,11 @@
 # Part of the following data is extracted from https://periodictable.com/
 
+# Frames per slice that the CUDA kernels can aggregate. Mirrors MAX_FRAME_NUMBER
+# in src/constants.h, which sizes a fixed stack array; the host functions clamp
+# to it, so anything beyond is silently dropped. Change both together.
+MAX_FRAME_NUMBER = 512
+
+
 # Unit: Angstrom
 # Source: https://doi.org/10.1039/c3dt50599e
 VDWRADII = {
