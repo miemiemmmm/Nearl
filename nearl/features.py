@@ -779,16 +779,7 @@ class Aromaticity(Feature):
 
     def cache(self, trajectory):
         super().cache(trajectory)
-        with tempfile.NamedTemporaryFile(suffix=".pdb") as fpt:
-            pt.write_traj(
-                fpt.name, trajectory, format="pdb", frame_indices=[0], overwrite=True
-            )
-            atoms_aromatic = chemtools.label_aromaticity(fpt.name)
-
-        if len(atoms_aromatic) != trajectory.n_atoms:
-            logger.warning(
-                f"{self.classname}: The length of feature array {len(atoms_aromatic)} does not match the number of atoms {trajectory.n_atoms} in the topology. "
-            )
+        atoms_aromatic = chemtools.label_aromaticity(trajectory)
 
         if self.reverse:
             self.cached_array = np.array(
@@ -822,16 +813,7 @@ class Ring(Feature):
 
     def cache(self, trajectory):
         super().cache(trajectory)
-        with tempfile.NamedTemporaryFile(suffix=".pdb") as fpt:
-            pt.write_traj(
-                fpt.name, trajectory, format="pdb", frame_indices=[0], overwrite=True
-            )
-            atoms_in_ring = chemtools.label_ring_status(fpt.name)
-
-        if len(atoms_in_ring) != trajectory.n_atoms:
-            logger.warning(
-                f"{self.classname}: The length of feature array {len(atoms_in_ring)} does not match the number of atoms {trajectory.n_atoms} in the topology. "
-            )
+        atoms_in_ring = chemtools.label_ring_status(trajectory)
 
         if self.reverse:
             self.cached_array = np.array(
@@ -891,16 +873,7 @@ class HBondDonor(Feature):
 
     def cache(self, trajectory):
         super().cache(trajectory)
-        with tempfile.NamedTemporaryFile(suffix=".pdb") as fpt:
-            pt.write_traj(
-                fpt.name, trajectory, format="pdb", frame_indices=[0], overwrite=True
-            )
-            atoms_hbond_donor = chemtools.label_hbond_donor(fpt.name)
-
-        if len(atoms_hbond_donor) != trajectory.n_atoms:
-            logger.warning(
-                f"{self.classname}: The length of feature array {len(atoms_hbond_donor)} does not match the number of atoms {trajectory.n_atoms} in the topology. "
-            )
+        atoms_hbond_donor = chemtools.label_hbond_donor(trajectory)
 
         self.cached_array = np.array(atoms_hbond_donor, dtype=np.float32)
 
@@ -919,16 +892,7 @@ class HBondAcceptor(Feature):
 
     def cache(self, trajectory):
         super().cache(trajectory)
-        with tempfile.NamedTemporaryFile(suffix=".pdb") as fpt:
-            pt.write_traj(
-                fpt.name, trajectory, format="pdb", frame_indices=[0], overwrite=True
-            )
-            atoms_hbond_acceptor = chemtools.label_hbond_acceptor(fpt.name)
-
-        if len(atoms_hbond_acceptor) != trajectory.n_atoms:
-            logger.warning(
-                f"{self.classname}: The length of feature array {len(atoms_hbond_acceptor)} does not match the number of atoms {trajectory.n_atoms} in the topology. "
-            )
+        atoms_hbond_acceptor = chemtools.label_hbond_acceptor(trajectory)
 
         self.cached_array = np.array(atoms_hbond_acceptor, dtype=np.float32)
 
@@ -947,16 +911,7 @@ class Hybridization(Feature):
 
     def cache(self, trajectory):
         super().cache(trajectory)
-        with tempfile.NamedTemporaryFile(suffix=".pdb") as fpt:
-            pt.write_traj(
-                fpt.name, trajectory, format="pdb", frame_indices=[0], overwrite=True
-            )
-            atoms_hybridization = chemtools.label_hybridization(fpt.name)
-
-        if len(atoms_hybridization) != trajectory.n_atoms:
-            logger.warning(
-                f"{self.classname}: The length of feature array {len(atoms_hybridization)} does not match the number of atoms {trajectory.n_atoms} in the topology. "
-            )
+        atoms_hybridization = chemtools.label_hybridization(trajectory)
 
         self.cached_array = np.asarray(atoms_hybridization, dtype=np.float32)
 
@@ -1357,7 +1312,7 @@ def cache_properties(trajectory, property_type, **kwargs):
         # Directly borrow the Hybridization feature class
         tmp_feat = Hybridization()
         tmp_feat.cache(trajectory)
-        cached_arr = tmp_feat.atoms_hybridization
+        cached_arr = tmp_feat.cached_array
 
     elif property_type == 11:
         # Mass
@@ -1368,7 +1323,7 @@ def cache_properties(trajectory, property_type, **kwargs):
     elif property_type == 12:
         # Radius
         cached_arr = np.array(
-            [utils.VDWRADII[str(i)] for i in atom_numbers], dtype=np.float32
+            [constants.VDWRADII[i] for i in atom_numbers], dtype=np.float32
         )
 
     elif property_type == 13:
@@ -1404,25 +1359,25 @@ def cache_properties(trajectory, property_type, **kwargs):
         # Aromaticity
         tmp_feat = Aromaticity()
         tmp_feat.cache(trajectory)
-        cached_arr = tmp_feat.atoms_aromatic
+        cached_arr = tmp_feat.cached_array
 
     elif property_type == 23:
         # Ring
         tmp_feat = Ring()
         tmp_feat.cache(trajectory)
-        cached_arr = tmp_feat.atoms_in_ring
+        cached_arr = tmp_feat.cached_array
 
     elif property_type == 24:
         # HBondDonor
         tmp_feat = HBondDonor()
         tmp_feat.cache(trajectory)
-        cached_arr = tmp_feat.atoms_hbond_donor
+        cached_arr = tmp_feat.cached_array
 
     elif property_type == 25:
         # HBondAcceptor
         tmp_feat = HBondAcceptor()
         tmp_feat.cache(trajectory)
-        cached_arr = tmp_feat.atoms_hbond_acceptor
+        cached_arr = tmp_feat.cached_array
 
     elif property_type == 26:
         # Backboneness
