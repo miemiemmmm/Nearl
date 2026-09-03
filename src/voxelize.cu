@@ -212,19 +212,19 @@ void _voxelize_host_old(float *interpolated, const float *coord, const float *we
   float _partial_sums[grid_size];
 
   float *coord_gpu;
-  cudaMalloc(&coord_gpu, atom_nr * 3 * sizeof(float));
-  cudaMemcpy(coord_gpu, coord, atom_nr * 3 * sizeof(float), cudaMemcpyHostToDevice);
+  CUDA_CHECK(cudaMalloc(&coord_gpu, atom_nr * 3 * sizeof(float)));
+  CUDA_CHECK(cudaMemcpy(coord_gpu, coord, atom_nr * 3 * sizeof(float), cudaMemcpyHostToDevice));
   float *tmp_interp_gpu;
-  cudaMalloc(&tmp_interp_gpu, gridpoint_nr * sizeof(float));
-  cudaMemset(tmp_interp_gpu, 0, gridpoint_nr * sizeof(float));
+  CUDA_CHECK(cudaMalloc(&tmp_interp_gpu, gridpoint_nr * sizeof(float)));
+  CUDA_CHECK(cudaMemset(tmp_interp_gpu, 0, gridpoint_nr * sizeof(float)));
   float *interp_gpu;
-  cudaMalloc(&interp_gpu, gridpoint_nr * sizeof(float));
-  cudaMemset(interp_gpu, 0, gridpoint_nr * sizeof(float));
+  CUDA_CHECK(cudaMalloc(&interp_gpu, gridpoint_nr * sizeof(float)));
+  CUDA_CHECK(cudaMemset(interp_gpu, 0, gridpoint_nr * sizeof(float)));
   float *partial_sums;
-  cudaMalloc(&partial_sums, grid_size * sizeof(float));
+  CUDA_CHECK(cudaMalloc(&partial_sums, grid_size * sizeof(float)));
   int *dims_gpu;
-  cudaMalloc(&dims_gpu, 3 * sizeof(int));
-  cudaMemcpy(dims_gpu, dims, 3 * sizeof(int), cudaMemcpyHostToDevice);
+  CUDA_CHECK(cudaMalloc(&dims_gpu, 3 * sizeof(int)));
+  CUDA_CHECK(cudaMemcpy(dims_gpu, dims, 3 * sizeof(int), cudaMemcpyHostToDevice));
 
   for (int atm_idx = 0; atm_idx < atom_nr; ++atm_idx) {
     // Copy the coordinates of the atom to the GPU and do interpolation on this atom
@@ -244,13 +244,16 @@ void _voxelize_host_old(float *interpolated, const float *coord, const float *we
 
     coordi_interp_global<<<grid_size, BLOCK_SIZE>>>(coord_gpu + offset, tmp_interp_gpu, dims_gpu,
                                                     spacing, cutoff, sigma);
-    cudaDeviceSynchronize();
+    CUDA_CHECK_KERNEL();
+    CUDA_CHECK(cudaDeviceSynchronize());
 
     // Perform the sum reduction on the GPU and sum them up
     sum_reduction_global<<<grid_size, BLOCK_SIZE>>>(tmp_interp_gpu, partial_sums, gridpoint_nr);
-    cudaDeviceSynchronize();
+    CUDA_CHECK_KERNEL();
+    CUDA_CHECK(cudaDeviceSynchronize());
     float tmp_sum = 0.0f;
-    cudaMemcpy(_partial_sums, partial_sums, grid_size * sizeof(float), cudaMemcpyDeviceToHost);
+    CUDA_CHECK(
+        cudaMemcpy(_partial_sums, partial_sums, grid_size * sizeof(float), cudaMemcpyDeviceToHost));
     for (int i = 0; i < grid_size; ++i)
       tmp_sum += _partial_sums[i];
 
@@ -258,23 +261,26 @@ void _voxelize_host_old(float *interpolated, const float *coord, const float *we
     if (tmp_sum != 0) {
       normalize_array_global<<<grid_size, BLOCK_SIZE>>>(tmp_interp_gpu, tmp_sum, weight[atm_idx],
                                                         gridpoint_nr);
-      cudaDeviceSynchronize();
+      CUDA_CHECK_KERNEL();
+      CUDA_CHECK(cudaDeviceSynchronize());
     }
 
     // Add the interpolated GPU array to the output array
     voxel_addition_global<<<grid_size, BLOCK_SIZE>>>(interp_gpu, tmp_interp_gpu, gridpoint_nr);
-    cudaDeviceSynchronize();
+    CUDA_CHECK_KERNEL();
+    CUDA_CHECK(cudaDeviceSynchronize());
   }
 
   // Copy the interpolated array to the host
-  cudaMemcpy(interpolated, interp_gpu, gridpoint_nr * sizeof(float), cudaMemcpyDeviceToHost);
+  CUDA_CHECK(
+      cudaMemcpy(interpolated, interp_gpu, gridpoint_nr * sizeof(float), cudaMemcpyDeviceToHost));
 
   // Free the GPU memory
-  cudaFree(coord_gpu);
-  cudaFree(tmp_interp_gpu);
-  cudaFree(interp_gpu);
-  cudaFree(dims_gpu);
-  cudaFree(partial_sums);
+  CUDA_CHECK(cudaFree(coord_gpu));
+  CUDA_CHECK(cudaFree(tmp_interp_gpu));
+  CUDA_CHECK(cudaFree(interp_gpu));
+  CUDA_CHECK(cudaFree(dims_gpu));
+  CUDA_CHECK(cudaFree(partial_sums));
 }
 
 
@@ -283,29 +289,31 @@ void voxelize_host(float *interpolated, const float *coord, const float *weight,
   unsigned int gridpoint_nr = dims[0] * dims[1] * dims[2];
 
   float *coord_gpu;
-  cudaMalloc(&coord_gpu, atom_nr * 3 * sizeof(float));
-  cudaMemcpy(coord_gpu, coord, atom_nr * 3 * sizeof(float), cudaMemcpyHostToDevice);
+  CUDA_CHECK(cudaMalloc(&coord_gpu, atom_nr * 3 * sizeof(float)));
+  CUDA_CHECK(cudaMemcpy(coord_gpu, coord, atom_nr * 3 * sizeof(float), cudaMemcpyHostToDevice));
   float *weight_gpu;
-  cudaMalloc(&weight_gpu, atom_nr * sizeof(float));
-  cudaMemcpy(weight_gpu, weight, atom_nr * sizeof(float), cudaMemcpyHostToDevice);
+  CUDA_CHECK(cudaMalloc(&weight_gpu, atom_nr * sizeof(float)));
+  CUDA_CHECK(cudaMemcpy(weight_gpu, weight, atom_nr * sizeof(float), cudaMemcpyHostToDevice));
   int *dims_gpu;
-  cudaMalloc(&dims_gpu, 3 * sizeof(int));
-  cudaMemcpy(dims_gpu, dims, 3 * sizeof(int), cudaMemcpyHostToDevice);
+  CUDA_CHECK(cudaMalloc(&dims_gpu, 3 * sizeof(int)));
+  CUDA_CHECK(cudaMemcpy(dims_gpu, dims, 3 * sizeof(int), cudaMemcpyHostToDevice));
   float *tmp_voxel_gpu;
-  cudaMalloc(&tmp_voxel_gpu, gridpoint_nr * sizeof(float));
-  cudaMemset(tmp_voxel_gpu, 0.0f, gridpoint_nr * sizeof(float));
+  CUDA_CHECK(cudaMalloc(&tmp_voxel_gpu, gridpoint_nr * sizeof(float)));
+  CUDA_CHECK(cudaMemset(tmp_voxel_gpu, 0.0f, gridpoint_nr * sizeof(float)));
 
   frame_interp_global<<<atom_nr, BLOCK_SIZE, BLOCK_SIZE * sizeof(float)>>>(
       coord_gpu, weight_gpu, tmp_voxel_gpu, dims_gpu, spacing, cutoff, sigma, atom_nr);
-  cudaDeviceSynchronize();
+  CUDA_CHECK_KERNEL();
+  CUDA_CHECK(cudaDeviceSynchronize());
 
   // Copy the interpolated array to the host
-  cudaMemcpy(interpolated, tmp_voxel_gpu, gridpoint_nr * sizeof(float), cudaMemcpyDeviceToHost);
+  CUDA_CHECK(cudaMemcpy(interpolated, tmp_voxel_gpu, gridpoint_nr * sizeof(float),
+                        cudaMemcpyDeviceToHost));
 
-  cudaFree(coord_gpu);
-  cudaFree(weight_gpu);
-  cudaFree(dims_gpu);
-  cudaFree(tmp_voxel_gpu);
+  CUDA_CHECK(cudaFree(coord_gpu));
+  CUDA_CHECK(cudaFree(weight_gpu));
+  CUDA_CHECK(cudaFree(dims_gpu));
+  CUDA_CHECK(cudaFree(tmp_voxel_gpu));
 }
 
 
@@ -326,23 +334,25 @@ void trajectory_voxelization_host(float *voxelize_dynamics, const float *coord, 
   const unsigned int grid_size = (gridpoint_nr + BLOCK_SIZE - 1) / BLOCK_SIZE;
 
   float *coord_gpu;
-  cudaMalloc(&coord_gpu, frame_nr * atom_nr * 3 * sizeof(float));
-  cudaMemcpy(coord_gpu, coord, frame_nr * atom_nr * 3 * sizeof(float), cudaMemcpyHostToDevice);
+  CUDA_CHECK(cudaMalloc(&coord_gpu, frame_nr * atom_nr * 3 * sizeof(float)));
+  CUDA_CHECK(
+      cudaMemcpy(coord_gpu, coord, frame_nr * atom_nr * 3 * sizeof(float), cudaMemcpyHostToDevice));
   float *weight_gpu;
-  cudaMalloc(&weight_gpu, frame_nr * atom_nr * sizeof(float));
-  cudaMemcpy(weight_gpu, weight, frame_nr * atom_nr * sizeof(float), cudaMemcpyHostToDevice);
+  CUDA_CHECK(cudaMalloc(&weight_gpu, frame_nr * atom_nr * sizeof(float)));
+  CUDA_CHECK(
+      cudaMemcpy(weight_gpu, weight, frame_nr * atom_nr * sizeof(float), cudaMemcpyHostToDevice));
 
   float *tmp_voxel_gpu;
-  cudaMalloc(&tmp_voxel_gpu, gridpoint_nr * sizeof(float));
-  cudaMemset(tmp_voxel_gpu, 0.0f, gridpoint_nr * sizeof(float));
+  CUDA_CHECK(cudaMalloc(&tmp_voxel_gpu, gridpoint_nr * sizeof(float)));
+  CUDA_CHECK(cudaMemset(tmp_voxel_gpu, 0.0f, gridpoint_nr * sizeof(float)));
 
   float *voxelize_dynamics_gpu;
-  cudaMalloc(&voxelize_dynamics_gpu, frame_nr * gridpoint_nr * sizeof(float));
-  cudaMemset(voxelize_dynamics_gpu, 0, frame_nr * gridpoint_nr * sizeof(float));
+  CUDA_CHECK(cudaMalloc(&voxelize_dynamics_gpu, frame_nr * gridpoint_nr * sizeof(float)));
+  CUDA_CHECK(cudaMemset(voxelize_dynamics_gpu, 0, frame_nr * gridpoint_nr * sizeof(float)));
 
   int *dims_gpu;
-  cudaMalloc(&dims_gpu, 3 * sizeof(int));
-  cudaMemcpy(dims_gpu, dims, 3 * sizeof(int), cudaMemcpyHostToDevice);
+  CUDA_CHECK(cudaMalloc(&dims_gpu, 3 * sizeof(int)));
+  CUDA_CHECK(cudaMemcpy(dims_gpu, dims, 3 * sizeof(int), cudaMemcpyHostToDevice));
 
   for (int frame_idx = 0; frame_idx < frame_nr; ++frame_idx) {
     // Perform the observation of all the grid points (observers) in the frame i
@@ -350,7 +360,8 @@ void trajectory_voxelization_host(float *voxelize_dynamics, const float *coord, 
         coord_gpu + frame_idx * atom_nr * 3, weight_gpu + frame_idx * atom_nr,
         voxelize_dynamics_gpu + frame_idx * gridpoint_nr, dims_gpu, spacing, cutoff, sigma,
         atom_nr);
-    cudaDeviceSynchronize();
+    CUDA_CHECK_KERNEL();
+    CUDA_CHECK(cudaDeviceSynchronize());
     if (frame_idx + 1 >= MAX_FRAME_NUMBER) {
       continue;
     }
@@ -358,19 +369,20 @@ void trajectory_voxelization_host(float *voxelize_dynamics, const float *coord, 
 
   // Aggregate the frames and copy the result to the host
   const int _frame_nr = frame_nr > MAX_FRAME_NUMBER ? MAX_FRAME_NUMBER : frame_nr;
-  cudaMemset(tmp_voxel_gpu, 0, gridpoint_nr * sizeof(float));
+  CUDA_CHECK(cudaMemset(tmp_voxel_gpu, 0, gridpoint_nr * sizeof(float)));
   gridwise_aggregation_global<<<grid_size, BLOCK_SIZE>>>(voxelize_dynamics_gpu, tmp_voxel_gpu,
                                                          _frame_nr, gridpoint_nr, type_agg);
-  cudaDeviceSynchronize();
-  cudaMemcpy(voxelize_dynamics, tmp_voxel_gpu, gridpoint_nr * sizeof(float),
-             cudaMemcpyDeviceToHost);
+  CUDA_CHECK_KERNEL();
+  CUDA_CHECK(cudaDeviceSynchronize());
+  CUDA_CHECK(cudaMemcpy(voxelize_dynamics, tmp_voxel_gpu, gridpoint_nr * sizeof(float),
+                        cudaMemcpyDeviceToHost));
 
   // Free the GPU memory
-  cudaFree(coord_gpu);
-  cudaFree(weight_gpu);
-  cudaFree(tmp_voxel_gpu);
-  cudaFree(voxelize_dynamics_gpu);
-  cudaFree(dims_gpu);
+  CUDA_CHECK(cudaFree(coord_gpu));
+  CUDA_CHECK(cudaFree(weight_gpu));
+  CUDA_CHECK(cudaFree(tmp_voxel_gpu));
+  CUDA_CHECK(cudaFree(voxelize_dynamics_gpu));
+  CUDA_CHECK(cudaFree(dims_gpu));
 }
 
 /*

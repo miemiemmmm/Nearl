@@ -89,46 +89,50 @@ void aggregate_host(float *voxel_traj, float *result_grid, const int frame_numbe
 
   // Move the voxelized stuff
   float *voxel_traj_gpu;
-  cudaMalloc(&voxel_traj_gpu, frame_number * grid_number * sizeof(float));
-  cudaMemcpy(voxel_traj_gpu, voxel_traj, frame_number * grid_number * sizeof(float),
-             cudaMemcpyHostToDevice);
+  CUDA_CHECK(cudaMalloc(&voxel_traj_gpu, frame_number * grid_number * sizeof(float)));
+  CUDA_CHECK(cudaMemcpy(voxel_traj_gpu, voxel_traj, frame_number * grid_number * sizeof(float),
+                        cudaMemcpyHostToDevice));
 
   float *tmp_grid_gpu;
-  cudaMalloc(&tmp_grid_gpu, grid_number * sizeof(float));
-  cudaMemset(tmp_grid_gpu, 0, grid_number * sizeof(float));
+  CUDA_CHECK(cudaMalloc(&tmp_grid_gpu, grid_number * sizeof(float)));
+  CUDA_CHECK(cudaMemset(tmp_grid_gpu, 0, grid_number * sizeof(float)));
 
   gridwise_aggregation_global<<<grid_size, BLOCK_SIZE>>>(voxel_traj_gpu, tmp_grid_gpu,
                                                          _frame_number, grid_number, type_agg);
-  cudaMemcpy(result_grid, tmp_grid_gpu, grid_number * sizeof(float), cudaMemcpyDeviceToHost);
+  CUDA_CHECK_KERNEL();
+  CUDA_CHECK(
+      cudaMemcpy(result_grid, tmp_grid_gpu, grid_number * sizeof(float), cudaMemcpyDeviceToHost));
 
   // Free the memory
-  cudaFree(voxel_traj_gpu);
-  cudaFree(tmp_grid_gpu);
+  CUDA_CHECK(cudaFree(voxel_traj_gpu));
+  CUDA_CHECK(cudaFree(tmp_grid_gpu));
 }
 
 float sum_reduction_host(float *array, const int arr_length) {
   unsigned int grid_size = (arr_length + BLOCK_SIZE - 1) / BLOCK_SIZE;
 
   float *partial_sums;
-  cudaMalloc(&partial_sums, grid_size * sizeof(float));
+  CUDA_CHECK(cudaMalloc(&partial_sums, grid_size * sizeof(float)));
   float *array_gpu;
-  cudaMalloc(&array_gpu, arr_length * sizeof(float));
-  cudaMemcpy(array_gpu, array, arr_length * sizeof(float), cudaMemcpyHostToDevice);
+  CUDA_CHECK(cudaMalloc(&array_gpu, arr_length * sizeof(float)));
+  CUDA_CHECK(cudaMemcpy(array_gpu, array, arr_length * sizeof(float), cudaMemcpyHostToDevice));
 
   // Perform the sum reduction on the array
   sum_reduction_global<<<grid_size, BLOCK_SIZE>>>(array_gpu, partial_sums, arr_length);
-  cudaDeviceSynchronize();
+  CUDA_CHECK_KERNEL();
+  CUDA_CHECK(cudaDeviceSynchronize());
 
   // Compute the final sum
   float _partial_sums[grid_size];
   float tmp_sum = 0.0f;
-  cudaMemcpy(_partial_sums, partial_sums, grid_size * sizeof(float), cudaMemcpyDeviceToHost);
+  CUDA_CHECK(
+      cudaMemcpy(_partial_sums, partial_sums, grid_size * sizeof(float), cudaMemcpyDeviceToHost));
   for (int i = 0; i < grid_size; ++i)
     tmp_sum += _partial_sums[i];
 
   // Free the memory
-  cudaFree(partial_sums);
-  cudaFree(array_gpu);
+  CUDA_CHECK(cudaFree(partial_sums));
+  CUDA_CHECK(cudaFree(array_gpu));
 
   return tmp_sum;
 }

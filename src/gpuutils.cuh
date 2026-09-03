@@ -7,6 +7,35 @@
 #include "cuda_runtime.h"
 #include "constants.h"
 
+#include <sstream>
+#include <stdexcept>
+
+// A failed CUDA call is otherwise silent: the kernels never run and the caller
+// gets its zero-initialised buffer back as if it were a result. Wrap every
+// runtime call in CUDA_CHECK and follow every kernel launch with
+// CUDA_CHECK_KERNEL. Thrown as std::runtime_error, which pybind11 surfaces to
+// Python as RuntimeError.
+namespace nearl_cuda {
+inline void check_failed(cudaError_t err, const char *expr, const char *file, int line) {
+  std::ostringstream msg;
+  msg << "CUDA error at " << file << ":" << line << " in `" << expr
+      << "`: " << cudaGetErrorName(err) << " - " << cudaGetErrorString(err);
+  throw std::runtime_error(msg.str());
+}
+} // namespace nearl_cuda
+
+#define CUDA_CHECK(call)                                                                           \
+  do {                                                                                             \
+    cudaError_t nearl_err_ = (call);                                                               \
+    if (nearl_err_ != cudaSuccess)                                                                 \
+      nearl_cuda::check_failed(nearl_err_, #call, __FILE__, __LINE__);                             \
+  } while (0)
+
+// Only the launch itself is checked here; it is cheap and synchronous. Faults
+// during execution surface at the cudaDeviceSynchronize() calls, which are
+// wrapped in CUDA_CHECK too, so no extra synchronisation is introduced.
+#define CUDA_CHECK_KERNEL() CUDA_CHECK(cudaGetLastError())
+
 
 template <typename T> __device__ T max_device(const T *Arr, const int N) {
   T max = Arr[0];
