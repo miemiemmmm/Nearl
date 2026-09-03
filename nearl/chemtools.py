@@ -1,3 +1,5 @@
+import contextlib
+import hashlib
 import os
 
 import numpy as np
@@ -75,17 +77,30 @@ def traj_to_rdkit(traj, atomidx, frameidx):
         return None
 
 
-def traj_to_obmol(trajectory, frame_index=0):
-    """
-    Build an OpenBabel molecule straight from a trajectory frame.
+_OBMOL_CACHE_ATTR = "_nearl_obmol_cache"
 
-    Notes
-    -----
-    The connectivity comes from the topology rather than from OpenBabel's
-    distance-based perception, which bonds coordinating ions to their neighbours
-    (a K+ 2.6 A from a carboxylate oxygen becomes a covalent bond). Skipping the
-    PDB round trip is also roughly 8x faster on a solvated system.
+
+def _obmol_key(trajectory, frame_index):
     """
+    Identify the inputs of :func:`_build_obmol` so a cached molecule is never
+    served for different data.
+
+    Covers the coordinates by content, and the topology by identity: pytraj
+    rejects in-place edits of atomic numbers and bonds, but ``traj.top`` can be
+    reassigned wholesale, which changes elements and connectivity while the
+    coordinates stay put.
+
+    Both caches hold a single key at a time, which suits the current callers:
+    every one of them labels frame 0, so the slot never turns over. Labelling
+    per frame would evict on every call and needs a dict keyed on the frame.
+    """
+    topology = trajectory.top
+    coords = np.ascontiguousarray(trajectory.xyz[frame_index], dtype=np.float32)
+    digest = hashlib.blake2b(coords.tobytes(), digest_size=16).digest()
+    return (frame_index, topology.n_atoms, id(topology), digest)
+
+
+def _build_obmol(trajectory, frame_index):
     coords = trajectory.xyz[frame_index]
     mol = ob.OBMol()
     mol.BeginModify()
@@ -102,8 +117,52 @@ def traj_to_obmol(trajectory, frame_index=0):
     return mol
 
 
+def traj_to_obmol(trajectory, frame_index=0):
+    """
+    Build an OpenBabel molecule straight from a trajectory frame.
+
+    Notes
+    -----
+    The connectivity comes from the topology rather than from OpenBabel's
+    distance-based perception, which bonds coordinating ions to their neighbours
+    (a K+ 2.6 A from a carboxylate oxygen becomes a covalent bond). Skipping the
+    PDB round trip is also roughly 8x faster on a solvated system.
+
+    The molecule is cached on the trajectory. Aromaticity, Ring, HBondDonor,
+    HBondAcceptor and Hybridization would otherwise each rebuild an identical
+    one, and a dynamic feature weighted by any of those properties rebuilds it
+    again. The key carries a fingerprint of the frame, so changed coordinates
+    rebuild instead of returning a stale molecule.
+    """
+    key = _obmol_key(trajectory, frame_index)
+    cached = getattr(trajectory, _OBMOL_CACHE_ATTR, None)
+    if cached is not None and cached[0] == key:
+        return cached[1]
+
+    mol = _build_obmol(trajectory, frame_index)
+    # Trajectory-like objects that reject attributes simply go uncached.
+    with contextlib.suppress(AttributeError):
+        setattr(trajectory, _OBMOL_CACHE_ATTR, (key, mol))
+    return mol
+
+
+_LABEL_CACHE_ATTR = "_nearl_label_cache"
+
+
 def _label_atoms(trajectory, method, frame_index=0):
-    """Read one per-atom OpenBabel property; raise if the molecule came out short."""
+    """
+    Read one per-atom OpenBabel property; raise if the molecule came out short.
+
+    Each property is memoised per trajectory. Walking 20k+ atoms through the
+    SWIG iterator costs more than reading the property itself, and the same
+    property is requested repeatedly - a dynamic feature weighted by e.g.
+    aromaticity asks for what a registered Aromaticity feature already built.
+    """
+    key = _obmol_key(trajectory, frame_index)
+    cached = getattr(trajectory, _LABEL_CACHE_ATTR, None)
+    if cached is not None and cached[0] == key and method in cached[1]:
+        return cached[1][method].copy()
+
     mol = traj_to_obmol(trajectory, frame_index)
     labels = np.array(
         [getattr(atom, method)() for atom in ob.OBMolAtomIter(mol)], dtype=np.float32
@@ -113,7 +172,14 @@ def _label_atoms(trajectory, method, frame_index=0):
             f"OpenBabel returned {len(labels)} atoms for a topology of "
             f"{trajectory.top.n_atoms}; the molecule was not built correctly"
         )
-    return labels
+
+    if cached is None or cached[0] != key:
+        cached = (key, {})
+        with contextlib.suppress(AttributeError):
+            setattr(trajectory, _LABEL_CACHE_ATTR, cached)
+    cached[1][method] = labels
+    # Hand out a copy: callers own their array and must not corrupt the cache.
+    return labels.copy()
 
 
 def label_ring_status(trajectory, frame_index=0):
