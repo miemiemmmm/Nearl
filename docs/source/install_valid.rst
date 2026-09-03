@@ -16,6 +16,8 @@ rather than ``OK`` when there is none. They report the device, compare its compu
 capability against the architectures embedded in the extension, and run a small
 voxelization to confirm the kernels actually execute.
 
+Following is an example output from the validation.
+
 .. code-block:: bash
 
   $ python -m nearl.valid_installation
@@ -33,15 +35,6 @@ voxelization to confirm the kernels actually execute.
     7 GPU voxelization.................... OK (grid sum 92.28)
 
   Installation validation successful: 7 checks passed.
-
-Check 6 catches an extension compiled for the wrong GPU, which otherwise surfaces
-only at run time:
-
-.. code-block:: text
-
-  6 architecture compatibility.......... FAILED (ValueError: the extension is built
-    for sm_90 and cannot run on this sm_86 device; rebuild with
-    CUDA_COMPUTE_CAPABILITY=sm_86)
 
 .. note::
 
