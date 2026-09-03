@@ -455,30 +455,30 @@ void marching_observer_host(float *mobs_dynamics, const float *coord, const floa
 
   // The (frame_number, observer_number) observed trajectory
   float *mobs_traj;
-  cudaMalloc(&mobs_traj, frame_number * observer_number * sizeof(float));
-  cudaMemset(mobs_traj, 0, frame_number * observer_number * sizeof(float));
+  CUDA_CHECK(cudaMalloc(&mobs_traj, frame_number * observer_number * sizeof(float)));
+  CUDA_CHECK(cudaMemset(mobs_traj, 0, frame_number * observer_number * sizeof(float)));
 
   // The resultant aggregated mobs feature (Initialize all digits in the return array to 0)
   float *tmp_mobs_gpu;
-  cudaMalloc(&tmp_mobs_gpu, observer_number * sizeof(float));
-  cudaMemset(tmp_mobs_gpu, 0, observer_number * sizeof(float));
+  CUDA_CHECK(cudaMalloc(&tmp_mobs_gpu, observer_number * sizeof(float)));
+  CUDA_CHECK(cudaMemset(tmp_mobs_gpu, 0, observer_number * sizeof(float)));
 
   // The atomic coordinates and weights of the frame i in the device memory
   float *coords_device;
-  cudaMalloc(&coords_device, frame_number * atom_per_frame * 3 * sizeof(float));
-  cudaMemcpy(coords_device, coord, frame_number * atom_per_frame * 3 * sizeof(float),
-             cudaMemcpyHostToDevice);
+  CUDA_CHECK(cudaMalloc(&coords_device, frame_number * atom_per_frame * 3 * sizeof(float)));
+  CUDA_CHECK(cudaMemcpy(coords_device, coord, frame_number * atom_per_frame * 3 * sizeof(float),
+                        cudaMemcpyHostToDevice));
   float *weights_device;
-  cudaMalloc(&weights_device, frame_number * atom_per_frame * sizeof(float));
-  cudaMemcpy(weights_device, weights, frame_number * atom_per_frame * sizeof(float),
-             cudaMemcpyHostToDevice);
+  CUDA_CHECK(cudaMalloc(&weights_device, frame_number * atom_per_frame * sizeof(float)));
+  CUDA_CHECK(cudaMemcpy(weights_device, weights, frame_number * atom_per_frame * sizeof(float),
+                        cudaMemcpyHostToDevice));
 
   int *dims_device;
-  cudaMalloc(&dims_device, 3 * sizeof(int));
-  cudaMemcpy(dims_device, dims, 3 * sizeof(int), cudaMemcpyHostToDevice);
+  CUDA_CHECK(cudaMalloc(&dims_device, 3 * sizeof(int)));
+  CUDA_CHECK(cudaMemcpy(dims_device, dims, 3 * sizeof(int), cudaMemcpyHostToDevice));
 
   float *partial_sums;
-  cudaMalloc(&partial_sums, grid_size * sizeof(float));
+  CUDA_CHECK(cudaMalloc(&partial_sums, grid_size * sizeof(float)));
 
   // NOTE: The coordinate should be uniformed meaning each frame have the same number of atoms
   for (int frame_idx = 0; frame_idx < frame_number; ++frame_idx) {
@@ -487,11 +487,12 @@ void marching_observer_host(float *mobs_dynamics, const float *coord, const floa
         tmp_mobs_gpu, coords_device + frame_idx * atom_per_frame * 3,
         weights_device + frame_idx * atom_per_frame, dims_device, spacing, frame_number,
         atom_per_frame, cutoff, type_obs);
-    cudaDeviceSynchronize();
+    CUDA_CHECK_KERNEL();
+    CUDA_CHECK(cudaDeviceSynchronize());
 
     // After calculating the frame i, copy the result to the frame-wise array
-    cudaMemcpy(mobs_traj + frame_idx * observer_number, tmp_mobs_gpu,
-               observer_number * sizeof(float), cudaMemcpyDeviceToDevice);
+    CUDA_CHECK(cudaMemcpy(mobs_traj + frame_idx * observer_number, tmp_mobs_gpu,
+                          observer_number * sizeof(float), cudaMemcpyDeviceToDevice));
 
     // Skip the frames if their index exceeds the maximum number of frames allowed due to the
     // GPU-based aggregation
@@ -501,16 +502,19 @@ void marching_observer_host(float *mobs_dynamics, const float *coord, const floa
 
   // Perform frame-wise aggregation on the voxelized trajectory
   unsigned int _frame_number = frame_number > MAX_FRAME_NUMBER ? MAX_FRAME_NUMBER : frame_number;
-  cudaMemset(tmp_mobs_gpu, 0, observer_number * sizeof(float));
+  CUDA_CHECK(cudaMemset(tmp_mobs_gpu, 0, observer_number * sizeof(float)));
   gridwise_aggregation_global<<<grid_size, BLOCK_SIZE>>>(mobs_traj, tmp_mobs_gpu, _frame_number,
                                                          observer_number, type_agg);
-  cudaDeviceSynchronize();
+  CUDA_CHECK_KERNEL();
+  CUDA_CHECK(cudaDeviceSynchronize());
 
   // IMPORTANT: Need normalization since the high-diversity of observables and aggregation methods
   float tmp_sum = 0.0f;
   sum_reduction_global<<<grid_size, BLOCK_SIZE>>>(tmp_mobs_gpu, partial_sums, observer_number);
-  cudaDeviceSynchronize();
-  cudaMemcpy(_partial_sums, partial_sums, grid_size * sizeof(float), cudaMemcpyDeviceToHost);
+  CUDA_CHECK_KERNEL();
+  CUDA_CHECK(cudaDeviceSynchronize());
+  CUDA_CHECK(
+      cudaMemcpy(_partial_sums, partial_sums, grid_size * sizeof(float), cudaMemcpyDeviceToHost));
   for (int i = 0; i < grid_size; ++i)
     tmp_sum += _partial_sums[i];
 
@@ -520,15 +524,16 @@ void marching_observer_host(float *mobs_dynamics, const float *coord, const floa
   // }
 
   // Copy the final result to the host memory
-  cudaMemcpy(mobs_dynamics, tmp_mobs_gpu, observer_number * sizeof(float), cudaMemcpyDeviceToHost);
+  CUDA_CHECK(cudaMemcpy(mobs_dynamics, tmp_mobs_gpu, observer_number * sizeof(float),
+                        cudaMemcpyDeviceToHost));
 
   // Free the memory
-  cudaFree(mobs_traj);
-  cudaFree(tmp_mobs_gpu);
-  cudaFree(coords_device);
-  cudaFree(weights_device);
-  cudaFree(dims_device);
-  cudaFree(partial_sums);
+  CUDA_CHECK(cudaFree(mobs_traj));
+  CUDA_CHECK(cudaFree(tmp_mobs_gpu));
+  CUDA_CHECK(cudaFree(coords_device));
+  CUDA_CHECK(cudaFree(weights_device));
+  CUDA_CHECK(cudaFree(dims_device));
+  CUDA_CHECK(cudaFree(partial_sums));
 }
 
 
@@ -541,29 +546,31 @@ void observe_frame_host(float *results, const float *coord_frame, const float *w
   int frame_nr = 1;
 
   float *results_gpu;
-  cudaMalloc(&results_gpu, frame_nr * observer_number * sizeof(float));
-  cudaMemset(results_gpu, 0.0f, frame_nr * observer_number * sizeof(float));
+  CUDA_CHECK(cudaMalloc(&results_gpu, frame_nr * observer_number * sizeof(float)));
+  CUDA_CHECK(cudaMemset(results_gpu, 0.0f, frame_nr * observer_number * sizeof(float)));
   int *dims_gpu;
-  cudaMalloc(&dims_gpu, 3 * sizeof(int));
-  cudaMemcpy(dims_gpu, dims, 3 * sizeof(int), cudaMemcpyHostToDevice);
+  CUDA_CHECK(cudaMalloc(&dims_gpu, 3 * sizeof(int)));
+  CUDA_CHECK(cudaMemcpy(dims_gpu, dims, 3 * sizeof(int), cudaMemcpyHostToDevice));
   float *coord_frame_gpu;
-  cudaMalloc(&coord_frame_gpu, frame_nr * atomnr * 3 * sizeof(float));
-  cudaMemcpy(coord_frame_gpu, coord_frame, frame_nr * atomnr * 3 * sizeof(float),
-             cudaMemcpyHostToDevice);
+  CUDA_CHECK(cudaMalloc(&coord_frame_gpu, frame_nr * atomnr * 3 * sizeof(float)));
+  CUDA_CHECK(cudaMemcpy(coord_frame_gpu, coord_frame, frame_nr * atomnr * 3 * sizeof(float),
+                        cudaMemcpyHostToDevice));
   float *weight_frame_gpu;
-  cudaMalloc(&weight_frame_gpu, frame_nr * atomnr * sizeof(float));
-  cudaMemcpy(weight_frame_gpu, weight_frame, frame_nr * atomnr * sizeof(float),
-             cudaMemcpyHostToDevice);
+  CUDA_CHECK(cudaMalloc(&weight_frame_gpu, frame_nr * atomnr * sizeof(float)));
+  CUDA_CHECK(cudaMemcpy(weight_frame_gpu, weight_frame, frame_nr * atomnr * sizeof(float),
+                        cudaMemcpyHostToDevice));
 
   marching_observer_global<<<grid_size, BLOCK_SIZE>>>(results_gpu, coord_frame_gpu,
                                                       weight_frame_gpu, dims_gpu, spacing, frame_nr,
                                                       atomnr, cutoff, type_obs);
-  cudaDeviceSynchronize();
+  CUDA_CHECK_KERNEL();
+  CUDA_CHECK(cudaDeviceSynchronize());
 
-  cudaMemcpy(results, results_gpu, observer_number * sizeof(float), cudaMemcpyDeviceToHost);
+  CUDA_CHECK(
+      cudaMemcpy(results, results_gpu, observer_number * sizeof(float), cudaMemcpyDeviceToHost));
 
-  cudaFree(results_gpu);
-  cudaFree(dims_gpu);
-  cudaFree(coord_frame_gpu);
-  cudaFree(weight_frame_gpu);
+  CUDA_CHECK(cudaFree(results_gpu));
+  CUDA_CHECK(cudaFree(dims_gpu));
+  CUDA_CHECK(cudaFree(coord_frame_gpu));
+  CUDA_CHECK(cudaFree(weight_frame_gpu));
 }
