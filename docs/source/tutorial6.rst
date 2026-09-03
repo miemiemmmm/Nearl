@@ -1,3 +1,5 @@
+:orphan:
+
 Batch PDB structure loading
 ==============================
 Since meaningful large-scale MD trajectories are not always easily accessible, 

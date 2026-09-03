@@ -11,6 +11,7 @@
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 #
 # import sphinx.ext.autodoc, sphinx.ext.viewcode
+import importlib.util
 import os
 import sys
 
@@ -47,7 +48,25 @@ extensions = [
 ]
 
 autodoc_member_order = "bysource"
-# autodoc_mock_imports = ["nearl.features", "nearl.commands", "nearl.io.trajloader", "nearl.io.traj", "nearl.featurizer"]
+# The API pages import nearl, which pulls in the scientific stack. Mock only what
+# is genuinely absent, so a full environment (ReadTheDocs) documents the real
+# objects while a docs-only environment (the CI build) still renders the pages.
+autodoc_mock_imports = [
+    name
+    for name in (
+        "pytraj",
+        "h5py",
+        "scipy",
+        "torch",
+        "rdkit",
+        "openbabel",
+        "sklearn",
+        "joblib",
+        "matplotlib",
+        "open3d",
+    )
+    if importlib.util.find_spec(name) is None
+]
 numpydoc_show_class_members = False
 myst_heading_anchors = 3
 
