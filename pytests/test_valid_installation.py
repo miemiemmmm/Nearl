@@ -14,7 +14,8 @@ from nearl import valid_installation as V
 
 def _extension_built():
     try:
-        from nearl import all_actions
+        # The import itself is the check: the .so can exist but fail to load.
+        from nearl import all_actions  # noqa: F401
     except ImportError:
         return False
     return True
@@ -30,9 +31,8 @@ requires_extension = pytest.mark.skipif(
 @requires_extension
 def test_a_cuda_failure_raises_instead_of_returning_zeros():
     """
-    Regression test for CUDA_CHECK in src/. Without it, a CUDA call that fails
-    is silent: the kernels never run and the caller gets its zero-initialised
-    buffer back as though it were a result.
+    An unchecked CUDA failure is silent: the kernels never run and the caller
+    gets its zero-initialised buffer back as though it were a result.
 
     The device has to be hidden before the process starts, so this runs in a
     subprocess with CUDA_VISIBLE_DEVICES emptied.
@@ -114,7 +114,7 @@ def test_no_usable_sass_falls_back_to_ptx_with_a_rebuild_hint(monkeypatch):
 
 
 def test_newer_arch_than_the_device_is_rejected(monkeypatch):
-    """The sm_90-build-on-an-sm_86-box mistake has to be caught."""
+    """A cubin built for a newer architecture cannot run on an older device."""
     monkeypatch.setattr(V, "_device_count", lambda: 1)
     monkeypatch.setattr(V, "_device_arch", lambda: "sm_86")
     monkeypatch.setattr(V, "_embedded_archs", _arch_source(["sm_90"], ["sm_90"]))
@@ -132,11 +132,7 @@ def test_runtime_checks_skip_rather_than_pass_without_a_device(monkeypatch, chec
 
 
 def test_empty_voxel_grid_is_a_failure_not_a_pass(monkeypatch):
-    """
-    CUDA_CHECK in src/ raises on a failed call, but an empty grid still means
-    nothing was computed. Asserting only shape and finiteness would let that
-    through, so the value itself is checked.
-    """
+    """An all-zero grid means the kernels never ran, so shape alone is not enough."""
     from nearl import commands
 
     monkeypatch.setattr(V, "_device_count", lambda: 1)

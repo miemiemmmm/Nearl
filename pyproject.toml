@@ -53,8 +53,6 @@ ignore = [
     "RUF022",  # unsorted list
     "E402",  # import not at the top
     "BLE001",  # unclear exception type
-    "F401",  # unused import
-    "F403",  # import with star
 ]
 
 [project.entry-points.console_scripts]

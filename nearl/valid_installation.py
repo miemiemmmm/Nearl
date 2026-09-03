@@ -10,8 +10,17 @@ into failures.
 
 import argparse
 import ctypes
+import importlib
 import subprocess
 import sys
+
+CORE_MODULES = (
+    "nearl.commands",
+    "nearl.features",
+    "nearl.featurizer",
+    "nearl.io",
+    "nearl.utils",
+)
 
 EXPECTED_SYMBOLS = (
     "aggregate",
@@ -104,11 +113,9 @@ def _embedded_archs():
 
 
 def _check_core():
-    import nearl.commands
-    import nearl.features
-    import nearl.featurizer
-    import nearl.io
-    import nearl.utils
+    for name in CORE_MODULES:
+        importlib.import_module(name)
+    return f"{len(CORE_MODULES)} modules"
 
 
 def _check_pytraj():
@@ -191,8 +198,6 @@ def _check_voxelization():
     if not np.isfinite(grid).all():
         raise ValueError("voxel grid contains non-finite values")
     total = float(grid.sum())
-    # CUDA_CHECK in src/ turns a failed call into a RuntimeError, but an empty
-    # grid still means nothing was computed, so keep asserting on the value.
     if total <= 0.0:
         raise ValueError("voxel grid is empty; the kernels did not run")
     return f"grid sum {total:.2f}"
