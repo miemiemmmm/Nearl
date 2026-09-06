@@ -7,7 +7,7 @@ from datetime import datetime
 from inspect import stack as __call_stack
 from typing import ClassVar, Optional
 
-__version__ = "0.0.3.dev0"
+__version__ = "0.1.0"
 
 CONFIG = {
     "tempfolder": "/tmp/",

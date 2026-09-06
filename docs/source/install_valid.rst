@@ -21,7 +21,7 @@ Following is an example output from the validation.
 .. code-block:: bash
 
   $ python -m nearl.valid_installation
-  Nearl version 0.0.3.dev0
+  Nearl version 0.1.0
 
   Static checks (no GPU required)
     1 core modules........................ OK
