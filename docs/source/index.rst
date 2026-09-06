@@ -35,7 +35,6 @@ Welcome to Nearl's documentation!
    
    tutorial1
    tutorial2 
-   tutorial_tba
 
 
 .. toctree::

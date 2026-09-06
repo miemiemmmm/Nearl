@@ -1,0 +1,55 @@
+# Builds the Sphinx documentation on every PR, so a broken directive, a dead
+# cross-reference or an unbuildable page is caught before merge. The runner has
+# no scientific stack: nearl is installed without its dependencies and conf.py
+# mocks whatever it cannot import, which keeps the job under a minute. That is a
+# rendering check only -- it does not prove ReadTheDocs' own conda environment
+# still resolves.
+name: Docs
+
+"on":
+  push:
+    branches: ["main"]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Pinned to match docs/source/sphinx_requirements.yml, the environment
+      # ReadTheDocs installs; bump both together. numpy is installed rather than
+      # mocked because autodoc reads it while resolving signatures.
+      - name: Install the documentation toolchain
+        run: |
+          pip install \
+            sphinx==7.1.2 \
+            sphinx-rtd-theme==1.3.0rc1 \
+            sphinx_design==0.5.0 \
+            numpydoc==1.7.0 \
+            sphinx-book-theme==1.1.3 \
+            myst_parser==3.0.1 \
+            sphinx_copybutton \
+            sphinx_togglebutton \
+            numpy
+
+      # No nvcc here, so setup.py skips the CUDA extension. --no-deps keeps
+      # torch/rdkit/openbabel/pytraj out; conf.py mocks them for autodoc.
+      - name: Install nearl
+        run: pip install --no-deps .
+
+      # -W turns warnings into failures; --keep-going reports all of them
+      # instead of stopping at the first.
+      - name: Build the HTML documentation
+        run: sphinx-build -b html -W --keep-going docs/source docs/_build/html
+
+      - name: Upload the rendered documentation
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-html
+          path: docs/_build/html
+          retention-days: 14

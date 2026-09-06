@@ -1587,7 +1587,7 @@ class DensityFlow(DynamicFeature):
         weights : np.array
           The weights of the atoms in the frames. NOTE: The weight has to match the number of atoms in the frames.
 
-        Return:
+        Returns
         -------
         ret_arr : np.array
           The dynamic feature array with the dimensions of self.dims

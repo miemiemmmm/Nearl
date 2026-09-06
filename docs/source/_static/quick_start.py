@@ -15,7 +15,7 @@ if __name__ == "__main__":
     # Initialize the trajectory loader
     print(EXAMPLE_DATA["MINI_TRAJSET"])
     loader = nearl.io.TrajectoryLoader(EXAMPLE_DATA["MINI_TRAJSET"], mask="!:T3P")
-    print(f"Loading {len(loader)} trajectories detected")  # 4 trajectories detected
+    print(f"{len(loader)} trajectories detected")
 
     # Initialize the featurizer
     FEATURIZER_PARMS = {
