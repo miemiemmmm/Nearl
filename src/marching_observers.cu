@@ -451,7 +451,6 @@ void marching_observer_host(float *mobs_dynamics, const float *coord, const floa
                             const int type_agg) {
   unsigned int observer_number = dims[0] * dims[1] * dims[2];
   unsigned int grid_size = (observer_number + BLOCK_SIZE - 1) / BLOCK_SIZE;
-  float _partial_sums[grid_size];
 
   // The (frame_number, observer_number) observed trajectory
   float *mobs_traj;
@@ -476,9 +475,6 @@ void marching_observer_host(float *mobs_dynamics, const float *coord, const floa
   int *dims_device;
   CUDA_CHECK(cudaMalloc(&dims_device, 3 * sizeof(int)));
   CUDA_CHECK(cudaMemcpy(dims_device, dims, 3 * sizeof(int), cudaMemcpyHostToDevice));
-
-  float *partial_sums;
-  CUDA_CHECK(cudaMalloc(&partial_sums, grid_size * sizeof(float)));
 
   // NOTE: The coordinate should be uniformed meaning each frame have the same number of atoms
   for (int frame_idx = 0; frame_idx < frame_number; ++frame_idx) {
@@ -508,20 +504,9 @@ void marching_observer_host(float *mobs_dynamics, const float *coord, const floa
   CUDA_CHECK_KERNEL();
   CUDA_CHECK(cudaDeviceSynchronize());
 
-  // IMPORTANT: Need normalization since the high-diversity of observables and aggregation methods
-  float tmp_sum = 0.0f;
-  sum_reduction_global<<<grid_size, BLOCK_SIZE>>>(tmp_mobs_gpu, partial_sums, observer_number);
-  CUDA_CHECK_KERNEL();
-  CUDA_CHECK(cudaDeviceSynchronize());
-  CUDA_CHECK(
-      cudaMemcpy(_partial_sums, partial_sums, grid_size * sizeof(float), cudaMemcpyDeviceToHost));
-  for (int i = 0; i < grid_size; ++i)
-    tmp_sum += _partial_sums[i];
-
-  // if (tmp_sum != 0.0f){
-  //   normalize_array_global<<<grid_size, BLOCK_SIZE>>>(tmp_mobs_gpu, tmp_sum, 1.0f,
-  //   observer_number);
-  // }
+  // No normalization here: dividing the finished grid by its own sum would erase
+  // the magnitude the observables measure, and the signed aggregations (drift)
+  // can sum to ~0. Scale the channels at training time instead.
 
   // Copy the final result to the host memory
   CUDA_CHECK(cudaMemcpy(mobs_dynamics, tmp_mobs_gpu, observer_number * sizeof(float),
@@ -533,7 +518,6 @@ void marching_observer_host(float *mobs_dynamics, const float *coord, const floa
   CUDA_CHECK(cudaFree(coords_device));
   CUDA_CHECK(cudaFree(weights_device));
   CUDA_CHECK(cudaFree(dims_device));
-  CUDA_CHECK(cudaFree(partial_sums));
 }
 
 
