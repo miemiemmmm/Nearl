@@ -443,7 +443,23 @@ __global__ void marching_observer_global(float *mobs_ret, const float *coord_fra
 
 
 /**
- * @brief The host function to perform the marching observer algorithm
+ * @brief GPU entry point for the marching observer algorithm on a frame slice.
+ *
+ * For each frame, launches marching_observer_global so that every grid point
+ * computes an observable (e.g. density, count, eccentricity) from the atoms
+ * within cutoff. The per-frame grids are stored, then reduced across frames
+ * with gridwise_aggregation_global. Uses the global DeviceContext when active.
+ *
+ * @param mobs_dynamics Host output grid of size dims[0]*dims[1]*dims[2].
+ * @param coord Host coordinates with shape (frame_number, atom_per_frame, 3).
+ * @param weights Host weights with shape (frame_number, atom_per_frame).
+ * @param dims Grid dimensions [x, y, z].
+ * @param spacing Grid spacing.
+ * @param frame_number Number of frames in the slice.
+ * @param atom_per_frame Number of atoms in each frame.
+ * @param cutoff Observer cutoff distance.
+ * @param type_obs Observable type (see constants.h).
+ * @param type_agg Aggregation type across frames (see constants.h).
  */
 void marching_observer_host(float *mobs_dynamics, const float *coord, const float *weights,
                             const int *dims, const float spacing, const int frame_number,
@@ -540,6 +556,13 @@ void marching_observer_host(float *mobs_dynamics, const float *coord, const floa
 }
 
 
+/**
+ * @brief GPU entry point for a single-frame marching-observer observation.
+ *
+ * Uploads one frame of coordinates and weights, launches marching_observer_global
+ * over all grid points, and copies the observed grid back to the host. Uses the
+ * global DeviceContext when active.
+ */
 void observe_frame_host(float *results, const float *coord_frame, const float *weight_frame,
                         const int *dims, const float spacing, const int atomnr, const float cutoff,
                         const int type_obs) {

@@ -176,6 +176,14 @@ __global__ void gridwise_aggregation_global(float *d_in, float *d_out, const int
 }
 
 
+/**
+ * @brief Aggregate a per-frame grid trajectory into a single grid.
+ *
+ * Takes a host array of shape (frame_number, grid_number), uploads it to the
+ * GPU, and runs gridwise_aggregation_global to reduce the frame dimension
+ * using the requested aggregation (mean, std-dev, median, ...). The result is
+ * copied back to result_grid.
+ */
 void aggregate_host(float *voxel_traj, float *result_grid, const int frame_number,
                     const int grid_number, const int type_agg) {
   unsigned int grid_size = (grid_number + BLOCK_SIZE - 1) / BLOCK_SIZE;
@@ -217,6 +225,13 @@ void aggregate_host(float *voxel_traj, float *result_grid, const int frame_numbe
   }
 }
 
+/**
+ * @brief Sum the elements of a host float array on the GPU.
+ *
+ * Performs a parallel reduction on the GPU and returns the scalar sum to the
+ * host. Uses the global DeviceContext for allocations/streaming when active,
+ * otherwise falls back to per-call cudaMalloc/cudaFree.
+ */
 float sum_reduction_host(float *array, const int arr_length) {
   unsigned int grid_size = (arr_length + BLOCK_SIZE - 1) / BLOCK_SIZE;
 

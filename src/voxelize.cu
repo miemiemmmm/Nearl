@@ -9,7 +9,11 @@
 #include "voxelize.cuh"
 
 /**
- *Interpolate the atomic density to the grid
+ * @brief Per-atom Gaussian density on the full grid (legacy one-atom kernel).
+ *
+ * Each thread evaluates the Gaussian contribution of a single atom (coord) to
+ * one grid point. The result is written to interpolated[task_index]. This kernel
+ * is currently only used by the old _voxelize_host_old path.
  */
 __global__ void coordi_interp_global(const float *coord, float *interpolated, const int *dims,
                                      const float spacing, const float cutoff, const float sigma) {
@@ -36,6 +40,15 @@ __global__ void coordi_interp_global(const float *coord, float *interpolated, co
 }
 
 
+/**
+ * @brief Per-frame Gaussian density voxelization using one CUDA block per atom.
+ *
+ * Each block owns one atom. Threads first sum the unweighted Gaussian density
+ * over a cutoff-bounded sub-grid (shared-memory reduction), then scatter the
+ * atom's weighted, normalized contribution into the full output grid via
+ * atomicAdd. The normalization guarantees that the integral over the grid for
+ * each atom equals the atom's weight.
+ */
 __global__ void frame_interp_global(const float *coords_frame, const float *weights_frame,
                                     float *interpolated_frame, const int *dims, const float spacing,
                                     const float cutoff, const float sigma, const int atom_nr) {
@@ -127,7 +140,11 @@ __global__ void frame_interp_global(const float *coords_frame, const float *weig
 
 
 /**
- * @brief Interpolate the atomic density to a grid using the Gaussian function
+ * @brief CPU reference implementation of single-frame Gaussian voxelization.
+ *
+ * For each atom, loops over grid points within cutoff, accumulates the Gaussian
+ * density, normalises by the total density, and writes the weighted density into
+ * the output grid. Used for validation and when the CUDA extension is not built.
  */
 void voxelize_host_cpu(float *interpolated, const float *coord, const float *weight,
                        const int *dims, const float spacing, const int atom_nr, const float cutoff,
@@ -202,7 +219,11 @@ void voxelize_host_cpu(float *interpolated, const float *coord, const float *wei
 
 
 /**
- * @brief Interpolate the atomic density to a grid using the Gaussian function
+ * @brief Older GPU voxelization path kept for comparison (not used by commands).
+ *
+ * For each atom, runs a full-grid per-atom kernel followed by a separate
+ * reduction, normalisation, and accumulation step. Slower than frame_interp_global
+ * but useful as a correctness/performance baseline.
  */
 void _voxelize_host_old(float *interpolated, const float *coord, const float *weight,
                         const int *dims, const float spacing, const int atom_nr, const float cutoff,
@@ -284,6 +305,13 @@ void _voxelize_host_old(float *interpolated, const float *coord, const float *we
 }
 
 
+/**
+ * @brief GPU entry point for single-frame Gaussian density voxelization.
+ *
+ * Uploads coordinates, weights, and grid dimensions to the GPU, launches
+ * frame_interp_global with one block per atom, and copies the resulting grid
+ * back to host memory. Uses the global DeviceContext when active.
+ */
 void voxelize_host(float *interpolated, const float *coord, const float *weight, const int *dims,
                    const float spacing, const int atom_nr, const float cutoff, const float sigma) {
   unsigned int gridpoint_nr = dims[0] * dims[1] * dims[2];
@@ -334,13 +362,23 @@ void voxelize_host(float *interpolated, const float *coord, const float *weight,
 
 
 /**
- * @brief Voxelization of the trajectory and aggregation of the frames
+ * @brief GPU entry point for trajectory density flow with frame aggregation.
  *
- * @param voxelize_dynamics The output array for the voxelized trajectory
- * @param coord The atomic coordinates with shape (frame_nr, atom_nr, 3)
- * @param weight The atomic weights
- * @param dims The dimensions of the grid
+ * Voxelizes every frame of a trajectory into a (frame_nr, grid_points) buffer,
+ * then reduces the frame dimension with gridwise_aggregation_global according
+ * to type_agg (mean, std-dev, ...). The final aggregated grid is copied back to
+ * the host. Uses the global DeviceContext when active.
  *
+ * @param voxelize_dynamics Host output buffer of size grid_points.
+ * @param coord Host coordinates with shape (frame_nr, atom_nr, 3).
+ * @param weight Host weights with shape (frame_nr, atom_nr).
+ * @param dims Grid dimensions [x, y, z].
+ * @param spacing Grid spacing.
+ * @param frame_nr Number of frames.
+ * @param atom_nr Number of atoms per frame.
+ * @param cutoff Cutoff distance for the Gaussian kernel.
+ * @param sigma Width of the Gaussian kernel.
+ * @param type_agg Aggregation type (see constants.h).
  */
 void trajectory_voxelization_host(float *voxelize_dynamics, const float *coord, const float *weight,
                                   const int *dims, const float spacing, const int frame_nr,
@@ -420,9 +458,12 @@ void trajectory_voxelization_host(float *voxelize_dynamics, const float *coord, 
   }
 }
 
-/*
-Only a test function for basic performance comparison
-*/
+/**
+ * @brief CPU reference for trajectory density flow (serial, for comparison only).
+ *
+ * Repeatedly calls voxelize_host_cpu for each frame, accumulating densities in
+ * the output buffer. Intended as a correctness/performance baseline.
+ */
 void trajectory_voxelization_host_cpu(float *voxelize_dynamics, const float *coord,
                                       const float *weight, const int *dims, const float spacing,
                                       const int frame_nr, const int atom_nr, const float cutoff,
