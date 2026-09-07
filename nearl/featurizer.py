@@ -180,12 +180,33 @@ class Featurizer:
                 f"{self.classname}: Featurizer is initialized successfully with dimensions: {self.dims} and lengths: {self.lengths}"
             )
 
+        # One CUDA stream and one set of device buffers shared by every kernel
+        # call, rather than an allocation per task. Pass device_context=False to
+        # measure against the per-call path.
+        if parms.get("device_context", kwargs.get("device_context", True)):
+            self.init_device_context()
+
         if "outfile" in parms:
             # Dump the parm dict to that hdf file
             log(
                 f"{self.classname}: Dumping the parameters to {parms['outfile']} : {self.parms}"
             )
             utils.dump_dict(parms["outfile"], "featurizer_parms", self.parms)
+
+    def init_device_context(self):
+        """
+        Bring up the persistent GPU context that the CUDA commands share.
+
+        Failing is not fatal: without the compiled extension or a visible device
+        the commands allocate per call, which is what a CPU-only machine does.
+        """
+        from . import commands
+
+        try:
+            commands.init_context()
+            logger.debug(f"{self.classname}: persistent GPU context is active")
+        except Exception as exc:
+            logger.debug(f"{self.classname}: running without a GPU context ({exc})")
 
     def __str__(self):
         finalstr = f"Feature Number: {self.FEATURENUMBER}; \n"

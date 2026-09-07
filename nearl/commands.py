@@ -262,6 +262,13 @@ def init_context():
     When active, the extension reuses a single CUDA stream and a set of
     cached device buffers, eliminating per-call cudaMalloc/cudaFree overhead.
     Call :func:`finalize_context` at shutdown to release GPU memory.
+
+    Notes
+    -----
+    One context per process, bound to whichever device is current. Selecting a
+    device, or holding a context per device, is future work and not part of this
+    commit: for several GPUs, give each worker its own process and set
+    ``CUDA_VISIBLE_DEVICES``.
     """
     all_actions.init_context()
 
