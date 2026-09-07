@@ -103,7 +103,7 @@ py::array_t<float> do_voxelize(py::array_t<float> arr_coords, py::array_t<float>
 py::array_t<float> do_marching_observers(py::array_t<float> arr_coord,
                                          py::array_t<float> arr_weights, py::array_t<int> arr_dims,
                                          const float spacing, const float cutoff,
-                                         const int type_obs, const int type_agg) {
+                                         const ObservableType type_obs, const int type_agg) {
   py::buffer_info buf_coord = arr_coord.request();
   py::buffer_info buf_weights = arr_weights.request();
   py::buffer_info buf_dims = arr_dims.request();
@@ -118,14 +118,7 @@ py::array_t<float> do_marching_observers(py::array_t<float> arr_coord,
   if (buf_coord.ndim != 3) {
     throw py::value_error("Error: The input array must have 3 dimensions: (frame_nr, atom_nr, 3)");
   }
-  int supported_mode[OBSERVABLE_COUNT] = SUPPORTED_OBSERVABLES;
-  for (int i = 0; i < OBSERVABLE_COUNT; i++) {
-    if (type_obs == supported_mode[i]) {
-      break;
-    } else if (i == OBSERVABLE_COUNT - 1) {
-      throw py::value_error("The observable type is not supported");
-    }
-  }
+  // NOTE: The observable type is validated by the ObservableType dispatch in the CUDA host code
   int supported_agg[AGGREGATION_COUNT] = SUPPORTED_AGGREGATIONS;
   for (int i = 0; i < AGGREGATION_COUNT; i++) {
     if (type_agg == supported_agg[i]) {
@@ -232,7 +225,7 @@ float do_summation(py::array_t<float> arr) {
 
 py::array_t<float> do_frame_observation(py::array_t<float> coord_arr, py::array_t<float> weight_arr,
                                         py::array_t<int> dims_arr, const float spacing,
-                                        const float cutoff, const int type_obs) {
+                                        const float cutoff, const ObservableType type_obs) {
   py::buffer_info buf_coords = coord_arr.request();
   py::buffer_info buf_weights = weight_arr.request();
   py::buffer_info buf_dims = dims_arr.request();
@@ -258,6 +251,17 @@ bool do_context_valid() { return global_device_context_valid(); }
 
 
 PYBIND11_MODULE(all_actions, m) {
+  // The observable types are generated from OBSERVABLE_TYPE_LIST in marching_observers.cuh so that
+  // the C++ enumeration stays the only definition of the supported observables.
+  py::enum_<ObservableType> observable_type(m, "ObservableType",
+                                            "The observables of the marching observers algorithm");
+#define OBSERVABLE_TYPE_BINDING(NAME, VALUE, FN) observable_type.value(#NAME, ObservableType::NAME);
+  OBSERVABLE_TYPE_LIST(OBSERVABLE_TYPE_BINDING)
+#undef OBSERVABLE_TYPE_BINDING
+  observable_type.export_values();
+  // Accept the plain integers of the stored configurations as well as the enumerators
+  py::implicitly_convertible<py::int_, ObservableType>();
+
   m.def("frame_voxelize", &do_voxelize, py::arg("coords"), py::arg("weights"), py::arg("grid_dims"),
         py::arg("spacing"), py::arg("cutoff"), py::arg("sigma"), py::arg("auto_translate"),
         "Voxelize a set of coordinates and weights");

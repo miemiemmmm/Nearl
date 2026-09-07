@@ -91,18 +91,8 @@ SUPPORTED_AGGREGATION = {
 }
 
 
-# Hardcoded maps in the C++ level code
-SUPPORTED_OBSERVATION = {
-    "existence": 1,
-    "direct_count": 2,
-    "distinct_count": 3,
-    "mean_distance": 11,
-    "cumulative_weight": 12,
-    "density": 13,
-    "dispersion": 14,
-    "eccentricity": 15,
-    "radius_of_gyration": 16,
-}
+# Derived from the ObservableType enumeration of the CUDA extension
+SUPPORTED_OBSERVATION = commands.SUPPORTED_OBSERVATION
 
 
 def crop(points, upperbound, padding, spacing):
