@@ -529,13 +529,17 @@ class Feature:
             np.ascontiguousarray(coords, dtype=np.float32),
             np.ascontiguousarray(weights, dtype=np.float32),
             np.asarray(dims, dtype=np.int32),
-            float(self.spacing), float(self.cutoff), *parameters,
+            float(self.spacing),
+            float(self.cutoff),
+            *parameters,
         )
 
         def collect():
             result = pending.result().reshape(dims)
             if command == "density_flow" and np.isnan(result).any():
-                log.warning(f"Found nan in the return: {np.count_nonzero(np.isnan(result))}")
+                log.warning(
+                    f"Found nan in the return: {np.count_nonzero(np.isnan(result))}"
+                )
             return result
 
         return collect
@@ -543,7 +547,9 @@ class Feature:
     def _dispatch(self, coords, weights):
         if len(coords) == 0:
             return lambda: self.run(coords, weights)
-        return self._dispatch_grid("frame_voxelize", coords, weights, float(self.sigma), 0)
+        return self._dispatch_grid(
+            "frame_voxelize", coords, weights, float(self.sigma), 0
+        )
 
     def run(self, coords, weights):
         """
@@ -1600,7 +1606,9 @@ class DensityFlow(DynamicFeature):
         return ret_coord, ret_weight
 
     def _dispatch(self, frames, weights):
-        return self._dispatch_grid("density_flow", frames, weights, float(self.sigma), int(self.agg))
+        return self._dispatch_grid(
+            "density_flow", frames, weights, float(self.sigma), int(self.agg)
+        )
 
     def run(self, frames, weights):
         """
@@ -1711,7 +1719,9 @@ class MarchingObservers(DynamicFeature):
         return ret_coord, ret_weight
 
     def _dispatch(self, coords, weights):
-        return self._dispatch_grid("marching_observer", coords, weights, self.obs, self.agg)
+        return self._dispatch_grid(
+            "marching_observer", coords, weights, self.obs, self.agg
+        )
 
     def run(self, coords, weights):
         """

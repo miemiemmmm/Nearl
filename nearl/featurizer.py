@@ -30,14 +30,18 @@ def wrapper_runner(func, args):
 
 def _run_prepared_tasks(featurizer, tasks, feature_map):
     """Prepare one input ahead while the previous CUDA action is in flight."""
-    from .features import Feature, DensityFlow, MarchingObservers
+    from .features import DensityFlow, Feature, MarchingObservers
 
     results = []
     pending = None
     try:
         for (feature, query_args), metadata in zip(tasks, feature_map):
             featurizer.frame_slice = featurizer.FRAMESLICES[metadata[1]]
-            async_feature = type(feature).run in (Feature.run, DensityFlow.run, MarchingObservers.run)
+            async_feature = type(feature).run in (
+                Feature.run,
+                DensityFlow.run,
+                MarchingObservers.run,
+            )
             # A custom feature may itself use CUDA during query().
             if pending is not None and not async_feature:
                 collect, pending = pending, None
@@ -554,18 +558,14 @@ class Featurizer:
                         # Crop the trajectory and send the coordinates/trajectory to the featurizer
                         for fidx in range(self.FEATURENUMBER):
                             # NOTE: Isolate the effect on the calculation of the next feature
-                            query_args = (
-                                self.top, frames, focal_point
-                            )
+                            query_args = (self.top, frames, focal_point)
                             tasks.append([self.FEATURESPACE[fidx], query_args])
                             feature_map.append((tid, bid, fidx))
                 else:
                     # Without registeration of focal points: focal-point independent features such as label-generation
                     for fidx in range(self.FEATURENUMBER):
                         # Explicitly transfer the topology and frames to get the queried coordinates for the featurizer
-                        query_args = (
-                            self.top, frames, [0, 0, 0]
-                        )
+                        query_args = (self.top, frames, [0, 0, 0])
                         tasks.append([self.FEATURESPACE[fidx], query_args])
                         feature_map.append((tid, bid, fidx))
 
@@ -634,7 +634,9 @@ class Featurizer:
                             focal_point = np.mean(sliced_coord[0], axis=0)
                             for fidx in range(self.FEATURENUMBER):
                                 query_args = (
-                                    sliced_top, sliced_coord.copy(), focal_point
+                                    sliced_top,
+                                    sliced_coord.copy(),
+                                    focal_point,
                                 )
                                 tasks.append([self.FEATURESPACE[fidx], query_args])
                                 feature_map.append((tid, bid, fidx, label))
@@ -662,7 +664,9 @@ class Featurizer:
                                 focal_point = np.mean(sliced_coord[0], axis=0)
                                 for fidx in range(self.FEATURENUMBER):
                                     query_args = (
-                                        sliced_top, sliced_coord.copy(), focal_point
+                                        sliced_top,
+                                        sliced_coord.copy(),
+                                        focal_point,
                                     )
                                     tasks.append([self.FEATURESPACE[fidx], query_args])
                                     feature_map.append((tid, bid, fidx, label))

@@ -2,7 +2,7 @@ Commands
 --------
 
 CUDA results and lifetime
-~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Voxelization, frame observation, density flow, marching observers, aggregation,
 and summation initialize the shared context on first use and stage inputs in
