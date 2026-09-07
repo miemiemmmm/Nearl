@@ -27,14 +27,6 @@ from collections import defaultdict
 
 warnings.filterwarnings("ignore")
 
-# Ensure we benchmark the *local* (optimized) Nearl package rather than any
-# installed copy. When this script is run as ``python benchmarks/script.py``,
-# sys.path[0] is the benchmarks/ directory, so ``import nearl`` would otherwise
-# resolve to the site-packages installation.
-_PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
-if str(_PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(_PROJECT_ROOT))
-
 import nearl
 import nearl.commands as commands
 import nearl.features
