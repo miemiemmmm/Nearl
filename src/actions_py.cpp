@@ -250,6 +250,13 @@ py::array_t<float> do_frame_observation(py::array_t<float> coord_arr, py::array_
 }
 
 
+void do_init_context() { init_global_device_context(); }
+
+void do_finalize_context() { finalize_global_device_context(); }
+
+bool do_context_valid() { return global_device_context_valid(); }
+
+
 PYBIND11_MODULE(all_actions, m) {
   m.def("frame_voxelize", &do_voxelize, py::arg("coords"), py::arg("weights"), py::arg("grid_dims"),
         py::arg("spacing"), py::arg("cutoff"), py::arg("sigma"), py::arg("auto_translate"),
@@ -271,4 +278,11 @@ PYBIND11_MODULE(all_actions, m) {
         "Aggregate the observable (nframes, ngridpoints) to a single frame (ngridpoints)");
 
   m.def("summation", &do_summation, py::arg("arr"), "Summation of the array on GPU");
+
+  m.def("init_context", &do_init_context,
+        "Create the persistent DeviceContext (CUDA stream + cached buffers).");
+  m.def("finalize_context", &do_finalize_context,
+        "Destroy the persistent DeviceContext and release cached GPU memory.");
+  m.def("context_valid", &do_context_valid,
+        "Return True if the persistent DeviceContext is active.");
 }

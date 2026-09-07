@@ -9,7 +9,11 @@
 #include "voxelize.cuh"
 
 /**
- *Interpolate the atomic density to the grid
+ * @brief Per-atom Gaussian density on the full grid (legacy one-atom kernel).
+ *
+ * Each thread evaluates the Gaussian contribution of a single atom (coord) to
+ * one grid point. The result is written to interpolated[task_index]. This kernel
+ * is currently only used by the old _voxelize_host_old path.
  */
 __global__ void coordi_interp_global(const float *coord, float *interpolated, const int *dims,
                                      const float spacing, const float cutoff, const float sigma) {
@@ -36,6 +40,15 @@ __global__ void coordi_interp_global(const float *coord, float *interpolated, co
 }
 
 
+/**
+ * @brief Per-frame Gaussian density voxelization using one CUDA block per atom.
+ *
+ * Each block owns one atom. Threads first sum the unweighted Gaussian density
+ * over a cutoff-bounded sub-grid (shared-memory reduction), then scatter the
+ * atom's weighted, normalized contribution into the full output grid via
+ * atomicAdd. The normalization guarantees that the integral over the grid for
+ * each atom equals the atom's weight.
+ */
 __global__ void frame_interp_global(const float *coords_frame, const float *weights_frame,
                                     float *interpolated_frame, const int *dims, const float spacing,
                                     const float cutoff, const float sigma, const int atom_nr) {
@@ -127,7 +140,11 @@ __global__ void frame_interp_global(const float *coords_frame, const float *weig
 
 
 /**
- * @brief Interpolate the atomic density to a grid using the Gaussian function
+ * @brief CPU reference implementation of single-frame Gaussian voxelization.
+ *
+ * For each atom, loops over grid points within cutoff, accumulates the Gaussian
+ * density, normalises by the total density, and writes the weighted density into
+ * the output grid. Used for validation and when the CUDA extension is not built.
  */
 void voxelize_host_cpu(float *interpolated, const float *coord, const float *weight,
                        const int *dims, const float spacing, const int atom_nr, const float cutoff,
@@ -202,7 +219,11 @@ void voxelize_host_cpu(float *interpolated, const float *coord, const float *wei
 
 
 /**
- * @brief Interpolate the atomic density to a grid using the Gaussian function
+ * @brief Older GPU voxelization path kept for comparison (not used by commands).
+ *
+ * For each atom, runs a full-grid per-atom kernel followed by a separate
+ * reduction, normalisation, and accumulation step. Slower than frame_interp_global
+ * but useful as a correctness/performance baseline.
  */
 void _voxelize_host_old(float *interpolated, const float *coord, const float *weight,
                         const int *dims, const float spacing, const int atom_nr, const float cutoff,
@@ -284,47 +305,80 @@ void _voxelize_host_old(float *interpolated, const float *coord, const float *we
 }
 
 
+/**
+ * @brief GPU entry point for single-frame Gaussian density voxelization.
+ *
+ * Uploads coordinates, weights, and grid dimensions to the GPU, launches
+ * frame_interp_global with one block per atom, and copies the resulting grid
+ * back to host memory. Uses the global DeviceContext when active.
+ */
 void voxelize_host(float *interpolated, const float *coord, const float *weight, const int *dims,
                    const float spacing, const int atom_nr, const float cutoff, const float sigma) {
   unsigned int gridpoint_nr = dims[0] * dims[1] * dims[2];
 
-  float *coord_gpu;
-  CUDA_CHECK(cudaMalloc(&coord_gpu, atom_nr * 3 * sizeof(float)));
-  CUDA_CHECK(cudaMemcpy(coord_gpu, coord, atom_nr * 3 * sizeof(float), cudaMemcpyHostToDevice));
-  float *weight_gpu;
-  CUDA_CHECK(cudaMalloc(&weight_gpu, atom_nr * sizeof(float)));
-  CUDA_CHECK(cudaMemcpy(weight_gpu, weight, atom_nr * sizeof(float), cudaMemcpyHostToDevice));
-  int *dims_gpu;
-  CUDA_CHECK(cudaMalloc(&dims_gpu, 3 * sizeof(int)));
-  CUDA_CHECK(cudaMemcpy(dims_gpu, dims, 3 * sizeof(int), cudaMemcpyHostToDevice));
-  float *tmp_voxel_gpu;
-  CUDA_CHECK(cudaMalloc(&tmp_voxel_gpu, gridpoint_nr * sizeof(float)));
-  CUDA_CHECK(cudaMemset(tmp_voxel_gpu, 0.0f, gridpoint_nr * sizeof(float)));
+  DeviceContext *ctx = get_global_device_context();
+  const bool use_ctx = ctx && ctx->valid();
+  cudaStream_t stream = use_ctx ? ctx->stream() : 0;
 
-  frame_interp_global<<<atom_nr, BLOCK_SIZE, BLOCK_SIZE * sizeof(float)>>>(
+  float *coord_gpu;
+  float *weight_gpu;
+  int *dims_gpu;
+  float *tmp_voxel_gpu;
+  if (use_ctx) {
+    coord_gpu = ctx->get_buffer_f(atom_nr * 3, static_cast<size_t>(BufferSlot::COORDS));
+    weight_gpu = ctx->get_buffer_f(atom_nr, static_cast<size_t>(BufferSlot::WEIGHTS));
+    dims_gpu = ctx->get_buffer_i(3, static_cast<size_t>(BufferSlot::DIMS));
+    tmp_voxel_gpu = ctx->get_buffer_f(gridpoint_nr, static_cast<size_t>(BufferSlot::OUTPUT_GRID));
+  } else {
+    CUDA_CHECK(cudaMalloc(&coord_gpu, atom_nr * 3 * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&weight_gpu, atom_nr * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&dims_gpu, 3 * sizeof(int)));
+    CUDA_CHECK(cudaMalloc(&tmp_voxel_gpu, gridpoint_nr * sizeof(float)));
+  }
+
+  CUDA_CHECK(cudaMemcpyAsync(coord_gpu, coord, atom_nr * 3 * sizeof(float), cudaMemcpyHostToDevice,
+                             stream));
+  CUDA_CHECK(
+      cudaMemcpyAsync(weight_gpu, weight, atom_nr * sizeof(float), cudaMemcpyHostToDevice, stream));
+  CUDA_CHECK(cudaMemcpyAsync(dims_gpu, dims, 3 * sizeof(int), cudaMemcpyHostToDevice, stream));
+  CUDA_CHECK(cudaMemsetAsync(tmp_voxel_gpu, 0.0f, gridpoint_nr * sizeof(float), stream));
+
+  frame_interp_global<<<atom_nr, BLOCK_SIZE, BLOCK_SIZE * sizeof(float), stream>>>(
       coord_gpu, weight_gpu, tmp_voxel_gpu, dims_gpu, spacing, cutoff, sigma, atom_nr);
   CUDA_CHECK_KERNEL();
-  CUDA_CHECK(cudaDeviceSynchronize());
+  CUDA_CHECK(cudaMemcpyAsync(interpolated, tmp_voxel_gpu, gridpoint_nr * sizeof(float),
+                             cudaMemcpyDeviceToHost, stream));
 
-  // Copy the interpolated array to the host
-  CUDA_CHECK(cudaMemcpy(interpolated, tmp_voxel_gpu, gridpoint_nr * sizeof(float),
-                        cudaMemcpyDeviceToHost));
-
-  CUDA_CHECK(cudaFree(coord_gpu));
-  CUDA_CHECK(cudaFree(weight_gpu));
-  CUDA_CHECK(cudaFree(dims_gpu));
-  CUDA_CHECK(cudaFree(tmp_voxel_gpu));
+  if (use_ctx) {
+    ctx->synchronize();
+  } else {
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaFree(coord_gpu));
+    CUDA_CHECK(cudaFree(weight_gpu));
+    CUDA_CHECK(cudaFree(dims_gpu));
+    CUDA_CHECK(cudaFree(tmp_voxel_gpu));
+  }
 }
 
 
 /**
- * @brief Voxelization of the trajectory and aggregation of the frames
+ * @brief GPU entry point for trajectory density flow with frame aggregation.
  *
- * @param voxelize_dynamics The output array for the voxelized trajectory
- * @param coord The atomic coordinates with shape (frame_nr, atom_nr, 3)
- * @param weight The atomic weights
- * @param dims The dimensions of the grid
+ * Voxelizes every frame of a trajectory into a (frame_nr, grid_points) buffer,
+ * then reduces the frame dimension with gridwise_aggregation_global according
+ * to type_agg (mean, std-dev, ...). The final aggregated grid is copied back to
+ * the host. Uses the global DeviceContext when active.
  *
+ * @param voxelize_dynamics Host output buffer of size grid_points.
+ * @param coord Host coordinates with shape (frame_nr, atom_nr, 3).
+ * @param weight Host weights with shape (frame_nr, atom_nr).
+ * @param dims Grid dimensions [x, y, z].
+ * @param spacing Grid spacing.
+ * @param frame_nr Number of frames.
+ * @param atom_nr Number of atoms per frame.
+ * @param cutoff Cutoff distance for the Gaussian kernel.
+ * @param sigma Width of the Gaussian kernel.
+ * @param type_agg Aggregation type (see constants.h).
  */
 void trajectory_voxelization_host(float *voxelize_dynamics, const float *coord, const float *weight,
                                   const int *dims, const float spacing, const int frame_nr,
@@ -333,35 +387,49 @@ void trajectory_voxelization_host(float *voxelize_dynamics, const float *coord, 
   const unsigned int gridpoint_nr = dims[0] * dims[1] * dims[2];
   const unsigned int grid_size = (gridpoint_nr + BLOCK_SIZE - 1) / BLOCK_SIZE;
 
+  DeviceContext *ctx = get_global_device_context();
+  const bool use_ctx = ctx && ctx->valid();
+  cudaStream_t stream = use_ctx ? ctx->stream() : 0;
+
   float *coord_gpu;
-  CUDA_CHECK(cudaMalloc(&coord_gpu, frame_nr * atom_nr * 3 * sizeof(float)));
-  CUDA_CHECK(
-      cudaMemcpy(coord_gpu, coord, frame_nr * atom_nr * 3 * sizeof(float), cudaMemcpyHostToDevice));
   float *weight_gpu;
-  CUDA_CHECK(cudaMalloc(&weight_gpu, frame_nr * atom_nr * sizeof(float)));
-  CUDA_CHECK(
-      cudaMemcpy(weight_gpu, weight, frame_nr * atom_nr * sizeof(float), cudaMemcpyHostToDevice));
-
   float *tmp_voxel_gpu;
-  CUDA_CHECK(cudaMalloc(&tmp_voxel_gpu, gridpoint_nr * sizeof(float)));
-  CUDA_CHECK(cudaMemset(tmp_voxel_gpu, 0.0f, gridpoint_nr * sizeof(float)));
-
   float *voxelize_dynamics_gpu;
-  CUDA_CHECK(cudaMalloc(&voxelize_dynamics_gpu, frame_nr * gridpoint_nr * sizeof(float)));
-  CUDA_CHECK(cudaMemset(voxelize_dynamics_gpu, 0, frame_nr * gridpoint_nr * sizeof(float)));
-
   int *dims_gpu;
-  CUDA_CHECK(cudaMalloc(&dims_gpu, 3 * sizeof(int)));
-  CUDA_CHECK(cudaMemcpy(dims_gpu, dims, 3 * sizeof(int), cudaMemcpyHostToDevice));
+
+  if (use_ctx) {
+    coord_gpu = ctx->get_buffer_f(static_cast<size_t>(frame_nr) * atom_nr * 3,
+                                  static_cast<size_t>(BufferSlot::COORDS));
+    weight_gpu = ctx->get_buffer_f(static_cast<size_t>(frame_nr) * atom_nr,
+                                   static_cast<size_t>(BufferSlot::WEIGHTS));
+    tmp_voxel_gpu = ctx->get_buffer_f(gridpoint_nr, static_cast<size_t>(BufferSlot::TMP_GRID));
+    voxelize_dynamics_gpu = ctx->get_buffer_f(static_cast<size_t>(frame_nr) * gridpoint_nr,
+                                              static_cast<size_t>(BufferSlot::TRAJ_DYNAMICS));
+    dims_gpu = ctx->get_buffer_i(3, static_cast<size_t>(BufferSlot::DIMS));
+  } else {
+    CUDA_CHECK(cudaMalloc(&coord_gpu, frame_nr * atom_nr * 3 * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&weight_gpu, frame_nr * atom_nr * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&tmp_voxel_gpu, gridpoint_nr * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&voxelize_dynamics_gpu, frame_nr * gridpoint_nr * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&dims_gpu, 3 * sizeof(int)));
+  }
+
+  CUDA_CHECK(cudaMemcpyAsync(coord_gpu, coord, frame_nr * atom_nr * 3 * sizeof(float),
+                             cudaMemcpyHostToDevice, stream));
+  CUDA_CHECK(cudaMemcpyAsync(weight_gpu, weight, frame_nr * atom_nr * sizeof(float),
+                             cudaMemcpyHostToDevice, stream));
+  CUDA_CHECK(cudaMemcpyAsync(dims_gpu, dims, 3 * sizeof(int), cudaMemcpyHostToDevice, stream));
+  CUDA_CHECK(cudaMemsetAsync(tmp_voxel_gpu, 0.0f, gridpoint_nr * sizeof(float), stream));
+  CUDA_CHECK(
+      cudaMemsetAsync(voxelize_dynamics_gpu, 0, frame_nr * gridpoint_nr * sizeof(float), stream));
 
   for (int frame_idx = 0; frame_idx < frame_nr; ++frame_idx) {
     // Perform the observation of all the grid points (observers) in the frame i
-    frame_interp_global<<<atom_nr, BLOCK_SIZE, BLOCK_SIZE * sizeof(float)>>>(
+    frame_interp_global<<<atom_nr, BLOCK_SIZE, BLOCK_SIZE * sizeof(float), stream>>>(
         coord_gpu + frame_idx * atom_nr * 3, weight_gpu + frame_idx * atom_nr,
         voxelize_dynamics_gpu + frame_idx * gridpoint_nr, dims_gpu, spacing, cutoff, sigma,
         atom_nr);
     CUDA_CHECK_KERNEL();
-    CUDA_CHECK(cudaDeviceSynchronize());
     if (frame_idx + 1 >= MAX_FRAME_NUMBER) {
       continue;
     }
@@ -369,25 +437,31 @@ void trajectory_voxelization_host(float *voxelize_dynamics, const float *coord, 
 
   // Aggregate the frames and copy the result to the host
   const int _frame_nr = frame_nr > MAX_FRAME_NUMBER ? MAX_FRAME_NUMBER : frame_nr;
-  CUDA_CHECK(cudaMemset(tmp_voxel_gpu, 0, gridpoint_nr * sizeof(float)));
-  gridwise_aggregation_global<<<grid_size, BLOCK_SIZE>>>(voxelize_dynamics_gpu, tmp_voxel_gpu,
-                                                         _frame_nr, gridpoint_nr, type_agg);
+  CUDA_CHECK(cudaMemsetAsync(tmp_voxel_gpu, 0, gridpoint_nr * sizeof(float), stream));
+  gridwise_aggregation_global<<<grid_size, BLOCK_SIZE, 0, stream>>>(
+      voxelize_dynamics_gpu, tmp_voxel_gpu, _frame_nr, gridpoint_nr, type_agg);
   CUDA_CHECK_KERNEL();
-  CUDA_CHECK(cudaDeviceSynchronize());
-  CUDA_CHECK(cudaMemcpy(voxelize_dynamics, tmp_voxel_gpu, gridpoint_nr * sizeof(float),
-                        cudaMemcpyDeviceToHost));
+  CUDA_CHECK(cudaMemcpyAsync(voxelize_dynamics, tmp_voxel_gpu, gridpoint_nr * sizeof(float),
+                             cudaMemcpyDeviceToHost, stream));
 
-  // Free the GPU memory
-  CUDA_CHECK(cudaFree(coord_gpu));
-  CUDA_CHECK(cudaFree(weight_gpu));
-  CUDA_CHECK(cudaFree(tmp_voxel_gpu));
-  CUDA_CHECK(cudaFree(voxelize_dynamics_gpu));
-  CUDA_CHECK(cudaFree(dims_gpu));
+  if (use_ctx) {
+    ctx->synchronize();
+  } else {
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaFree(coord_gpu));
+    CUDA_CHECK(cudaFree(weight_gpu));
+    CUDA_CHECK(cudaFree(tmp_voxel_gpu));
+    CUDA_CHECK(cudaFree(voxelize_dynamics_gpu));
+    CUDA_CHECK(cudaFree(dims_gpu));
+  }
 }
 
-/*
-Only a test function for basic performance comparison
-*/
+/**
+ * @brief CPU reference for trajectory density flow (serial, for comparison only).
+ *
+ * Repeatedly calls voxelize_host_cpu for each frame, accumulating densities in
+ * the output buffer. Intended as a correctness/performance baseline.
+ */
 void trajectory_voxelization_host_cpu(float *voxelize_dynamics, const float *coord,
                                       const float *weight, const int *dims, const float spacing,
                                       const int frame_nr, const int atom_nr, const float cutoff,

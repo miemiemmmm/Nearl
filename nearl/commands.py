@@ -31,6 +31,10 @@ __all__ = [
     # Trajectory/frame-slice methods
     "density_flow",
     "marching_observer",
+    # Device context lifecycle
+    "init_context",
+    "finalize_context",
+    "context_valid",
 ]
 
 
@@ -249,6 +253,34 @@ def viewpoint_histogram_xyzr(
         return hist / np.sum(hist), mesh
     else:
         return hist / np.sum(hist)
+
+
+def init_context():
+    """
+    Create the persistent GPU context used by all CUDA commands.
+
+    When active, the extension reuses a single CUDA stream and a set of
+    cached device buffers, eliminating per-call cudaMalloc/cudaFree overhead.
+    Call :func:`finalize_context` at shutdown to release GPU memory.
+
+    Notes
+    -----
+    One context per process, bound to whichever device is current. Selecting a
+    device, or holding a context per device, is future work and not part of this
+    commit: for several GPUs, give each worker its own process and set
+    ``CUDA_VISIBLE_DEVICES``.
+    """
+    all_actions.init_context()
+
+
+def finalize_context():
+    """Release the persistent GPU context and its cached buffers."""
+    all_actions.finalize_context()
+
+
+def context_valid():
+    """Return ``True`` if the persistent GPU context is active."""
+    return all_actions.context_valid()
 
 
 def discretize_coord(coords, weights, grid_dims, spacing):
