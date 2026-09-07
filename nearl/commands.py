@@ -91,7 +91,7 @@ def frame_voxelize(coords, weights, grid_dims, spacing, cutoff, sigma):
     return ret_arr.reshape(grid_dims)
 
 
-def frame_observation(coords, weights, grid_dims, spacing, cutoff, sigma, type_obs):
+def frame_observation(coords, weights, grid_dims, spacing, cutoff, type_obs):
     """
     Perform marching observer on a single frame.
 
@@ -107,8 +107,6 @@ def frame_observation(coords, weights, grid_dims, spacing, cutoff, sigma, type_o
       The spacing of the grid
     cutoff : float
       The cutoff distance
-    sigma : float
-      The sigma value for the Gaussian kernel
     type_obs : int
       The type of observer
 
@@ -125,7 +123,6 @@ def frame_observation(coords, weights, grid_dims, spacing, cutoff, sigma, type_o
     grid_dims = np.array(grid_dims, dtype=int)
     spacing = float(spacing)
     cutoff = float(cutoff)
-    sigma = float(sigma)
     type_obs = int(type_obs)
     ret_arr = all_actions.frame_observation(
         coords, weights, grid_dims, spacing, cutoff, type_obs
