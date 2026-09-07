@@ -522,6 +522,29 @@ class Feature:
             )
             return final_mask, final_coords
 
+    def _dispatch_grid(self, command, coords, weights, *parameters):
+        """Queue into the shared context; retain the pinned result until collection."""
+        dims = tuple(self.dims)
+        pending = getattr(commands.all_actions, "_dispatch_" + command)(
+            np.ascontiguousarray(coords, dtype=np.float32),
+            np.ascontiguousarray(weights, dtype=np.float32),
+            np.asarray(dims, dtype=np.int32),
+            float(self.spacing), float(self.cutoff), *parameters,
+        )
+
+        def collect():
+            result = pending.result().reshape(dims)
+            if command == "density_flow" and np.isnan(result).any():
+                log.warning(f"Found nan in the return: {np.count_nonzero(np.isnan(result))}")
+            return result
+
+        return collect
+
+    def _dispatch(self, coords, weights):
+        if len(coords) == 0:
+            return lambda: self.run(coords, weights)
+        return self._dispatch_grid("frame_voxelize", coords, weights, float(self.sigma), 0)
+
     def run(self, coords, weights):
         """
         By default voxelize the coordinates and weights
@@ -1576,6 +1599,9 @@ class DensityFlow(DynamicFeature):
         ret_coord, ret_weight = super().query(topology, frame_coords, focal_point)
         return ret_coord, ret_weight
 
+    def _dispatch(self, frames, weights):
+        return self._dispatch_grid("density_flow", frames, weights, float(self.sigma), int(self.agg))
+
     def run(self, frames, weights):
         """
         Take frames of coordinates and weights to run the density flow algorithm.
@@ -1683,6 +1709,9 @@ class MarchingObservers(DynamicFeature):
         """
         ret_coord, ret_weight = super().query(topology, coordinates, focus)
         return ret_coord, ret_weight
+
+    def _dispatch(self, coords, weights):
+        return self._dispatch_grid("marching_observer", coords, weights, self.obs, self.agg)
 
     def run(self, coords, weights):
         """

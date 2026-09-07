@@ -9,6 +9,8 @@
 // 6. summation: Summation of the array on GPU
 
 #include <iostream>
+#include <memory>
+#include <algorithm>
 
 #include "pybind11/pybind11.h"
 #include "pybind11/numpy.h"
@@ -21,6 +23,68 @@
 
 
 namespace py = pybind11;
+
+
+namespace {
+using FloatInput = py::array_t<float, py::array::c_style | py::array::forcecast>;
+using IntInput = py::array_t<int, py::array::c_style | py::array::forcecast>;
+
+// NumPy owns pinned output; this handle keeps the shared context busy until collection.
+class PendingResult {
+public:
+  PendingResult(size_t count, bool reduce = false) : reduce_(reduce) {
+    init_global_device_context();
+    ctx_ = get_global_device_context();
+    if (ctx_->pending())
+      throw std::runtime_error("Collect the previous CUDA result before dispatch");
+    float *data = nullptr;
+    CUDA_CHECK(cudaMallocHost(&data, std::max(count, size_t(1)) * sizeof(float)));
+    auto release = [](float *ptr) { cudaFreeHost(ptr); };
+    std::unique_ptr<float, decltype(release)> allocation(data, release);
+    py::capsule memory(data, [](void *ptr) { cudaFreeHost(ptr); });
+    allocation.release();
+    output_ = py::array_t<float>({static_cast<py::ssize_t>(count)}, {sizeof(float)}, data, memory);
+    ctx_->begin_call();
+    active_ = true;
+  }
+  ~PendingResult() {
+    if (active_)
+      ctx_->cancel_call();
+  }
+  float *data() { return output_.mutable_data(); }
+  py::object result() {
+    if (active_) {
+      ctx_->end_call();
+      active_ = false;
+    }
+    if (!value_) {
+      if (reduce_) {
+        float sum = 0;
+        for (py::ssize_t i = 0; i < output_.size(); ++i)
+          sum += output_.data()[i];
+        value_ = py::float_(sum);
+      } else {
+        value_ = output_;
+      }
+    }
+    return value_;
+  }
+
+private:
+  DeviceContext *ctx_ = nullptr;
+  bool active_ = false;
+  bool reduce_;
+  py::array_t<float> output_;
+  py::object value_;
+};
+
+// Keep the public synchronous API and expose internal deferred variants for the featurizer.
+template <class... Args, class... Extra>
+void bind_action(py::module_ &m, const char *name,
+                 std::shared_ptr<PendingResult> (*dispatch)(Args...), const Extra &...extra) {
+  m.def(name, [dispatch](Args... args) { return dispatch(args...)->result(); }, extra...);
+  m.def((std::string("_dispatch_") + name).c_str(), dispatch, extra...);
+}
 
 
 /**
@@ -43,16 +107,17 @@ namespace py = pybind11;
  * The output array is shaped (grid_dims[0] * grid_dims[1] * grid_dims[2]). Need to reshape it in
  * the python code.
  */
-py::array_t<float> do_voxelize(py::array_t<float> arr_coords, py::array_t<float> arr_weights,
-                               py::array_t<int> grid_dims, const float spacing, const float cutoff,
-                               const float sigma, const int auto_translate) {
+std::shared_ptr<PendingResult> do_voxelize(FloatInput arr_coords, FloatInput arr_weights,
+                                           IntInput grid_dims, const float spacing,
+                                           const float cutoff, const float sigma,
+                                           const int auto_translate) {
   py::buffer_info buf_coords = arr_coords.request();
   py::buffer_info buf_weights = arr_weights.request();
   py::buffer_info buf_dims = grid_dims.request();
 
   if (buf_coords.shape[0] != buf_weights.shape[0]) {
     std::cerr << "Input arrays must have the same length" << std::endl;
-    return py::array_t<float>({0});
+    return std::make_shared<PendingResult>(0);
   }
 
   // Convert the input arrays to float
@@ -70,10 +135,8 @@ py::array_t<float> do_voxelize(py::array_t<float> arr_coords, py::array_t<float>
   }
 
   // Initialize the return array and launch the computation kernel
-  py::array_t<float> result({grid_point_nr});
-  for (int i = 0; i < grid_point_nr; i++)
-    result.mutable_at(i) = 0;
-  voxelize_host(result.mutable_data(), coords, static_cast<float *>(buf_weights.ptr), dims, spacing,
+  auto result = std::make_shared<PendingResult>(grid_point_nr);
+  voxelize_host(result->data(), coords, static_cast<float *>(buf_weights.ptr), dims, spacing,
                 atom_nr, cutoff, sigma);
   return result;
 }
@@ -100,10 +163,10 @@ py::array_t<float> do_voxelize(py::array_t<float> arr_coords, py::array_t<float>
  * the python code.
  *
  */
-py::array_t<float> do_marching_observers(py::array_t<float> arr_coord,
-                                         py::array_t<float> arr_weights, py::array_t<int> arr_dims,
-                                         const float spacing, const float cutoff,
-                                         const int type_obs, const int type_agg) {
+std::shared_ptr<PendingResult> do_marching_observers(FloatInput arr_coord, FloatInput arr_weights,
+                                                     IntInput arr_dims, const float spacing,
+                                                     const float cutoff, const int type_obs,
+                                                     const int type_agg) {
   py::buffer_info buf_coord = arr_coord.request();
   py::buffer_info buf_weights = arr_weights.request();
   py::buffer_info buf_dims = arr_dims.request();
@@ -143,10 +206,8 @@ py::array_t<float> do_marching_observers(py::array_t<float> arr_coord,
   }
 
   // Current hard coded to 0, 0 for type_obs and type_agg
-  py::array_t<float> result({gridpoint_nr});
-  for (int i = 0; i < gridpoint_nr; i++)
-    result.mutable_at(i) = 0;
-  marching_observer_host(result.mutable_data(), static_cast<float *>(buf_coord.ptr),
+  auto result = std::make_shared<PendingResult>(gridpoint_nr);
+  marching_observer_host(result->data(), static_cast<float *>(buf_coord.ptr),
                          static_cast<float *>(buf_weights.ptr), dims, spacing, frame_nr, atom_nr,
                          cutoff, type_obs, type_agg);
 
@@ -174,9 +235,10 @@ py::array_t<float> do_marching_observers(py::array_t<float> arr_coord,
  * The output array is shaped (arr_dims[0] * arr_dims[1] * arr_dims[2]). Need to reshape it to in
  * the python code.
  */
-py::array_t<float> do_traj_voxelize(py::array_t<float> arr_traj, py::array_t<float> arr_weights,
-                                    py::array_t<int> grid_dims, const float spacing,
-                                    const float cutoff, const float sigma, const int type_agg) {
+std::shared_ptr<PendingResult> do_traj_voxelize(FloatInput arr_traj, FloatInput arr_weights,
+                                                IntInput grid_dims, const float spacing,
+                                                const float cutoff, const float sigma,
+                                                const int type_agg) {
   py::buffer_info buf_traj = arr_traj.request();
   py::buffer_info buf_weights = arr_weights.request();
   py::buffer_info buf_dims = grid_dims.request();
@@ -197,42 +259,40 @@ py::array_t<float> do_traj_voxelize(py::array_t<float> arr_traj, py::array_t<flo
   }
 
   // Initialize the return array, and launch the computation kernel
-  py::array_t<float> result({gridpoint_nr});
-  for (int i = 0; i < gridpoint_nr; i++)
-    result.mutable_at(i) = 0;
-  trajectory_voxelization_host(result.mutable_data(), static_cast<float *>(buf_traj.ptr),
+  auto result = std::make_shared<PendingResult>(gridpoint_nr);
+  trajectory_voxelization_host(result->data(), static_cast<float *>(buf_traj.ptr),
                                static_cast<float *>(buf_weights.ptr), dims, spacing, frame_nr,
                                atom_nr, cutoff, sigma, type_agg);
   return result;
 }
 
 
-py::array_t<float> do_aggregation(py::array_t<float> arr, const int type_agg) {
+std::shared_ptr<PendingResult> do_aggregation(FloatInput arr, const int type_agg) {
   py::buffer_info buf_arr = arr.request();
 
   const int frame_nr = buf_arr.shape[0];
   const int gridpoint_nr = buf_arr.shape[1];
 
-  py::array_t<float> result({gridpoint_nr});
+  auto result = std::make_shared<PendingResult>(gridpoint_nr);
 
-  aggregate_host(static_cast<float *>(buf_arr.ptr), result.mutable_data(), frame_nr, gridpoint_nr,
+  aggregate_host(static_cast<float *>(buf_arr.ptr), result->data(), frame_nr, gridpoint_nr,
                  type_agg);
 
   return result;
 }
 
-float do_summation(py::array_t<float> arr) {
+std::shared_ptr<PendingResult> do_summation(FloatInput arr) {
   py::buffer_info buf_arr = arr.request();
   const int arr_length = buf_arr.shape[0];
-
-  float sum = sum_reduction_host(static_cast<float *>(buf_arr.ptr), arr_length);
-
-  return sum;
+  auto result = std::make_shared<PendingResult>((arr_length + BLOCK_SIZE - 1) / BLOCK_SIZE, true);
+  if (arr_length)
+    sum_reduction_dispatch(static_cast<float *>(buf_arr.ptr), arr_length, result->data());
+  return result;
 }
 
-py::array_t<float> do_frame_observation(py::array_t<float> coord_arr, py::array_t<float> weight_arr,
-                                        py::array_t<int> dims_arr, const float spacing,
-                                        const float cutoff, const int type_obs) {
+std::shared_ptr<PendingResult> do_frame_observation(FloatInput coord_arr, FloatInput weight_arr,
+                                                    IntInput dims_arr, const float spacing,
+                                                    const float cutoff, const int type_obs) {
   py::buffer_info buf_coords = coord_arr.request();
   py::buffer_info buf_weights = weight_arr.request();
   py::buffer_info buf_dims = dims_arr.request();
@@ -240,14 +300,16 @@ py::array_t<float> do_frame_observation(py::array_t<float> coord_arr, py::array_
   const int *dims = static_cast<int *>(buf_dims.ptr);
   const int gridpoint_nr = dims[0] * dims[1] * dims[2];
   const int atom_nr = buf_coords.shape[0];
-  py::array_t<float> result({gridpoint_nr});
+  auto result = std::make_shared<PendingResult>(gridpoint_nr);
 
-  observe_frame_host(result.mutable_data(), static_cast<float *>(buf_coords.ptr),
+  observe_frame_host(result->data(), static_cast<float *>(buf_coords.ptr),
                      static_cast<float *>(buf_weights.ptr), static_cast<int *>(buf_dims.ptr),
                      spacing, atom_nr, cutoff, type_obs);
 
   return result;
 }
+
+} // namespace
 
 
 void do_init_context() { init_global_device_context(); }
@@ -258,26 +320,28 @@ bool do_context_valid() { return global_device_context_valid(); }
 
 
 PYBIND11_MODULE(all_actions, m) {
-  m.def("frame_voxelize", &do_voxelize, py::arg("coords"), py::arg("weights"), py::arg("grid_dims"),
-        py::arg("spacing"), py::arg("cutoff"), py::arg("sigma"), py::arg("auto_translate"),
-        "Voxelize a set of coordinates and weights");
+  py::class_<PendingResult, std::shared_ptr<PendingResult>>(m, "_PendingResult")
+      .def("result", &PendingResult::result);
+  bind_action(m, "frame_voxelize", &do_voxelize, py::arg("coords"), py::arg("weights"),
+              py::arg("grid_dims"), py::arg("spacing"), py::arg("cutoff"), py::arg("sigma"),
+              py::arg("auto_translate"), "Voxelize a set of coordinates and weights");
 
-  m.def("frame_observation", &do_frame_observation, py::arg("coords"), py::arg("weights"),
-        py::arg("dims"), py::arg("spacing"), py::arg("cutoff"), py::arg("type_obs"),
-        "Compute the observable for a single frame");
+  bind_action(m, "frame_observation", &do_frame_observation, py::arg("coords"), py::arg("weights"),
+              py::arg("dims"), py::arg("spacing"), py::arg("cutoff"), py::arg("type_obs"),
+              "Compute the observable for a single frame");
 
-  m.def("marching_observer", &do_marching_observers, py::arg("coords"), py::arg("weights"),
-        py::arg("dims"), py::arg("spacing"), py::arg("cutoff"), py::arg("type_obs"),
-        py::arg("type_agg"), "Marching cubes algorithm to create a mesh from a 3D grid");
+  bind_action(m, "marching_observer", &do_marching_observers, py::arg("coords"), py::arg("weights"),
+              py::arg("dims"), py::arg("spacing"), py::arg("cutoff"), py::arg("type_obs"),
+              py::arg("type_agg"), "Marching cubes algorithm to create a mesh from a 3D grid");
 
-  m.def("density_flow", &do_traj_voxelize, py::arg("traj"), py::arg("weights"),
-        py::arg("grid_dims"), py::arg("spacing"), py::arg("cutoff"), py::arg("sigma"),
-        py::arg("type_agg"), "Voxelize a trajectory");
+  bind_action(m, "density_flow", &do_traj_voxelize, py::arg("traj"), py::arg("weights"),
+              py::arg("grid_dims"), py::arg("spacing"), py::arg("cutoff"), py::arg("sigma"),
+              py::arg("type_agg"), "Voxelize a trajectory");
 
-  m.def("aggregate", &do_aggregation, py::arg("arr"), py::arg("type_agg"),
-        "Aggregate the observable (nframes, ngridpoints) to a single frame (ngridpoints)");
+  bind_action(m, "aggregate", &do_aggregation, py::arg("arr"), py::arg("type_agg"),
+              "Aggregate the observable (nframes, ngridpoints) to a single frame (ngridpoints)");
 
-  m.def("summation", &do_summation, py::arg("arr"), "Summation of the array on GPU");
+  bind_action(m, "summation", &do_summation, py::arg("arr"), "Summation of the array on GPU");
 
   m.def("init_context", &do_init_context,
         "Create the persistent DeviceContext (CUDA stream + cached buffers).");

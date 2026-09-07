@@ -123,7 +123,7 @@ def frame_observation(coords, weights, grid_dims, spacing, cutoff, sigma, type_o
     sigma = float(sigma)
     type_obs = int(type_obs)
     ret_arr = all_actions.frame_observation(
-        coords, weights, grid_dims, spacing, cutoff, sigma, type_obs
+        coords, weights, grid_dims, spacing, cutoff, type_obs
     )
     return ret_arr.reshape(grid_dims)
 
@@ -259,8 +259,9 @@ def init_context():
     """
     Create the persistent GPU context used by all CUDA commands.
 
-    When active, the extension reuses a single CUDA stream and a set of
-    cached device buffers, eliminating per-call cudaMalloc/cudaFree overhead.
+    CUDA commands also initialize this context automatically on first use.
+    The extension reuses a single CUDA stream, cached device buffers, and
+    pinned input buffers, eliminating repeated allocations at steady capacity.
     Call :func:`finalize_context` at shutdown to release GPU memory.
 
     Notes
@@ -274,7 +275,7 @@ def init_context():
 
 
 def finalize_context():
-    """Release the persistent GPU context and its cached buffers."""
+    """Release cached buffers after collecting any pending result; output arrays remain valid."""
     all_actions.finalize_context()
 
 
