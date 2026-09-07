@@ -336,8 +336,8 @@ void voxelize_host(float *interpolated, const float *coord, const float *weight,
     CUDA_CHECK(cudaMalloc(&tmp_voxel_gpu, gridpoint_nr * sizeof(float)));
   }
 
-  CUDA_CHECK(
-      cudaMemcpyAsync(coord_gpu, coord, atom_nr * 3 * sizeof(float), cudaMemcpyHostToDevice, stream));
+  CUDA_CHECK(cudaMemcpyAsync(coord_gpu, coord, atom_nr * 3 * sizeof(float), cudaMemcpyHostToDevice,
+                             stream));
   CUDA_CHECK(
       cudaMemcpyAsync(weight_gpu, weight, atom_nr * sizeof(float), cudaMemcpyHostToDevice, stream));
   CUDA_CHECK(cudaMemcpyAsync(dims_gpu, dims, 3 * sizeof(int), cudaMemcpyHostToDevice, stream));
@@ -403,9 +403,8 @@ void trajectory_voxelization_host(float *voxelize_dynamics, const float *coord, 
     weight_gpu = ctx->get_buffer_f(static_cast<size_t>(frame_nr) * atom_nr,
                                    static_cast<size_t>(BufferSlot::WEIGHTS));
     tmp_voxel_gpu = ctx->get_buffer_f(gridpoint_nr, static_cast<size_t>(BufferSlot::TMP_GRID));
-    voxelize_dynamics_gpu =
-        ctx->get_buffer_f(static_cast<size_t>(frame_nr) * gridpoint_nr,
-                          static_cast<size_t>(BufferSlot::TRAJ_DYNAMICS));
+    voxelize_dynamics_gpu = ctx->get_buffer_f(static_cast<size_t>(frame_nr) * gridpoint_nr,
+                                              static_cast<size_t>(BufferSlot::TRAJ_DYNAMICS));
     dims_gpu = ctx->get_buffer_i(3, static_cast<size_t>(BufferSlot::DIMS));
   } else {
     CUDA_CHECK(cudaMalloc(&coord_gpu, frame_nr * atom_nr * 3 * sizeof(float)));
@@ -421,8 +420,8 @@ void trajectory_voxelization_host(float *voxelize_dynamics, const float *coord, 
                              cudaMemcpyHostToDevice, stream));
   CUDA_CHECK(cudaMemcpyAsync(dims_gpu, dims, 3 * sizeof(int), cudaMemcpyHostToDevice, stream));
   CUDA_CHECK(cudaMemsetAsync(tmp_voxel_gpu, 0.0f, gridpoint_nr * sizeof(float), stream));
-  CUDA_CHECK(cudaMemsetAsync(voxelize_dynamics_gpu, 0, frame_nr * gridpoint_nr * sizeof(float),
-                             stream));
+  CUDA_CHECK(
+      cudaMemsetAsync(voxelize_dynamics_gpu, 0, frame_nr * gridpoint_nr * sizeof(float), stream));
 
   for (int frame_idx = 0; frame_idx < frame_nr; ++frame_idx) {
     // Perform the observation of all the grid points (observers) in the frame i
@@ -439,9 +438,8 @@ void trajectory_voxelization_host(float *voxelize_dynamics, const float *coord, 
   // Aggregate the frames and copy the result to the host
   const int _frame_nr = frame_nr > MAX_FRAME_NUMBER ? MAX_FRAME_NUMBER : frame_nr;
   CUDA_CHECK(cudaMemsetAsync(tmp_voxel_gpu, 0, gridpoint_nr * sizeof(float), stream));
-  gridwise_aggregation_global<<<grid_size, BLOCK_SIZE, 0, stream>>>(voxelize_dynamics_gpu,
-                                                                    tmp_voxel_gpu, _frame_nr,
-                                                                    gridpoint_nr, type_agg);
+  gridwise_aggregation_global<<<grid_size, BLOCK_SIZE, 0, stream>>>(
+      voxelize_dynamics_gpu, tmp_voxel_gpu, _frame_nr, gridpoint_nr, type_agg);
   CUDA_CHECK_KERNEL();
   CUDA_CHECK(cudaMemcpyAsync(voxelize_dynamics, tmp_voxel_gpu, gridpoint_nr * sizeof(float),
                              cudaMemcpyDeviceToHost, stream));

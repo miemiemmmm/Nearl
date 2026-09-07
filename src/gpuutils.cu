@@ -197,22 +197,20 @@ void aggregate_host(float *voxel_traj, float *result_grid, const int frame_numbe
   float *voxel_traj_gpu;
   float *tmp_grid_gpu;
   if (use_ctx) {
-    voxel_traj_gpu =
-        ctx->get_buffer_f(static_cast<size_t>(frame_number) * grid_number, static_cast<size_t>(BufferSlot::TRAJ_DYNAMICS));
+    voxel_traj_gpu = ctx->get_buffer_f(static_cast<size_t>(frame_number) * grid_number,
+                                       static_cast<size_t>(BufferSlot::TRAJ_DYNAMICS));
     tmp_grid_gpu = ctx->get_buffer_f(grid_number, static_cast<size_t>(BufferSlot::OUTPUT_GRID));
   } else {
     CUDA_CHECK(cudaMalloc(&voxel_traj_gpu, frame_number * grid_number * sizeof(float)));
     CUDA_CHECK(cudaMalloc(&tmp_grid_gpu, grid_number * sizeof(float)));
   }
 
-  CUDA_CHECK(cudaMemcpyAsync(voxel_traj_gpu, voxel_traj,
-                             frame_number * grid_number * sizeof(float), cudaMemcpyHostToDevice,
-                             stream));
+  CUDA_CHECK(cudaMemcpyAsync(voxel_traj_gpu, voxel_traj, frame_number * grid_number * sizeof(float),
+                             cudaMemcpyHostToDevice, stream));
   CUDA_CHECK(cudaMemsetAsync(tmp_grid_gpu, 0, grid_number * sizeof(float), stream));
 
-  gridwise_aggregation_global<<<grid_size, BLOCK_SIZE, 0, stream>>>(voxel_traj_gpu, tmp_grid_gpu,
-                                                                    _frame_number, grid_number,
-                                                                    type_agg);
+  gridwise_aggregation_global<<<grid_size, BLOCK_SIZE, 0, stream>>>(
+      voxel_traj_gpu, tmp_grid_gpu, _frame_number, grid_number, type_agg);
   CUDA_CHECK_KERNEL();
   CUDA_CHECK(cudaMemcpyAsync(result_grid, tmp_grid_gpu, grid_number * sizeof(float),
                              cudaMemcpyDeviceToHost, stream));
@@ -249,8 +247,8 @@ float sum_reduction_host(float *array, const int arr_length) {
     CUDA_CHECK(cudaMalloc(&array_gpu, arr_length * sizeof(float)));
   }
 
-  CUDA_CHECK(
-      cudaMemcpyAsync(array_gpu, array, arr_length * sizeof(float), cudaMemcpyHostToDevice, stream));
+  CUDA_CHECK(cudaMemcpyAsync(array_gpu, array, arr_length * sizeof(float), cudaMemcpyHostToDevice,
+                             stream));
 
   // Perform the sum reduction on the array
   sum_reduction_global<<<grid_size, BLOCK_SIZE, 0, stream>>>(array_gpu, partial_sums, arr_length);

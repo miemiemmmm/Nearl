@@ -464,7 +464,7 @@ extern __global__ void gridwise_aggregation_global(float *d_in, float *d_out, co
 
 // Host functions
 extern void aggregate_host(float *voxel_traj, float *tmp_grid, const int frame_number,
-                            const int grid_number, const int type_agg);
+                           const int grid_number, const int type_agg);
 extern float sum_reduction_host(float *array, const int arr_length);
 
 // DeviceContext helpers (defined in gpuutils.cu)

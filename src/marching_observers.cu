@@ -485,12 +485,10 @@ void marching_observer_host(float *mobs_dynamics, const float *coord, const floa
     mobs_traj = ctx->get_buffer_f(static_cast<size_t>(frame_number) * observer_number,
                                   static_cast<size_t>(BufferSlot::TRAJ_DYNAMICS));
     tmp_mobs_gpu = ctx->get_buffer_f(observer_number, static_cast<size_t>(BufferSlot::TMP_GRID));
-    coords_device =
-        ctx->get_buffer_f(static_cast<size_t>(frame_number) * atom_per_frame * 3,
-                          static_cast<size_t>(BufferSlot::COORDS));
-    weights_device =
-        ctx->get_buffer_f(static_cast<size_t>(frame_number) * atom_per_frame,
-                          static_cast<size_t>(BufferSlot::WEIGHTS));
+    coords_device = ctx->get_buffer_f(static_cast<size_t>(frame_number) * atom_per_frame * 3,
+                                      static_cast<size_t>(BufferSlot::COORDS));
+    weights_device = ctx->get_buffer_f(static_cast<size_t>(frame_number) * atom_per_frame,
+                                       static_cast<size_t>(BufferSlot::WEIGHTS));
     dims_device = ctx->get_buffer_i(3, static_cast<size_t>(BufferSlot::DIMS));
   } else {
     CUDA_CHECK(cudaMalloc(&mobs_traj, frame_number * observer_number * sizeof(float)));
@@ -502,7 +500,8 @@ void marching_observer_host(float *mobs_dynamics, const float *coord, const floa
 
   CUDA_CHECK(cudaMemsetAsync(mobs_traj, 0, frame_number * observer_number * sizeof(float), stream));
   CUDA_CHECK(cudaMemsetAsync(tmp_mobs_gpu, 0, observer_number * sizeof(float), stream));
-  CUDA_CHECK(cudaMemcpyAsync(coords_device, coord, frame_number * atom_per_frame * 3 * sizeof(float),
+  CUDA_CHECK(cudaMemcpyAsync(coords_device, coord,
+                             frame_number * atom_per_frame * 3 * sizeof(float),
                              cudaMemcpyHostToDevice, stream));
   CUDA_CHECK(cudaMemcpyAsync(weights_device, weights, frame_number * atom_per_frame * sizeof(float),
                              cudaMemcpyHostToDevice, stream));
@@ -530,9 +529,8 @@ void marching_observer_host(float *mobs_dynamics, const float *coord, const floa
   // Perform frame-wise aggregation on the voxelized trajectory
   unsigned int _frame_number = frame_number > MAX_FRAME_NUMBER ? MAX_FRAME_NUMBER : frame_number;
   CUDA_CHECK(cudaMemsetAsync(tmp_mobs_gpu, 0, observer_number * sizeof(float), stream));
-  gridwise_aggregation_global<<<grid_size, BLOCK_SIZE, 0, stream>>>(mobs_traj, tmp_mobs_gpu,
-                                                                    _frame_number, observer_number,
-                                                                    type_agg);
+  gridwise_aggregation_global<<<grid_size, BLOCK_SIZE, 0, stream>>>(
+      mobs_traj, tmp_mobs_gpu, _frame_number, observer_number, type_agg);
   CUDA_CHECK_KERNEL();
 
   // No normalization here: dividing the finished grid by its own sum would erase
@@ -591,17 +589,17 @@ void observe_frame_host(float *results, const float *coord_frame, const float *w
     CUDA_CHECK(cudaMalloc(&weight_frame_gpu, frame_nr * atomnr * sizeof(float)));
   }
 
-  CUDA_CHECK(cudaMemsetAsync(results_gpu, 0.0f, frame_nr * observer_number * sizeof(float), stream));
+  CUDA_CHECK(
+      cudaMemsetAsync(results_gpu, 0.0f, frame_nr * observer_number * sizeof(float), stream));
   CUDA_CHECK(cudaMemcpyAsync(dims_gpu, dims, 3 * sizeof(int), cudaMemcpyHostToDevice, stream));
   CUDA_CHECK(cudaMemcpyAsync(coord_frame_gpu, coord_frame, frame_nr * atomnr * 3 * sizeof(float),
                              cudaMemcpyHostToDevice, stream));
   CUDA_CHECK(cudaMemcpyAsync(weight_frame_gpu, weight_frame, frame_nr * atomnr * sizeof(float),
                              cudaMemcpyHostToDevice, stream));
 
-  marching_observer_global<<<grid_size, BLOCK_SIZE, 0, stream>>>(results_gpu, coord_frame_gpu,
-                                                                  weight_frame_gpu, dims_gpu,
-                                                                  spacing, frame_nr, atomnr, cutoff,
-                                                                  type_obs);
+  marching_observer_global<<<grid_size, BLOCK_SIZE, 0, stream>>>(
+      results_gpu, coord_frame_gpu, weight_frame_gpu, dims_gpu, spacing, frame_nr, atomnr, cutoff,
+      type_obs);
   CUDA_CHECK_KERNEL();
 
   CUDA_CHECK(cudaMemcpyAsync(results, results_gpu, observer_number * sizeof(float),
