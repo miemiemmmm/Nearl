@@ -9,6 +9,7 @@
 
 #include <sstream>
 #include <stdexcept>
+#include <vector>
 
 // A failed CUDA call is otherwise silent: the kernels never run and the caller
 // gets its zero-initialised buffer back as if it were a result. Wrap every
@@ -35,6 +36,86 @@ inline void check_failed(cudaError_t err, const char *expr, const char *file, in
 // during execution surface at the cudaDeviceSynchronize() calls, which are
 // wrapped in CUDA_CHECK too, so no extra synchronisation is introduced.
 #define CUDA_CHECK_KERNEL() CUDA_CHECK(cudaGetLastError())
+
+
+/**
+ * @brief Long-lived GPU context that caches allocations and a CUDA stream.
+ *
+ * Rather than cudaMalloc/cudaFree around every kernel launch, host functions
+ * can request buffers from this context. Buffers are grown on demand and kept
+ * alive until finalize() (or process exit) so repeated calls of the same size
+ * reuse the same device memory. This removes the dominant cudaMalloc overhead
+ * seen in profiling.
+ */
+class DeviceContext {
+public:
+  static constexpr size_t NUM_SLOTS = 8;
+
+  DeviceContext();
+  ~DeviceContext();
+
+  // Non-copyable, non-movable
+  DeviceContext(const DeviceContext &) = delete;
+  DeviceContext &operator=(const DeviceContext &) = delete;
+
+  // Create the CUDA stream and reserve initial buffers.
+  void init();
+
+  // Release all buffers and the stream.
+  void finalize();
+
+  bool valid() const { return initialized_; }
+
+  cudaStream_t stream() const { return stream_; }
+
+  /**
+   * @brief Return a pointer to a buffer of at least @p min_bytes bytes.
+   *
+   * The pointer remains owned by the context. Callers must not free it. If the
+   * slot's current capacity is smaller than @p min_bytes, the slot is reallocated.
+   */
+  void *get_buffer(size_t min_bytes, size_t slot);
+
+  float *get_buffer_f(size_t min_count, size_t slot) {
+    return static_cast<float *>(get_buffer(min_count * sizeof(float), slot));
+  }
+
+  int *get_buffer_i(size_t min_count, size_t slot) {
+    return static_cast<int *>(get_buffer(min_count * sizeof(int), slot));
+  }
+
+  // Convenience: block until all work on the context's stream is complete.
+  void synchronize();
+
+private:
+  struct Buffer {
+    void *ptr = nullptr;
+    size_t capacity = 0;
+  };
+
+  bool initialized_ = false;
+  cudaStream_t stream_ = 0;
+  Buffer buffers_[NUM_SLOTS];
+};
+
+// Global context used by all host functions when initialized.  Falls back to
+// per-call cudaMalloc/cudaFree when the context is not initialized.
+DeviceContext *get_global_device_context();
+void init_global_device_context();
+void finalize_global_device_context();
+bool global_device_context_valid();
+
+// Named slots to avoid collisions when two buffers must coexist.
+enum class BufferSlot {
+  COORDS = 0,
+  WEIGHTS = 1,
+  DIMS = 2,
+  OUTPUT_GRID = 3,
+  TMP_GRID = 4,
+  TRAJ_DYNAMICS = 5,
+  PARTIAL_SUMS = 6,
+  SCRATCH = 7,
+};
 
 
 template <typename T> __device__ T max_device(const T *Arr, const int N) {
@@ -383,8 +464,14 @@ extern __global__ void gridwise_aggregation_global(float *d_in, float *d_out, co
 
 // Host functions
 extern void aggregate_host(float *voxel_traj, float *tmp_grid, const int frame_number,
-                           const int grid_number, const int type_agg);
+                            const int grid_number, const int type_agg);
 extern float sum_reduction_host(float *array, const int arr_length);
+
+// DeviceContext helpers (defined in gpuutils.cu)
+extern DeviceContext *get_global_device_context();
+extern void init_global_device_context();
+extern void finalize_global_device_context();
+extern bool global_device_context_valid();
 
 
 #endif
