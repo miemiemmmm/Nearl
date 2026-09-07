@@ -400,6 +400,118 @@ size_t do_host_buffer_capacity(const std::string &name) {
 }
 
 
+void do_voxelize_into(uint64_t output_ptr, py::array_t<float> arr_coords,
+                      py::array_t<float> arr_weights, py::array_t<int> grid_dims,
+                      const float spacing, const float cutoff, const float sigma) {
+  py::buffer_info buf_coords = arr_coords.request();
+  py::buffer_info buf_weights = arr_weights.request();
+  py::buffer_info buf_dims = grid_dims.request();
+
+  if (buf_coords.shape[0] != buf_weights.shape[0]) {
+    throw py::value_error("Input arrays must have the same length");
+  }
+
+  int *dims = static_cast<int *>(buf_dims.ptr);
+  int atom_nr = buf_coords.shape[0];
+  float *output = reinterpret_cast<float *>(output_ptr);
+
+  voxelize_host_into(output, static_cast<float *>(buf_coords.ptr),
+                     static_cast<float *>(buf_weights.ptr), dims, spacing, atom_nr, cutoff, sigma);
+}
+
+
+void do_traj_voxelize_into(uint64_t output_ptr, py::array_t<float> arr_traj,
+                           py::array_t<float> arr_weights, py::array_t<int> grid_dims,
+                           const float spacing, const float cutoff, const float sigma,
+                           const int type_agg) {
+  py::buffer_info buf_traj = arr_traj.request();
+  py::buffer_info buf_weights = arr_weights.request();
+  py::buffer_info buf_dims = grid_dims.request();
+
+  int *dims = static_cast<int *>(buf_dims.ptr);
+  int frame_nr = buf_traj.shape[0];
+  int atom_nr = buf_traj.shape[1];
+
+  int supported_agg[AGGREGATION_COUNT] = SUPPORTED_AGGREGATIONS;
+  for (int i = 0; i < AGGREGATION_COUNT; i++) {
+    if (type_agg == supported_agg[i]) {
+      break;
+    } else if (i == AGGREGATION_COUNT - 1) {
+      throw py::value_error("The aggregation type is not supported");
+    }
+  }
+
+  float *output = reinterpret_cast<float *>(output_ptr);
+  trajectory_voxelization_host_into(output, static_cast<float *>(buf_traj.ptr),
+                                    static_cast<float *>(buf_weights.ptr), dims, spacing, frame_nr,
+                                    atom_nr, cutoff, sigma, type_agg);
+}
+
+
+void do_marching_observers_into(uint64_t output_ptr, py::array_t<float> arr_coord,
+                                py::array_t<float> arr_weights, py::array_t<int> arr_dims,
+                                const float spacing, const float cutoff, const int type_obs,
+                                const int type_agg) {
+  py::buffer_info buf_coord = arr_coord.request();
+  py::buffer_info buf_weights = arr_weights.request();
+  py::buffer_info buf_dims = arr_dims.request();
+
+  const int *dims = static_cast<int *>(buf_dims.ptr);
+  const int frame_nr = buf_coord.shape[0];
+  const int atom_nr = buf_coord.shape[1];
+
+  if (buf_coord.ndim != 3) {
+    throw py::value_error("Error: The input array must have 3 dimensions: (frame_nr, atom_nr, 3)");
+  }
+
+  int supported_mode[OBSERVABLE_COUNT] = SUPPORTED_OBSERVABLES;
+  for (int i = 0; i < OBSERVABLE_COUNT; i++) {
+    if (type_obs == supported_mode[i]) {
+      break;
+    } else if (i == OBSERVABLE_COUNT - 1) {
+      throw py::value_error("The observable type is not supported");
+    }
+  }
+  int supported_agg[AGGREGATION_COUNT] = SUPPORTED_AGGREGATIONS;
+  for (int i = 0; i < AGGREGATION_COUNT; i++) {
+    if (type_agg == supported_agg[i]) {
+      break;
+    } else if (i == AGGREGATION_COUNT - 1) {
+      throw py::value_error("The aggregation type is not supported");
+    }
+  }
+
+  if (frame_nr > MAX_FRAME_NUMBER) {
+    throw py::value_error("The number of frames " + std::to_string(frame_nr) +
+                          " exceeds the maximum number of frames allowed " +
+                          std::to_string(MAX_FRAME_NUMBER) + " frames.");
+  }
+
+  float *output = reinterpret_cast<float *>(output_ptr);
+  marching_observer_host_into(output, static_cast<float *>(buf_coord.ptr),
+                              static_cast<float *>(buf_weights.ptr), dims, spacing, frame_nr,
+                              atom_nr, cutoff, type_obs, type_agg);
+}
+
+
+void do_frame_observation_into(uint64_t output_ptr, py::array_t<float> coord_arr,
+                               py::array_t<float> weight_arr, py::array_t<int> dims_arr,
+                               const float spacing, const float cutoff, const int type_obs) {
+  py::buffer_info buf_coords = coord_arr.request();
+  py::buffer_info buf_weights = weight_arr.request();
+  py::buffer_info buf_dims = dims_arr.request();
+
+  const int *dims = static_cast<int *>(buf_dims.ptr);
+  const int atom_nr = buf_coords.shape[0];
+
+  float *output = reinterpret_cast<float *>(output_ptr);
+  observe_frame_host_into(output, static_cast<float *>(buf_coords.ptr),
+                          static_cast<float *>(buf_weights.ptr), dims, spacing, atom_nr, cutoff,
+                          type_obs);
+}
+
+
+
 PYBIND11_MODULE(all_actions, m) {
   py::class_<CommandExecution>(m, "_CommandExecution").def("result", &CommandExecution::result);
   bind_action(m, "frame_voxelize", &do_voxelize, py::arg("coords"), py::arg("weights"),
@@ -433,4 +545,24 @@ PYBIND11_MODULE(all_actions, m) {
         "Return the current capacity of a named reusable device buffer.");
   m.def("_host_buffer_capacity", &do_host_buffer_capacity, py::arg("name"),
         "Return the current capacity of a named reusable pinned host buffer.");
+
+  m.def("frame_voxelize_into", &do_voxelize_into, py::arg("output_ptr"), py::arg("coords"),
+        py::arg("weights"), py::arg("grid_dims"), py::arg("spacing"), py::arg("cutoff"),
+        py::arg("sigma"),
+        "Voxelize a set of coordinates and weights into a pre-allocated CUDA buffer.");
+
+  m.def("frame_observation_into", &do_frame_observation_into, py::arg("output_ptr"),
+        py::arg("coords"), py::arg("weights"), py::arg("dims"), py::arg("spacing"),
+        py::arg("cutoff"), py::arg("type_obs"),
+        "Compute the observable for a single frame into a pre-allocated CUDA buffer.");
+
+  m.def("marching_observer_into", &do_marching_observers_into, py::arg("output_ptr"),
+        py::arg("coords"), py::arg("weights"), py::arg("dims"), py::arg("spacing"),
+        py::arg("cutoff"), py::arg("type_obs"), py::arg("type_agg"),
+        "Marching observers on a frame slice into a pre-allocated CUDA buffer.");
+
+  m.def("density_flow_into", &do_traj_voxelize_into, py::arg("output_ptr"), py::arg("traj"),
+        py::arg("weights"), py::arg("grid_dims"), py::arg("spacing"), py::arg("cutoff"),
+        py::arg("sigma"), py::arg("type_agg"),
+        "Voxelize a trajectory into a pre-allocated CUDA buffer.");
 }

@@ -35,6 +35,11 @@ __all__ = [
     "init_context",
     "finalize_context",
     "context_valid",
+    # DLPack GPU tensor methods
+    "frame_voxelize_dlpack",
+    "frame_observation_dlpack",
+    "marching_observer_dlpack",
+    "density_flow_dlpack",
 ]
 
 
@@ -282,6 +287,98 @@ def finalize_context():
 def context_valid():
     """Return ``True`` if the persistent GPU context is active."""
     return all_actions.context_valid()
+
+
+def _alloc_output(grid_dims, device="cuda"):
+    """Allocate a contiguous float32 torch tensor for a Nearl grid."""
+    import torch
+
+    return torch.empty(tuple(grid_dims), dtype=torch.float32, device=device)
+
+
+def frame_voxelize_dlpack(coords, weights, grid_dims, spacing, cutoff, sigma):
+    """
+    Voxelize a single frame and return the grid as a ``torch.Tensor`` on CUDA.
+
+    The output tensor is allocated by PyTorch and filled directly by the CUDA
+    kernel, avoiding the Device-to-Host copy performed by :func:`frame_voxelize`.
+    """
+    import torch
+
+    if coords.dtype != np.float32:
+        coords = coords.astype(np.float32)
+    if weights.dtype != np.float32:
+        weights = weights.astype(np.float32)
+    grid_dims = np.array(grid_dims, dtype=int)
+    spacing = float(spacing)
+    cutoff = float(cutoff)
+    sigma = float(sigma)
+
+    output = _alloc_output(grid_dims, device="cuda")
+    all_actions.frame_voxelize_into(
+        output.data_ptr(), coords, weights, grid_dims, spacing, cutoff, sigma
+    )
+    return output
+
+
+def frame_observation_dlpack(coords, weights, grid_dims, spacing, cutoff, type_obs):
+    """
+    Compute a single-frame marching-observer observable and return the grid as a
+    ``torch.Tensor`` on CUDA.
+    """
+    if coords.dtype != np.float32:
+        coords = coords.astype(np.float32)
+    if weights.dtype != np.float32:
+        weights = weights.astype(np.float32)
+    grid_dims = np.array(grid_dims, dtype=int)
+    spacing = float(spacing)
+    cutoff = float(cutoff)
+    type_obs = int(type_obs)
+
+    output = _alloc_output(grid_dims, device="cuda")
+    all_actions.frame_observation_into(
+        output.data_ptr(), coords, weights, grid_dims, spacing, cutoff, type_obs
+    )
+    return output
+
+
+def marching_observer_dlpack(coords, weights, grid_dims, spacing, cutoff, type_obs, type_agg):
+    """
+    Run marching observers on a frame slice and return the aggregated grid as a
+    ``torch.Tensor`` on CUDA.
+    """
+    if coords.dtype != np.float32:
+        coords = coords.astype(np.float32)
+    if weights.dtype != np.float32:
+        weights = weights.astype(np.float32)
+    grid_dims = np.asarray(grid_dims, dtype=int)
+
+    output = _alloc_output(grid_dims, device="cuda")
+    all_actions.marching_observer_into(
+        output.data_ptr(), coords, weights, grid_dims, spacing, cutoff, type_obs, type_agg
+    )
+    return output
+
+
+def density_flow_dlpack(traj, weights, grid_dims, spacing, cutoff, sigma, type_agg):
+    """
+    Voxelize a trajectory and return the aggregated grid as a ``torch.Tensor`` on CUDA.
+    """
+    if traj.dtype != np.float32:
+        traj = traj.astype(np.float32)
+    if weights.dtype != np.float32:
+        weights = weights.astype(np.float32)
+    grid_dims = np.array(grid_dims, dtype=int)
+    spacing = float(spacing)
+    cutoff = float(cutoff)
+    sigma = float(sigma)
+    type_agg = int(type_agg)
+
+    output = _alloc_output(grid_dims, device="cuda")
+    all_actions.density_flow_into(
+        output.data_ptr(), traj, weights, grid_dims, spacing, cutoff, sigma, type_agg
+    )
+    return output
 
 
 def discretize_coord(coords, weights, grid_dims, spacing):
