@@ -383,7 +383,7 @@ void voxelize_host(float *interpolated, const float *coord, const float *weight,
 void trajectory_voxelization_host(float *voxelize_dynamics, const float *coord, const float *weight,
                                   const int *dims, const float spacing, const int frame_nr,
                                   const int atom_nr, const float cutoff, const float sigma,
-                                  const int type_agg) {
+                                  const AggregationType type_agg) {
   const unsigned int gridpoint_nr = dims[0] * dims[1] * dims[2];
   const unsigned int grid_size = (gridpoint_nr + BLOCK_SIZE - 1) / BLOCK_SIZE;
 
@@ -438,9 +438,8 @@ void trajectory_voxelization_host(float *voxelize_dynamics, const float *coord, 
   // Aggregate the frames and copy the result to the host
   const int _frame_nr = frame_nr > MAX_FRAME_NUMBER ? MAX_FRAME_NUMBER : frame_nr;
   CUDA_CHECK(cudaMemsetAsync(tmp_voxel_gpu, 0, gridpoint_nr * sizeof(float), stream));
-  gridwise_aggregation_global<<<grid_size, BLOCK_SIZE, 0, stream>>>(
-      voxelize_dynamics_gpu, tmp_voxel_gpu, _frame_nr, gridpoint_nr, type_agg);
-  CUDA_CHECK_KERNEL();
+  launch_gridwise_aggregation(type_agg, grid_size, voxelize_dynamics_gpu, tmp_voxel_gpu, _frame_nr,
+                              gridpoint_nr);
   CUDA_CHECK(cudaMemcpyAsync(voxelize_dynamics, tmp_voxel_gpu, gridpoint_nr * sizeof(float),
                              cudaMemcpyDeviceToHost, stream));
 
@@ -465,7 +464,7 @@ void trajectory_voxelization_host(float *voxelize_dynamics, const float *coord, 
 void trajectory_voxelization_host_cpu(float *voxelize_dynamics, const float *coord,
                                       const float *weight, const int *dims, const float spacing,
                                       const int frame_nr, const int atom_nr, const float cutoff,
-                                      const float sigma, const int type_agg) {
+                                      const float sigma, const AggregationType type_agg) {
   for (int frame_idx = 0; frame_idx < frame_nr; ++frame_idx) {
     voxelize_host_cpu(voxelize_dynamics, coord + frame_idx * atom_nr * 3,
                       weight + frame_idx * atom_nr, dims, spacing, atom_nr, cutoff, sigma);

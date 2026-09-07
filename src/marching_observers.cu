@@ -412,7 +412,7 @@ __global__ void marching_observer_global(float *mobs_ret, const float *coord_fra
                     static_cast<float>(index % dims[0]) * spacing};
 
   mobs_ret[index] =
-      observable_traits<Observable>::apply(coord, coord_frame, weight_frame, atomnr, cutoff);
+      observable_kernel<Observable>::apply(coord, coord_frame, weight_frame, atomnr, cutoff);
 }
 
 
@@ -465,7 +465,8 @@ static void launch_marching_observer(const ObservableType type_obs, const unsign
 void marching_observer_host(float *mobs_dynamics, const float *coord, const float *weights,
                             const int *dims, const float spacing, const int frame_number,
                             const int atom_per_frame, const float cutoff,
-                            const ObservableType type_obs, const int type_agg) {
+                            const ObservableType type_obs,
+                            const AggregationType type_agg) {
   unsigned int observer_number = dims[0] * dims[1] * dims[2];
   unsigned int grid_size = (observer_number + BLOCK_SIZE - 1) / BLOCK_SIZE;
 
@@ -530,9 +531,8 @@ void marching_observer_host(float *mobs_dynamics, const float *coord, const floa
   // Perform frame-wise aggregation on the voxelized trajectory
   unsigned int _frame_number = frame_number > MAX_FRAME_NUMBER ? MAX_FRAME_NUMBER : frame_number;
   CUDA_CHECK(cudaMemsetAsync(tmp_mobs_gpu, 0, observer_number * sizeof(float), stream));
-  gridwise_aggregation_global<<<grid_size, BLOCK_SIZE, 0, stream>>>(
-      mobs_traj, tmp_mobs_gpu, _frame_number, observer_number, type_agg);
-  CUDA_CHECK_KERNEL();
+  launch_gridwise_aggregation(type_agg, grid_size, mobs_traj, tmp_mobs_gpu, _frame_number,
+                              observer_number);
 
   // No normalization here: dividing the finished grid by its own sum would erase
   // the magnitude the observables measure, and the signed aggregations (drift)

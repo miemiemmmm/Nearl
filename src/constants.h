@@ -14,20 +14,7 @@
 
 // NOTE: The observable types are defined by OBSERVABLE_TYPE_LIST in marching_observers.cuh
 
-// Aggregation types
-#define AGGREGATION_COUNT 8
-#define SUPPORTED_AGGREGATIONS {1, 2, 3, 4, 5, 6, 7, 8}
+// NOTE: The aggregation types are defined by AGGREGATION_TYPE_LIST in gpuutils.cuh
 #define INFORMATION_ENTROPY_BINS 16
-
-//////////////////////////////////////////////////////////////////////
-// mean  1
-// standard_deviation 2
-// median  3
-// variance 4
-// max 5
-// min 6
-// information_entropy 7
-// drift 8
-//////////////////////////////////////////////////////////////////////
 
 #endif

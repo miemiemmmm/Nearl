@@ -24,21 +24,27 @@ except ImportError:
 
     all_actions = _MissingExtension()
 
-# Maps the observation names to the ObservableType enumerators exposed by the CUDA extension. The
-# extension is the only definition of the supported observables, see OBSERVABLE_TYPE_LIST in
-# src/marching_observers.cuh.
+# Maps the observation and aggregation names to the enumerators exposed by the CUDA extension. The
+# extension is the only definition of the supported types, see OBSERVABLE_TYPE_LIST in
+# src/marching_observers.cuh and AGGREGATION_TYPE_LIST in src/gpuutils.cuh.
 try:
     SUPPORTED_OBSERVATION = {
         name.lower(): member
         for name, member in all_actions.ObservableType.__members__.items()
     }
+    SUPPORTED_AGGREGATION = {
+        name.lower(): member
+        for name, member in all_actions.AggregationType.__members__.items()
+    }
 except ImportError:
     SUPPORTED_OBSERVATION = {}
+    SUPPORTED_AGGREGATION = {}
 
 
 __all__ = [
-    # Observable types
+    # Observable and aggregation types
     "SUPPORTED_OBSERVATION",
+    "SUPPORTED_AGGREGATION",
     # Single frame methods
     "frame_observation",
     "frame_voxelize",
@@ -159,8 +165,8 @@ def marching_observer(coords, weights, grid_dims, spacing, cutoff, type_obs, typ
       The cutoff distance
     type_obs : all_actions.ObservableType or int
       The type of observer, see SUPPORTED_OBSERVATION
-    type_agg : int
-      The type of aggregation function
+    type_agg : all_actions.AggregationType or int
+      The type of aggregation function, see SUPPORTED_AGGREGATION
 
     Returns
     -------
@@ -197,8 +203,8 @@ def density_flow(traj, weights, grid_dims, spacing, cutoff, sigma, type_agg):
       The cutoff distance
     sigma : float
       The sigma value for the Gaussian kernel
-    type_agg : int
-      The type of aggregation function
+    type_agg : all_actions.AggregationType or int
+      The type of aggregation function, see SUPPORTED_AGGREGATION
 
     Returns
     -------
@@ -219,7 +225,6 @@ def density_flow(traj, weights, grid_dims, spacing, cutoff, sigma, type_agg):
     spacing = float(spacing)
     cutoff = float(cutoff)
     sigma = float(sigma)
-    type_agg = int(type_agg)
 
     ret_arr = all_actions.density_flow(
         traj, weights, grid_dims, spacing, cutoff, sigma, type_agg

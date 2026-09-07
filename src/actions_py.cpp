@@ -103,7 +103,8 @@ py::array_t<float> do_voxelize(py::array_t<float> arr_coords, py::array_t<float>
 py::array_t<float> do_marching_observers(py::array_t<float> arr_coord,
                                          py::array_t<float> arr_weights, py::array_t<int> arr_dims,
                                          const float spacing, const float cutoff,
-                                         const ObservableType type_obs, const int type_agg) {
+                                         const ObservableType type_obs,
+                                         const AggregationType type_agg) {
   py::buffer_info buf_coord = arr_coord.request();
   py::buffer_info buf_weights = arr_weights.request();
   py::buffer_info buf_dims = arr_dims.request();
@@ -118,15 +119,8 @@ py::array_t<float> do_marching_observers(py::array_t<float> arr_coord,
   if (buf_coord.ndim != 3) {
     throw py::value_error("Error: The input array must have 3 dimensions: (frame_nr, atom_nr, 3)");
   }
-  // NOTE: The observable type is validated by the ObservableType dispatch in the CUDA host code
-  int supported_agg[AGGREGATION_COUNT] = SUPPORTED_AGGREGATIONS;
-  for (int i = 0; i < AGGREGATION_COUNT; i++) {
-    if (type_agg == supported_agg[i]) {
-      break;
-    } else if (i == AGGREGATION_COUNT - 1) {
-      throw py::value_error("The aggregation type is not supported");
-    }
-  }
+  // NOTE: The observable and aggregation types are validated by the ObservableType and
+  // AggregationType dispatch in the CUDA host code
 
   // TODO: Eliminate this constraint in the future
   if (frame_nr > MAX_FRAME_NUMBER) {
@@ -169,7 +163,8 @@ py::array_t<float> do_marching_observers(py::array_t<float> arr_coord,
  */
 py::array_t<float> do_traj_voxelize(py::array_t<float> arr_traj, py::array_t<float> arr_weights,
                                     py::array_t<int> grid_dims, const float spacing,
-                                    const float cutoff, const float sigma, const int type_agg) {
+                                    const float cutoff, const float sigma,
+                                    const AggregationType type_agg) {
   py::buffer_info buf_traj = arr_traj.request();
   py::buffer_info buf_weights = arr_weights.request();
   py::buffer_info buf_dims = grid_dims.request();
@@ -179,15 +174,7 @@ py::array_t<float> do_traj_voxelize(py::array_t<float> arr_traj, py::array_t<flo
   const int frame_nr = buf_traj.shape[0];
   const int atom_nr = buf_traj.shape[1];
 
-  // Check the validity of the input data before launching the kernel
-  int supported_agg[AGGREGATION_COUNT] = SUPPORTED_AGGREGATIONS;
-  for (int i = 0; i < AGGREGATION_COUNT; i++) {
-    if (type_agg == supported_agg[i]) {
-      break;
-    } else if (i == AGGREGATION_COUNT - 1) {
-      throw py::value_error("The aggregation type is not supported");
-    }
-  }
+  // NOTE: The aggregation type is validated by the AggregationType dispatch in the CUDA host code
 
   // Initialize the return array, and launch the computation kernel
   py::array_t<float> result({gridpoint_nr});
@@ -200,7 +187,7 @@ py::array_t<float> do_traj_voxelize(py::array_t<float> arr_traj, py::array_t<flo
 }
 
 
-py::array_t<float> do_aggregation(py::array_t<float> arr, const int type_agg) {
+py::array_t<float> do_aggregation(py::array_t<float> arr, const AggregationType type_agg) {
   py::buffer_info buf_arr = arr.request();
 
   const int frame_nr = buf_arr.shape[0];
@@ -261,6 +248,18 @@ PYBIND11_MODULE(all_actions, m) {
   observable_type.export_values();
   // Accept the plain integers of the stored configurations as well as the enumerators
   py::implicitly_convertible<py::int_, ObservableType>();
+
+  // The aggregation types are generated from AGGREGATION_TYPE_LIST in gpuutils.cuh so that the C++
+  // enumeration stays the only definition of the supported aggregations.
+  py::enum_<AggregationType> aggregation_type(
+      m, "AggregationType", "The frame-wise aggregations of the trajectory-level algorithms");
+#define AGGREGATION_TYPE_BINDING(NAME, VALUE, FN)                                                  \
+  aggregation_type.value(#NAME, AggregationType::NAME);
+  AGGREGATION_TYPE_LIST(AGGREGATION_TYPE_BINDING)
+#undef AGGREGATION_TYPE_BINDING
+  aggregation_type.export_values();
+  // Accept the plain integers of the stored configurations as well as the enumerators
+  py::implicitly_convertible<py::int_, AggregationType>();
 
   m.def("frame_voxelize", &do_voxelize, py::arg("coords"), py::arg("weights"), py::arg("grid_dims"),
         py::arg("spacing"), py::arg("cutoff"), py::arg("sigma"), py::arg("auto_translate"),

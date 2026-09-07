@@ -78,21 +78,9 @@ SUPPORTED_FEATURES = {
 }
 
 
-# Hardcoded maps in the C++ level code
-SUPPORTED_AGGREGATION = {
-    "mean": 1,
-    "standard_deviation": 2,
-    "median": 3,
-    "variance": 4,
-    "max": 5,
-    "min": 6,
-    "information_entropy": 7,
-    "drift": 8,
-}
-
-
-# Derived from the ObservableType enumeration of the CUDA extension
+# Derived from the ObservableType and AggregationType enumerations of the CUDA extension
 SUPPORTED_OBSERVATION = commands.SUPPORTED_OBSERVATION
+SUPPORTED_AGGREGATION = commands.SUPPORTED_AGGREGATION
 
 
 def crop(points, upperbound, padding, spacing):
