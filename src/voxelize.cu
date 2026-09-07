@@ -336,9 +336,9 @@ void voxelize_host(float *interpolated, const float *coord, const float *weight,
     CUDA_CHECK(cudaMalloc(&tmp_voxel_gpu, gridpoint_nr * sizeof(float)));
   }
 
-  upload_host(ctx, coord_gpu, coord, atom_nr * 3 * sizeof(float), BufferSlot::COORDS, stream);
-  upload_host(ctx, weight_gpu, weight, atom_nr * sizeof(float), BufferSlot::WEIGHTS, stream);
-  upload_host(ctx, dims_gpu, dims, 3 * sizeof(int), BufferSlot::DIMS, stream);
+  copy_h2d_async(ctx, coord_gpu, coord, atom_nr * 3 * sizeof(float), BufferSlot::COORDS, stream);
+  copy_h2d_async(ctx, weight_gpu, weight, atom_nr * sizeof(float), BufferSlot::WEIGHTS, stream);
+  copy_h2d_async(ctx, dims_gpu, dims, 3 * sizeof(int), BufferSlot::DIMS, stream);
   CUDA_CHECK(cudaMemsetAsync(tmp_voxel_gpu, 0.0f, gridpoint_nr * sizeof(float), stream));
 
   if (atom_nr > 0) {
@@ -415,11 +415,11 @@ void trajectory_voxelization_host(float *voxelize_dynamics, const float *coord, 
     CUDA_CHECK(cudaMalloc(&dims_gpu, 3 * sizeof(int)));
   }
 
-  upload_host(ctx, coord_gpu, coord, frame_nr * atom_nr * 3 * sizeof(float), BufferSlot::COORDS,
-              stream);
-  upload_host(ctx, weight_gpu, weight, frame_nr * atom_nr * sizeof(float), BufferSlot::WEIGHTS,
-              stream);
-  upload_host(ctx, dims_gpu, dims, 3 * sizeof(int), BufferSlot::DIMS, stream);
+  copy_h2d_async(ctx, coord_gpu, coord, frame_nr * atom_nr * 3 * sizeof(float), BufferSlot::COORDS,
+                 stream);
+  copy_h2d_async(ctx, weight_gpu, weight, frame_nr * atom_nr * sizeof(float), BufferSlot::WEIGHTS,
+                 stream);
+  copy_h2d_async(ctx, dims_gpu, dims, 3 * sizeof(int), BufferSlot::DIMS, stream);
   CUDA_CHECK(cudaMemsetAsync(tmp_voxel_gpu, 0.0f, gridpoint_nr * sizeof(float), stream));
   CUDA_CHECK(
       cudaMemsetAsync(voxelize_dynamics_gpu, 0, frame_nr * gridpoint_nr * sizeof(float), stream));

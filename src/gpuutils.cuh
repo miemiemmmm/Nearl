@@ -131,8 +131,8 @@ enum class BufferSlot {
 
 
 // Stage pageable input in the context's pinned storage before asynchronous upload.
-void upload_host(DeviceContext *ctx, void *destination, const void *source, size_t bytes,
-                 BufferSlot slot, cudaStream_t stream);
+void copy_h2d_async(DeviceContext *ctx, void *destination, const void *source, size_t bytes,
+                    BufferSlot slot, cudaStream_t stream);
 void sum_reduction_dispatch(float *array, int arr_length, float *partial_host);
 
 

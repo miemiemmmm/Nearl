@@ -130,8 +130,8 @@ void DeviceContext::cancel_call() noexcept {
   pending_ = false;
 }
 
-void upload_host(DeviceContext *ctx, void *destination, const void *source, size_t bytes,
-                 BufferSlot slot, cudaStream_t stream) {
+void copy_h2d_async(DeviceContext *ctx, void *destination, const void *source, size_t bytes,
+                    BufferSlot slot, cudaStream_t stream) {
   if (ctx && ctx->valid())
     source = ctx->stage_input(source, bytes, static_cast<size_t>(slot));
   CUDA_CHECK(cudaMemcpyAsync(destination, source, bytes, cudaMemcpyHostToDevice, stream));
@@ -267,8 +267,8 @@ void aggregate_host(float *voxel_traj, float *result_grid, const int frame_numbe
     CUDA_CHECK(cudaMalloc(&tmp_grid_gpu, grid_number * sizeof(float)));
   }
 
-  upload_host(ctx, voxel_traj_gpu, voxel_traj, frame_number * grid_number * sizeof(float),
-              BufferSlot::TRAJ_DYNAMICS, stream);
+  copy_h2d_async(ctx, voxel_traj_gpu, voxel_traj, frame_number * grid_number * sizeof(float),
+                 BufferSlot::TRAJ_DYNAMICS, stream);
   CUDA_CHECK(cudaMemsetAsync(tmp_grid_gpu, 0, grid_number * sizeof(float), stream));
 
   gridwise_aggregation_global<<<grid_size, BLOCK_SIZE, 0, stream>>>(
@@ -310,7 +310,7 @@ void sum_reduction_dispatch(float *array, const int arr_length, float *partial_h
     CUDA_CHECK(cudaMalloc(&array_gpu, arr_length * sizeof(float)));
   }
 
-  upload_host(ctx, array_gpu, array, arr_length * sizeof(float), BufferSlot::COORDS, stream);
+  copy_h2d_async(ctx, array_gpu, array, arr_length * sizeof(float), BufferSlot::COORDS, stream);
 
   // Perform the sum reduction on the array
   sum_reduction_global<<<grid_size, BLOCK_SIZE, 0, stream>>>(array_gpu, partial_sums, arr_length);
