@@ -74,6 +74,12 @@ def parser():
         default="Output",
         help="The prefix of the output h5 file",
     )
+    parser.add_argument(
+        "--baseline_map",
+        type=str,
+        default="data/PDBBind_general_v2020.csv",
+        help="Path to the PDBBind baseline CSV used for the LabelAffinity feature",
+    )
     parser.add_argument("--task_nr", type=int, default=1, help="The task number to run")
     parser.add_argument(
         "--task_index", type=int, default=0, help="The task index to run"
@@ -193,7 +199,7 @@ if __name__ == "__main__":
 
     # Labels
     features["pk_original"] = nearl.features.LabelAffinity(
-        baseline_map="/MieT5/Nearl/data/PDBBind_general_v2020.csv", outkey="pk_original"
+        baseline_map=args.get("baseline_map"), outkey="pk_original"
     )
     # features["label_pcdt"] = nearl.features.LabelPCDT(selection=":MOL", baseline_map="/MieT5/Nearl/data/PDBBind_general_v2020.csv", outkey="label_pcdt")
     print(f"There are {len(features)} features registered: {features.keys()}")

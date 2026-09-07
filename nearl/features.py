@@ -4,6 +4,7 @@ import subprocess
 import tempfile
 import time
 
+import h5py
 import numpy as np
 import pytraj as pt
 
@@ -189,6 +190,12 @@ class Feature:
     # Individual parameters
     # - outshape: The shape of the output array
     # - force_recache: The boolean flag to force recache the weights
+
+    # Class-level cache of topology-derived atom properties (resids, atomic_numbers).
+    # These depend only on the topology, not on the per-feature selection, so they
+    # can be computed once per trajectory and shared across all features.
+    _topology_cache = {}
+
     def __init__(
         self,
         dims=None,
@@ -253,6 +260,10 @@ class Feature:
         self.outshape = outshape
         self.hdf_compress_level = kwargs.get("hdf_compress_level", 0)
         self.hdf_dump_opts = {}
+
+        # Persistent HDF5 file handle, opened lazily on first dump() and closed
+        # via close(). Reusing a single handle avoids repeated open/close overhead.
+        self._hdf = None
 
         self.PARAMSPACE = {
             "dims": self.dims,
@@ -429,15 +440,28 @@ class Feature:
         ----------
         trajectory : nearl.io.traj.Trajectory
         """
-        atoms = [i for i in trajectory.top.atoms]
-        self.resids = np.array([i.resid for i in atoms], dtype=int)
-        self.atomic_numbers = np.array([i.atomic_number for i in atoms], dtype=int)
+        # The resids and atomic_numbers depend only on the topology, not on the
+        # per-feature selection. Compute them once per topology and share the
+        # result across all features to avoid re-iterating trajectory.top.atoms.
+        top = trajectory.top
+        top_key = id(top)
+        cached = Feature._topology_cache.get(top_key)
+        if cached is None or cached[0] != top.n_atoms:
+            atoms = [i for i in top.atoms]
+            resids = np.array([i.resid for i in atoms], dtype=int)
+            atomic_numbers = np.array([i.atomic_number for i in atoms], dtype=int)
+            Feature._topology_cache[top_key] = (top.n_atoms, resids, atomic_numbers)
+        else:
+            _, resids, atomic_numbers = cached
+        self.resids = resids
+        self.atomic_numbers = atomic_numbers
+
         if self.selection is None:
             # If the selection is not set, select all the atoms
             self.selected = np.full(len(self.atomic_numbers), True, dtype=bool)
         elif isinstance(self.selection, str):
             # If the selection is a string, select the atoms based on the selection string
-            selected = trajectory.top.select(self.selection)
+            selected = top.select(self.selection)
             self.selected = np.full(len(self.atomic_numbers), False, dtype=bool)
             self.selected[selected] = True
             log(
@@ -580,7 +604,7 @@ class Feature:
             if self.outshape is not None:
                 # Output shape is explicitly set (Usually heterogeneous data like coordinates)
                 utils.append_hdf_data(
-                    self.outfile,
+                    self._hdf_handle(),
                     self.outkey,
                     np.array([result], dtype=np.float32),
                     dtype=np.float32,
@@ -593,7 +617,7 @@ class Feature:
                 # For homogeneous features, set the chunks to match their actual shape
                 if self.hdf_compress_level == 0:
                     utils.append_hdf_data(
-                        self.outfile,
+                        self._hdf_handle(),
                         self.outkey,
                         np.array([result], dtype=np.float32),
                         dtype=np.float32,
@@ -602,7 +626,7 @@ class Feature:
                     )
                 else:
                     utils.append_hdf_data(
-                        self.outfile,
+                        self._hdf_handle(),
                         self.outkey,
                         np.array([result], dtype=np.float32),
                         dtype=np.float32,
@@ -614,6 +638,24 @@ class Feature:
             logger.warning(
                 f"{self.classname}: The outfile and/or outkey are not set, the result is not dumped into file. "
             )
+
+    def _hdf_handle(self):
+        """
+        Return a persistent h5py.File handle for this feature's outfile, opening it
+        lazily on first use. Reusing a single handle across dump() calls avoids the
+        repeated open/close overhead of the HDF5 file.
+        """
+        if self._hdf is None:
+            self._hdf = h5py.File(self.outfile, "a")
+        return self._hdf
+
+    def close(self):
+        """
+        Close the persistent HDF5 file handle (if any) held by this feature.
+        """
+        if self._hdf is not None:
+            self._hdf.close()
+            self._hdf = None
 
 
 class AtomicNumber(Feature):
@@ -1507,36 +1549,81 @@ class DynamicFeature(Feature):
             f"{self.classname}::Warning: from feature ({self.__str__()}): The coordinates should follow the convention (frames, atoms, 3); "
         )
 
+        n_frames = len(frame_coords)
+        n_atoms = frame_coords.shape[1]
+
+        # Handle inhomogeneous topology / forced recache (same as the base query)
+        if (len(self.resids) != topology.n_atoms) or self.force_recache:
+            logger.info(f"{self}: Dealing with inhomogeneous topology")
+            self.cache(pt.Trajectory(xyz=frame_coords, top=topology))
+
         coords = np.full(
-            (len(frame_coords), self.MAX_ALLOWED_ATOMS, 3),
+            (n_frames, self.MAX_ALLOWED_ATOMS, 3),
             self.DEFAULT_COORD,
             dtype=np.float32,
         )
         weights = np.full(
-            (len(frame_coords), self.MAX_ALLOWED_ATOMS), 0.0, dtype=np.float32
+            (n_frames, self.MAX_ALLOWED_ATOMS), 0.0, dtype=np.float32
         )
-        max_atom_nr = 0
-        zero_count = 0
-        for idx, frame in enumerate(frame_coords):
-            # Operation on each frame (Frame is modified inplace)
-            idx_inbox, coord_inbox = super().query(topology, frame, focal_point)
 
-            atomnr_inbox = np.count_nonzero(idx_inbox)
-            if atomnr_inbox > self.MAX_ALLOWED_ATOMS:
-                logger.warning(
-                    f"{self.classname}: The maximum allowed atom slice is {self.MAX_ALLOWED_ATOMS} but the maximum atom number is {atomnr_inbox}"
-                )
-            zero_count += 1 if atomnr_inbox == 0 else 0
-            atomnr_inbox = min(atomnr_inbox, self.MAX_ALLOWED_ATOMS)
+        if self.center is None or self.lengths is None or self.padding is None:
+            logger.warning(
+                f"{self} Skipping the coordinates cropping due to the missing center, lengths or padding information"
+            )
+            max_atom_nr = min(n_atoms, self.MAX_ALLOWED_ATOMS)
+            coords[:, :max_atom_nr] = frame_coords[:, :max_atom_nr]
+            weights[:, :max_atom_nr] = self.cached_array[:max_atom_nr]
+            ret_coord = np.ascontiguousarray(coords[:, :max_atom_nr], dtype=np.float32)
+            ret_weight = np.ascontiguousarray(
+                weights[:, :max_atom_nr].flatten(), dtype=np.float32
+            )
+            return ret_coord, ret_weight
 
-            coords[idx, :atomnr_inbox] = coord_inbox[:atomnr_inbox]
-            weights[idx, :atomnr_inbox] = self.cached_array[idx_inbox][:atomnr_inbox]
-            max_atom_nr = max(max_atom_nr, atomnr_inbox)
+        # Vectorized translation over all frames at once
+        translated = frame_coords - focal_point + self.center - self.spacing / 2
+
+        # Vectorized crop over all frames (reshape to (F*A, 3) and back)
+        mask = crop(
+            translated.reshape(-1, 3), self.lengths, self.padding, self.spacing
+        ).reshape(n_frames, n_atoms)
+
+        # Apply the (frame-independent) selection mask
+        if self.selection is not None:
+            mask = mask & self.selected
+
+        # byres handling: expand the crop mask to whole residues (per frame)
+        if self.byres:
+            resids = self.resids
+            final_masks = np.empty_like(mask)
+            for f in range(n_frames):
+                res_inbox = np.unique(resids[mask[f]])
+                fm = np.zeros(len(resids), dtype=bool)
+                for res in res_inbox:
+                    fm[np.where(resids == res)] = True
+                final_masks[f] = fm
+            mask = final_masks
+
+        # Count the atoms in the box for each frame
+        atomnr_inbox = np.count_nonzero(mask, axis=1)
+        if np.any(atomnr_inbox > self.MAX_ALLOWED_ATOMS):
+            logger.warning(
+                f"{self.classname}: The maximum allowed atom slice is {self.MAX_ALLOWED_ATOMS} but the maximum atom number is {atomnr_inbox.max()}"
+            )
+        zero_count = int(np.count_nonzero(atomnr_inbox == 0))
+        atomnr_inbox = np.minimum(atomnr_inbox, self.MAX_ALLOWED_ATOMS)
+        max_atom_nr = int(atomnr_inbox.max()) if n_frames > 0 else 0
 
         if zero_count > 0 and config.verbose():
             logger.warning(
-                f"{self.classname}: {zero_count} out of {len(frame_coords)} frames has no atoms in the box. The coordinates will be padded with {self.DEFAULT_COORD} and 0.0 for the weights."
+                f"{self.classname}: {zero_count} out of {n_frames} frames has no atoms in the box. The coordinates will be padded with {self.DEFAULT_COORD} and 0.0 for the weights."
             )
+
+        # Gather the translated coordinates and weights for each frame
+        for f in range(n_frames):
+            n = atomnr_inbox[f]
+            if n > 0:
+                coords[f, :n] = translated[f][mask[f]][:n]
+                weights[f, :n] = self.cached_array[mask[f]][:n]
 
         # Prepare the return arrays
         ret_coord = np.ascontiguousarray(coords[:, :max_atom_nr], dtype=np.float32)
