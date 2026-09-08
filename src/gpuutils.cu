@@ -185,12 +185,12 @@ __global__ void gridwise_aggregation_global(float *d_in, float *d_out, const int
  */
 void launch_gridwise_aggregation(const AggregationType type_agg, const unsigned int grid_size,
                                  float *d_in, float *d_out, const int frame_nr,
-                                 const int gridpoint_nr) {
+                                 const int gridpoint_nr, cudaStream_t stream) {
   switch (type_agg) {
 #define AGGREGATION_LAUNCH_CASE(NAME, VALUE, FN)                                                   \
   case AggregationType::NAME:                                                                      \
     gridwise_aggregation_global<AggregationType::NAME>                                             \
-        <<<grid_size, BLOCK_SIZE>>>(d_in, d_out, frame_nr, gridpoint_nr);                          \
+        <<<grid_size, BLOCK_SIZE, 0, stream>>>(d_in, d_out, frame_nr, gridpoint_nr);               \
     break;
     AGGREGATION_TYPE_LIST(AGGREGATION_LAUNCH_CASE)
 #undef AGGREGATION_LAUNCH_CASE
@@ -236,7 +236,7 @@ void aggregate_host(float *voxel_traj, float *result_grid, const int frame_numbe
   CUDA_CHECK(cudaMemsetAsync(tmp_grid_gpu, 0, grid_number * sizeof(float), stream));
 
   launch_gridwise_aggregation(type_agg, grid_size, voxel_traj_gpu, tmp_grid_gpu, _frame_number,
-                              grid_number);
+                              grid_number, stream);
   CUDA_CHECK(cudaMemcpyAsync(result_grid, tmp_grid_gpu, grid_number * sizeof(float),
                              cudaMemcpyDeviceToHost, stream));
   if (use_ctx) {

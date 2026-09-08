@@ -439,7 +439,7 @@ void trajectory_voxelization_host(float *voxelize_dynamics, const float *coord, 
   const int _frame_nr = frame_nr > MAX_FRAME_NUMBER ? MAX_FRAME_NUMBER : frame_nr;
   CUDA_CHECK(cudaMemsetAsync(tmp_voxel_gpu, 0, gridpoint_nr * sizeof(float), stream));
   launch_gridwise_aggregation(type_agg, grid_size, voxelize_dynamics_gpu, tmp_voxel_gpu, _frame_nr,
-                              gridpoint_nr);
+                              gridpoint_nr, stream);
   CUDA_CHECK(cudaMemcpyAsync(voxelize_dynamics, tmp_voxel_gpu, gridpoint_nr * sizeof(float),
                              cudaMemcpyDeviceToHost, stream));
 

@@ -496,7 +496,8 @@ extern __global__ void voxel_addition_global(float *d_in, float *d_out, const in
 // Launches the aggregation kernel instantiated for the requested aggregation, see gpuutils.cu
 extern void launch_gridwise_aggregation(const AggregationType type_agg,
                                         const unsigned int grid_size, float *d_in, float *d_out,
-                                        const int frame_nr, const int gridpoint_nr);
+                                        const int frame_nr, const int gridpoint_nr,
+                                        cudaStream_t stream);
 extern void aggregate_host(float *voxel_traj, float *tmp_grid, const int frame_number,
                            const int grid_number, const AggregationType type_agg);
 extern float sum_reduction_host(float *array, const int arr_length);
