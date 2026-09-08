@@ -233,7 +233,7 @@ def get_features(sigma, feature_type):
 if __name__ == "__main__":
     """
   Usage:
-  python3 /MieT5/Nearl/scripts/benchmark_misatofeat.py -f /MieT5/Nearl/data/casf2016_test.txt -o /tmp/ -t pdf -d 32 -m /Matter/misato_database/ -c 2.5 -s 1.5
+  python3 /MieT5/Nearl/scripts/benchmark_dataset.py -f /MieT5/Nearl/data/casf2016_test.txt -o /tmp/ -t pdf -d 32 -m /Matter/misato_database/ -c 2.5 -s 1.5
   """
     nearl.update_config(
         verbose=False,
