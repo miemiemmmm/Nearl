@@ -382,6 +382,10 @@ size_t do_buffer_capacity(const std::string &name) {
     return ctx->buffer_capacity(static_cast<size_t>(BufferSlot::OUTPUT_GRID));
   if (name == "trajectory")
     return ctx->buffer_capacity(static_cast<size_t>(BufferSlot::TRAJ_DYNAMICS));
+  if (name == "cells")
+    return ctx->buffer_capacity(static_cast<size_t>(BufferSlot::CELL_HEAD));
+  if (name == "atom_next")
+    return ctx->buffer_capacity(static_cast<size_t>(BufferSlot::ATOM_NEXT));
   throw py::value_error("Unknown device buffer: " + name);
 }
 
