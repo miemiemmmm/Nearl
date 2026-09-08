@@ -29,7 +29,7 @@
  *
  * @note This direct count-based observation does not consider atom weights.
  */
-__device__ float existence_device(const float *coord, const float *coord_framei, const float *weight_framei, 
+__device__ static float existence_device(const float *coord, const float *coord_framei, const float *weight_framei, 
                                   const int atomnr, const float cutoff) {
   // Work on each atoms in a frame to calculate the observable in that frame
   float dist_sq;
@@ -67,7 +67,7 @@ __device__ float existence_device(const float *coord, const float *coord_framei,
  *
  * @note This direct count-based observation does not consider atom weights.
  */
-__device__ float direct_count_device(const float *coord, const float *coord_framei, const float *weight_framei, 
+__device__ static float direct_count_device(const float *coord, const float *coord_framei, const float *weight_framei, 
                                      int atomnr, float cutoff) {
   // Work on each atoms in a frame to calculate the observable in that frame
   float dist_sq, retval = 0.0;
@@ -110,7 +110,7 @@ __device__ float direct_count_device(const float *coord, const float *coord_fram
  * comparison issues).
  *
  */
-__device__ float distinct_count_device(const float *coord, const float *coord_framei,
+__device__ static float distinct_count_device(const float *coord, const float *coord_framei,
                                        const float *weight_framei, int atomnr, float cutoff) {
   // Work on each atoms in a frame to calculate the observable in that frame
   float dist_sq;
@@ -152,7 +152,7 @@ __device__ float distinct_count_device(const float *coord, const float *coord_fr
 /**
  * @brief Weighted mean distance of particles in frame i
  */
-__device__ float mean_distance_device(const float *coord, const float *coord_framei,
+__device__ static float mean_distance_device(const float *coord, const float *coord_framei,
                                       const float *weight_framei, const int atomnr,
                                       const float cutoff) {
   // Work on each atoms in a frame to calculate the observable in that frame
@@ -183,7 +183,7 @@ __device__ float mean_distance_device(const float *coord, const float *coord_fra
 /**
  * @brief Calculate the cumulative weight of particles within a specified cutoff distance.
  */
-__device__ float cumulative_weight_device(const float *coord, const float *coord_framei,
+__device__ static float cumulative_weight_device(const float *coord, const float *coord_framei,
                                           const float *weight_framei, int atomnr, float cutoff) {
   float dist_sq, retval = 0.0, cutoff_sq = cutoff * cutoff;
   for (int j = 0; j < atomnr; j++) {
@@ -201,7 +201,7 @@ __device__ float cumulative_weight_device(const float *coord, const float *coord
 /**
  * @brief Calculates the density of particles within a specified cutoff radius from a given point.
  */
-__device__ float density_device(const float *coord, const float *coord_framei,
+__device__ static float density_device(const float *coord, const float *coord_framei,
                                 const float *weight_framei, const int atomnr, const float cutoff) {
   float weight_sum = cumulative_weight_device(coord, coord_framei, weight_framei, atomnr, cutoff);
   float volume = (4.0 / 3.0) * M_PI * cutoff * cutoff * cutoff;
@@ -223,7 +223,7 @@ __device__ float density_device(const float *coord, const float *coord_framei,
  * is zero, the function returns 0.0, indicating no dispersion or an invalid state.
  *
  */
-__device__ float dispersion_device(const float *coord, const float *coord_framei,
+__device__ static float dispersion_device(const float *coord, const float *coord_framei,
                                    const float *weight_framei, const int atomnr,
                                    const float cutoff) {
   // Work on each atoms in a frame to calculate the observable in that frame
@@ -277,7 +277,7 @@ __device__ float dispersion_device(const float *coord, const float *coord_framei
  * the cutoff distance as an indication of high dispersion.
  *
  */
-__device__ float eccentricity_device(const float *coord, const float *coord_framei,
+__device__ static float eccentricity_device(const float *coord, const float *coord_framei,
                                      const float *weight_framei, const int atomnr,
                                      const float cutoff) {
   float dist_sq;
@@ -323,7 +323,7 @@ __device__ float eccentricity_device(const float *coord, const float *coord_fram
  *
  * @note The signs of weights should be geater than 0 (otherwise Center of Mass will be wrong)
  */
-__device__ float radius_of_gyration_device(const float *coord, const float *coord_framei,
+__device__ static float radius_of_gyration_device(const float *coord, const float *coord_framei,
                                            const float *weight_framei, const int atomnr,
                                            const float cutoff) {
   // Work on each atoms in a frame to calculate the observable in that frame
