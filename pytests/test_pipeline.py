@@ -10,7 +10,7 @@ import time
 
 import pytest
 
-from nearl.pipeline import AsyncWriter, PrefetchBuffer, _ERROR, _SENTINEL
+from nearl.pipeline import _ERROR, _SENTINEL, AsyncWriter, PrefetchBuffer
 
 
 # ---------------------------------------------------------------------------
