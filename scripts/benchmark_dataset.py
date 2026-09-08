@@ -8,9 +8,9 @@ import numpy as np
 
 import nearl.features
 import nearl.featurizer
-from nearl.io.traj import MisatoTraj
+from nearl.io.traj import MisatoTraj, Trajectory
 
-# Define the way to generation labels for the misato trajectories
+# Define the way to generate labels for the database-indexed trajectories
 
 
 class _PreserveNewlinesHelpFormatter(argparse.HelpFormatter):
@@ -30,22 +30,35 @@ class _PreserveNewlinesHelpFormatter(argparse.HelpFormatter):
 
 def parser():
     parser = argparse.ArgumentParser(
-        description="Featurize the misato trajectories",
+        description="Featurize a trajectory set for benchmarking",
         formatter_class=_PreserveNewlinesHelpFormatter,
     )
     parser.add_argument(
         "-f",
-        "--pdbcodes",
+        "--trajlist",
         type=str,
         required=True,
-        help="The file containing the list of pdb codes",
+        help="The file containing the list of trajectories",
     )
     parser.add_argument(
         "-m",
-        "--misato_dir",
+        "--database_dir",
         type=str,
-        required=True,
-        help="The directory of the misato database",
+        default="",
+        help="The directory of the trajectory database (required for --trajlist_format indexed)",
+    )
+    parser.add_argument(
+        "--trajlist_format",
+        type=str,
+        default="indexed",
+        choices=["indexed", "paired"],
+        help=(
+            "The structure of the trajectory list file. One of:\n"
+            "  indexed -> each line is an identifier; trajectories are resolved\n"
+            "            relative to --database_dir via MisatoTraj\n"
+            "  paired  -> each line is '<trajectory file> <topology file>'\n"
+            "            loaded via the generic Trajectory class\n"
+        ),
     )
     parser.add_argument(
         "-o", "--output_dir", type=str, default="", help="The output directory"
@@ -97,6 +110,15 @@ def parser():
     )
 
     parser.add_argument(
+        "--focus_mask",
+        type=str,
+        default="",
+        help=(
+            "Atom-selection mask defining the focal point (the ligand).\n"
+            "Defaults to ':MOL' for indexed trajlists and ':LIG' for paired ones."
+        ),
+    )
+    parser.add_argument(
         "--h5prefix",
         type=str,
         default="Output",
@@ -118,10 +140,18 @@ def parser():
     return args
 
 
-def get_trajlist(training_set, misatodir):
-    with open(training_set) as f:
-        pdbcodes = f.read().strip("\n").split("\n")
-    trajlists = [(i, misatodir) for i in pdbcodes]
+def get_trajlist_indexed(trajlist_file, database_dir):
+    """Read an identifier-per-line trajlist; entries are resolved against database_dir."""
+    with open(trajlist_file) as f:
+        identifiers = f.read().strip("\n").split("\n")
+    trajlists = [(i, database_dir) for i in identifiers]
+    return trajlists
+
+
+def get_trajlist_paired(trajlist_file):
+    """Read a pair-per-line trajlist (one '<traj file> <topology file>' pair per line)."""
+    with open(trajlist_file) as f:
+        trajlists = [line.split() for line in f.read().splitlines() if line.strip()]
     return trajlists
 
 
@@ -225,8 +255,8 @@ if __name__ == "__main__":
         raise ValueError(f"Output file {outputfile} exists. Please remove it first.")
 
     # Candidate trajectories
-    misatodir = args.get("misato_dir")
-    training_set = args.get("pdbcodes")
+    database_dir = args.get("database_dir")
+    training_set = args.get("trajlist")
     VOX_cutoff = args.get("cutoff")
     VOX_sigma = args.get("sigma")
     WINDOW_SIZE = args.get("windowsize")
@@ -246,7 +276,16 @@ if __name__ == "__main__":
         "frame_offset": 9,
     }
 
-    trajlists = get_trajlist(training_set, misatodir)
+    if args.get("trajlist_format") == "paired":
+        trajlists = get_trajlist_paired(training_set)
+        trajtype = Trajectory
+        default_focus = ":LIG"
+    else:
+        if not database_dir:
+            raise ValueError("--database_dir is required for --trajlist_format indexed")
+        trajlists = get_trajlist_indexed(training_set, database_dir)
+        trajtype = MisatoTraj
+        default_focus = ":MOL"
     trajlists = np.array_split(trajlists, task_nr)[task_index]
     trajids = [i[0] for i in trajlists]
     print(f"Total number of trajectories {trajlists.__len__()}")
@@ -262,20 +301,22 @@ if __name__ == "__main__":
     # trajlists, trajids = trajlists[:100], trajids[:100]   # TODO: Remove this line for production run
     ##############################################################
     loader = nearl.io.TrajectoryLoader(
-        trajlists, trajtype=MisatoTraj, superpose=True, trajid=trajids
+        trajlists, trajtype=trajtype, superpose=True, trajid=trajids
     )
     print(f"Performing the featurization on {len(loader)} trajectories")
 
     feat = nearl.featurizer.Featurizer(FEATURIZER_PARMS)
     feat.register_trajloader(loader)
-    feat.register_focus([":MOL"], "mask")
+    focus_mask = args.get("focus_mask") or default_focus
+    feat.register_focus([focus_mask], "mask")
 
     features = get_features(VOX_sigma, feature_type)
 
     # Labels
-    features["pk_original"] = nearl.features.LabelAffinity(
-        baseline_map=args.get("baseline_map"), outkey="pk_original"
-    )
+    if trajtype is MisatoTraj:
+        features["pk_original"] = nearl.features.LabelAffinity(
+            baseline_map=args.get("baseline_map"), outkey="pk_original"
+        )
     # features["label_pcdt"] = nearl.features.LabelPCDT(selection=":MOL", baseline_map="/MieT5/Nearl/data/PDBBind_general_v2020.csv", outkey="label_pcdt")
     print(f"There are {len(features)} features registered: {features.keys()}")
 
