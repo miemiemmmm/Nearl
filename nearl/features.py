@@ -3,6 +3,7 @@ import os
 import subprocess
 import tempfile
 import time
+from typing import ClassVar
 
 import h5py
 import numpy as np
@@ -194,7 +195,7 @@ class Feature:
     # Class-level cache of topology-derived atom properties (resids, atomic_numbers).
     # These depend only on the topology, not on the per-feature selection, so they
     # can be computed once per trajectory and shared across all features.
-    _topology_cache = {}
+    _topology_cache: ClassVar[dict] = {}
 
     def __init__(
         self,
