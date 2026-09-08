@@ -438,15 +438,7 @@ __device__ void com_device(const T *coord, const T *mass, T *com, const int poin
 // To calculate the distance based gaussian map.
 //
 // The arithmetic is float regardless of T, so the computation stays in single
-// precision. Letting T reach the math, or writing -0.5 / 2 * M_PI instead of
-// float literals, promotes the expression to double and pulls in the
-// double-precision exp; -use_fast_math does not touch doubles. This is the
-// innermost function of frame_interp_global.
-//
-// Keep it a template (or mark it inline): cuda_runtime.h expands __device__ to
-// nothing when g++ compiles actions_py.cpp, so a plain non-template definition
-// here emits a strong host symbol in every translation unit and a clean build
-// fails to link with "multiple definition of gaussian_map_device".
+// precision. This is the innermost function of frame_interp_global.
 template <typename T>
 __device__ float gaussian_map_device(const T distance, const T mu, const T sigma) {
   if (sigma == 0) {
