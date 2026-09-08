@@ -54,14 +54,16 @@ __global__ void frame_interp_global(const float *coords_frame, const float *weig
                                     const float cutoff, const float sigma, const int atom_nr) {
   // Each block is responsible for one atom
   const int atom_idx = blockIdx.x;
+  const int frame_idx = blockIdx.y;
   const int buff_dim = (cutoff + spacing) / spacing;
   const int buff_dims[3] = {dims[0] + buff_dim + buff_dim, dims[1] + buff_dim + buff_dim,
                             dims[2] + buff_dim + buff_dim};
   const int gridpoint_buff_nr = buff_dims[0] * buff_dims[1] * buff_dims[2];
   const int gridpoint_nr = dims[0] * dims[1] * dims[2];
-  const float *coord = coords_frame + atom_idx * 3;
+  const float *coord = coords_frame + (frame_idx * atom_nr + atom_idx) * 3;
   const float cutoff_sq = cutoff * cutoff;
-  const float weight = weights_frame[atom_idx];
+  const float weight = weights_frame[frame_idx * atom_nr + atom_idx];
+  float *frame_output = interpolated_frame + frame_idx * gridpoint_nr;
 
   if (coord[0] == DEFAULT_COORD_PLACEHOLDER && coord[1] == DEFAULT_COORD_PLACEHOLDER &&
       coord[2] == DEFAULT_COORD_PLACEHOLDER) {
@@ -132,8 +134,7 @@ __global__ void frame_interp_global(const float *coords_frame, const float *weig
 
     if (dist_sq < cutoff_sq) {
       // interpolated_frame[gid] += gaussian_map_device(sqrt(dist_sq), 0.0f, sigma) * inv_sum;
-      atomicAdd(interpolated_frame + gid,
-                gaussian_map_device(sqrt(dist_sq), 0.0f, sigma) * inv_sum);
+      atomicAdd(frame_output + gid, gaussian_map_device(sqrt(dist_sq), 0.0f, sigma) * inv_sum);
     }
   }
 }
@@ -424,17 +425,12 @@ void trajectory_voxelization_host(float *voxelize_dynamics, const float *coord, 
   CUDA_CHECK(
       cudaMemsetAsync(voxelize_dynamics_gpu, 0, frame_nr * gridpoint_nr * sizeof(float), stream));
 
-  for (int frame_idx = 0; frame_idx < frame_nr && atom_nr > 0; ++frame_idx) {
-    // Perform the observation of all the grid points (observers) in the frame i
-    frame_interp_global<<<atom_nr, BLOCK_SIZE, BLOCK_SIZE * sizeof(float), stream>>>(
-        coord_gpu + frame_idx * atom_nr * 3, weight_gpu + frame_idx * atom_nr,
-        voxelize_dynamics_gpu + frame_idx * gridpoint_nr, dims_gpu, spacing, cutoff, sigma,
-        atom_nr);
-    CUDA_CHECK_KERNEL();
-    if (frame_idx + 1 >= MAX_FRAME_NUMBER) {
-      continue;
-    }
-  }
+  // Process every frame in one launch; blockIdx.y selects the frame.
+  if (atom_nr > 0)
+    frame_interp_global<<<dim3(atom_nr, frame_nr, 1), BLOCK_SIZE, BLOCK_SIZE * sizeof(float),
+                          stream>>>(coord_gpu, weight_gpu, voxelize_dynamics_gpu, dims_gpu, spacing,
+                                    cutoff, sigma, atom_nr);
+  CUDA_CHECK_KERNEL();
 
   // Aggregate the frames and copy the result to the host
   const int _frame_nr = frame_nr > MAX_FRAME_NUMBER ? MAX_FRAME_NUMBER : frame_nr;
