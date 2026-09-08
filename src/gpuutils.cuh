@@ -94,6 +94,7 @@ public:
   void cancel_call() noexcept;
   bool pending() const { return pending_; }
   void *stage_input(const void *source, size_t bytes, size_t slot);
+  void *get_host_buffer(size_t min_bytes, size_t slot);
 
 private:
   struct Buffer {
