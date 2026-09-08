@@ -31,9 +31,9 @@ def parser():
     parser.add_argument(
         "-o", "--output_dir", type=str, default="", help="The output directory"
     )
-    parser.add_argument(
-        "-t", "--feature_type", type=int, default=1, help="Feature type to benchmark."
-    )
+    # parser.add_argument(
+    #     "-t", "--feature_type", type=int, default=1, help="Feature type to benchmark."
+    # )
 
     # Featurization settings
     parser.add_argument(
@@ -142,7 +142,7 @@ if __name__ == "__main__":
     task_nr = args.get("task_nr")
     task_index = args.get("task_index")
     h5_prefix = args.get("h5prefix")
-    feattype = args.get("feature_type")
+    # feattype = args.get("feature_type")
     outputfile = os.path.join(
         os.path.abspath(args["output_dir"]), f"{h5_prefix}{task_index}.h5"
     )
