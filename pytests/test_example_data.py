@@ -86,12 +86,20 @@ def test_get_example_data_when_invoked_from_a_script(tmp_path):
     import subprocess
     import sys
 
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    python_path = os.environ.get("PYTHONPATH")
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join(
+        path for path in (repo_root, python_path) if path
+    )
+
     result = subprocess.run(
         [sys.executable, str(runner_script)],
         cwd=str(tmp_path),
         capture_output=True,
         text=True,
         check=False,
+        env=env,
     )
     assert result.returncode == 0, (
         f"get_example_data() failed when run as a script:\n"
