@@ -108,6 +108,12 @@ void *DeviceContext::stage_input(const void *source, size_t bytes, size_t slot) 
   return destination;
 }
 
+void *DeviceContext::get_host_buffer(size_t min_bytes, size_t slot) {
+  if (!initialized_ || slot >= NUM_SLOTS)
+    throw std::runtime_error("Invalid pinned output buffer request");
+  return resize_buffer(host_buffers_[slot], min_bytes, true);
+}
+
 void DeviceContext::begin_call() {
   if (!initialized_)
     throw std::runtime_error("Initialize the CUDA context before dispatch");
