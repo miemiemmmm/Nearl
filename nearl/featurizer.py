@@ -14,6 +14,7 @@ from .pipeline import (
     PipelineCancelled,
     PrefetchBuffer,
 )
+from .profiling import annotate, nvtx_range, pop_range, push_range
 
 __all__ = [
     "Featurizer",
@@ -37,6 +38,7 @@ def wrapper_runner(func, args):
     return func(*args)
 
 
+@annotate("Featurizer.run_tasks", category="gpu")
 def _run_prepared_tasks(featurizer, tasks, feature_map):
     """Prepare one input ahead while the previous CUDA action is in flight."""
     from .features import DensityFlow, Feature, MarchingObservers
@@ -54,19 +56,31 @@ def _run_prepared_tasks(featurizer, tasks, feature_map):
             # A custom feature may itself use CUDA during query().
             if pending is not None and not async_feature:
                 collect, pending = pending, None
+                push_range("collect", category="gpu")
                 results.append(collect())
+                pop_range()
+            push_range("query", category="query")
             queried = feature.query(*query_args)
+            pop_range()
             if pending is not None:
                 collect, pending = pending, None
+                push_range("collect", category="gpu")
                 results.append(collect())
+                pop_range()
             # Preserve custom run() implementations rather than bypassing them.
             if async_feature:
+                push_range("dispatch", category="gpu")
                 pending = feature._dispatch(*queried)
+                pop_range()
             else:
+                push_range("run", category="gpu")
                 results.append(feature.run(*queried))
+                pop_range()
         if pending is not None:
             collect, pending = pending, None
+            push_range("collect", category="gpu")
             results.append(collect())
+            pop_range()
     finally:
         if pending is not None:
             pending()  # Drain CUDA if preparation of the next input raises.
@@ -467,6 +481,7 @@ class Featurizer:
                 f"Unexpected focus format: {format}. Please choose from 'mask', 'absolute', 'index', 'function'"
             )
 
+    @annotate("Featurizer.parse_focus", category="focus")
     def parse_focus(self):
         """
         After registering the active trajectory, parse the focal points for each frame-slice in the ``run`` method.
@@ -527,6 +542,7 @@ class Featurizer:
         else:
             raise ValueError(f"Unexpected focus format: {self.FOCALPOINTS_TYPE}")
 
+    @annotate("Featurizer.run", category="io")
     def run(self):
         """
         Run the featurization for each iteration over trajectory, frame-slice, focal-point, and feature.
@@ -570,16 +586,20 @@ class Featurizer:
 
         try:
             while True:
-                item = buffer.get()
+                # A long "wait" range means the CPU producer is the bottleneck
+                with nvtx_range("Featurizer.wait", category="io"):
+                    item = buffer.get()
                 if item is _SENTINEL:
                     break
                 if item[0] is _ERROR:
                     raise item[1]
                 feature, queried = item
                 # Launch the GPU kernel on the main process
-                result = feature.run(*queried)
+                with nvtx_range(feature.classname, category="gpu"):
+                    result = feature.run(*queried)
                 # Hand the result to the background writer (async HDF5 dump)
-                writer.submit(feature, result)
+                with nvtx_range("Featurizer.submit", category="dump"):
+                    writer.submit(feature, result)
         finally:
             # Anything raised above (a kernel error, a missing extension) leaves
             # the producer parked in buffer.put() on a full buffer. Cancel it
@@ -613,68 +633,73 @@ class Featurizer:
         try:
             for tid in range(self.TRAJECTORYNUMBER):
                 # Setup the trajectory and its related parameters such as slicing of the trajectory
-                self.traj = self.TRAJLOADER[tid]
+                with nvtx_range("Featurizer.load_trajectory", category="io"):
+                    self.traj = self.TRAJLOADER[tid]
                 msg = f"Processing the trajectory {tid + 1} ({self.traj.identity}) with {self.SLICENUMBER} frame slices"
                 log(f"{self.classname}: {msg:=^80}")
                 st = time.perf_counter()
+                with nvtx_range("Featurizer.trajectory", category="io"):
+                    if self.FOCALPOINTS_PROTOTYPE is not None:
+                        # NOTE: Re-parse the focal points for each trajectory
+                        # Expected output shape is (self.SLICENUMBER, self.FOCALNUMBER, 3) array
+                        focus_state = self.parse_focus()
+                        if focus_state == 0:
+                            log.warning(
+                                f"{self.classname}: Skipping the trajectory {self.traj.identity}(index {tid + 1}) because focal points parsing is failed. "
+                            )
+                            continue
+                        if config.verbose() or config.debug():
+                            log(
+                                f"{self.classname}: Parsing of focal points on trajectory ({tid + 1}/{self.traj.identity}) yeield the shape: {self.FOCALPOINTS.shape}. "
+                            )
 
-                if self.FOCALPOINTS_PROTOTYPE is not None:
-                    # NOTE: Re-parse the focal points for each trajectory
-                    # Expected output shape is (self.SLICENUMBER, self.FOCALNUMBER, 3) array
-                    focus_state = self.parse_focus()
-                    if focus_state == 0:
-                        log.warning(
-                            f"{self.classname}: Skipping the trajectory {self.traj.identity}(index {tid + 1}) because focal points parsing is failed. "
-                        )
-                        continue
-                    if config.verbose() or config.debug():
-                        log(
-                            f"{self.classname}: Parsing of focal points on trajectory ({tid + 1}/{self.traj.identity}) yeield the shape: {self.FOCALPOINTS.shape}. "
-                        )
-
-                # Cache the weights for each atoms in the trajectory (run once for each trajectory)
-                for feat in self.FEATURESPACE:
-                    if config.verbose():
-                        log(
-                            f"{self.classname}: Caching the weights of feature {feat.classname} for the trajectory {tid + 1}"
-                        )
-                    feat.cache(self.traj)
-
-                task_count = 0
-                # Pool the actions for each trajectory
-                for bid in range(self.SLICENUMBER):
-                    self.frame_slice = self.FRAMESLICES[bid]
-                    frames = self.traj.xyz[self.FRAMESLICES[bid]]
-                    if self.FOCALNUMBER > 0:
-                        # After determineing each focus point, run the featurizer for each focus point
-                        for pid in range(self.FOCALNUMBER):
-                            focal_point = self.FOCALPOINTS[bid, pid]
-                            # Crop the trajectory and send the coordinates/trajectory to the featurizer
-                            for fidx in range(self.FEATURENUMBER):
-                                # NOTE: Isolate the effect on the calculation of the next feature
-                                queried = self.FEATURESPACE[fidx].query(
-                                    self.top, frames, focal_point
+                    # Cache the weights for each atoms in the trajectory (run once for each trajectory)
+                    with nvtx_range("Featurizer.cache", category="cache"):
+                        for feat in self.FEATURESPACE:
+                            if config.verbose():
+                                log(
+                                    f"{self.classname}: Caching the weights of feature {feat.classname} for the trajectory {tid + 1}"
                                 )
+                            with nvtx_range(feat.classname, category="cache"):
+                                feat.cache(self.traj)
+
+                    task_count = 0
+                    # Pool the actions for each trajectory
+                    for bid in range(self.SLICENUMBER):
+                        self.frame_slice = self.FRAMESLICES[bid]
+                        frames = self.traj.xyz[self.FRAMESLICES[bid]]
+                        if self.FOCALNUMBER > 0:
+                            # After determineing each focus point, run the featurizer for each focus point
+                            for pid in range(self.FOCALNUMBER):
+                                focal_point = self.FOCALPOINTS[bid, pid]
+                                # Crop the trajectory and send the coordinates/trajectory to the featurizer
+                                for fidx in range(self.FEATURENUMBER):
+                                    # NOTE: Isolate the effect on the calculation of the next feature
+                                    with nvtx_range("query", category="query"):
+                                        queried = self.FEATURESPACE[fidx].query(
+                                            self.top, frames, focal_point
+                                        )
+                                    buffer.put((self.FEATURESPACE[fidx], queried))
+                                    task_count += 1
+                        else:
+                            # Without registeration of focal points: focal-point independent features such as label-generation
+                            for fidx in range(self.FEATURENUMBER):
+                                # Explicitly transfer the topology and frames to get the queried coordinates for the featurizer
+                                with nvtx_range("query", category="query"):
+                                    queried = self.FEATURESPACE[fidx].query(
+                                        self.top, frames, [0, 0, 0]
+                                    )
                                 buffer.put((self.FEATURESPACE[fidx], queried))
                                 task_count += 1
-                    else:
-                        # Without registeration of focal points: focal-point independent features such as label-generation
-                        for fidx in range(self.FEATURENUMBER):
-                            # Explicitly transfer the topology and frames to get the queried coordinates for the featurizer
-                            queried = self.FEATURESPACE[fidx].query(
-                                self.top, frames, [0, 0, 0]
-                            )
-                            buffer.put((self.FEATURESPACE[fidx], queried))
-                            task_count += 1
 
-                log(
-                    f"{self.classname}: Trajectory {tid + 1} yields {task_count} frame-slices (tasks) for the featurization. "
-                )
-                msg = f"Finished the trajectory {tid + 1} / {self.TRAJECTORYNUMBER} with {task_count} tasks in {time.perf_counter() - st:.6f} seconds"
-                msg = f"{msg:=^80}"
-                if tid < self.SLICENUMBER - 1:
-                    msg += "\n"
-                log(f"{self.classname}: {msg}")
+                    log(
+                        f"{self.classname}: Trajectory {tid + 1} yields {task_count} frame-slices (tasks) for the featurization. "
+                    )
+                    msg = f"Finished the trajectory {tid + 1} / {self.TRAJECTORYNUMBER} with {task_count} tasks in {time.perf_counter() - st:.6f} seconds"
+                    msg = f"{msg:=^80}"
+                    if tid < self.SLICENUMBER - 1:
+                        msg += "\n"
+                    log(f"{self.classname}: {msg}")
         except PipelineCancelled:
             # The consumer stopped early and cancelled us; it is already
             # raising its own exception, so there is nothing to report.

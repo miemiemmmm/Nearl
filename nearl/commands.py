@@ -3,6 +3,7 @@ import os
 import numpy as np
 
 from . import log, utils
+from .profiling import annotate
 
 try:
     from . import all_actions
@@ -38,6 +39,7 @@ __all__ = [
 ]
 
 
+@annotate("commands.frame_voxelize", category="gpu")
 def frame_voxelize(coords, weights, grid_dims, spacing, cutoff, sigma):
     """
     Voxelize a set of coordinates and weights (Single frame version of the density flow method)
@@ -86,6 +88,7 @@ def frame_voxelize(coords, weights, grid_dims, spacing, cutoff, sigma):
     return ret_arr.reshape(grid_dims)
 
 
+@annotate("commands.frame_observation", category="gpu")
 def frame_observation(coords, weights, grid_dims, spacing, cutoff, sigma, type_obs):
     """
     Perform marching observer on a single frame.
@@ -128,6 +131,7 @@ def frame_observation(coords, weights, grid_dims, spacing, cutoff, sigma, type_o
     return ret_arr.reshape(grid_dims)
 
 
+@annotate("commands.marching_observer", category="gpu")
 def marching_observer(coords, weights, grid_dims, spacing, cutoff, type_obs, type_agg):
     """
     Marching observers algorithm to create a grid from a slice of frames. The number of atoms in each frame should be the same.
@@ -166,6 +170,7 @@ def marching_observer(coords, weights, grid_dims, spacing, cutoff, type_obs, typ
     return ret_arr.reshape(grid_dims)
 
 
+@annotate("commands.density_flow", category="gpu")
 def density_flow(traj, weights, grid_dims, spacing, cutoff, sigma, type_agg):
     """
     Voxelize a trajectory using the density flow method

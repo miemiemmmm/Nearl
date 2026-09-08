@@ -17,6 +17,7 @@ from . import (  # local modules   # local static methods/objects
     log,
     utils,
 )
+from .profiling import annotate, pop_range, push_range
 
 # chemtools pulls in rdkit and openbabel (~110 ms). Only the chemistry-label
 # features need it, so it is imported in the five cache() methods that do.
@@ -474,6 +475,7 @@ class Feature:
                 "compression": "gzip",
             }
 
+    @annotate("Feature.cache", category="cache")
     def cache(self, trajectory):
         """
         Cache the needed weights for each atom in the trajectory for further Feature.query() function
@@ -521,6 +523,7 @@ class Feature:
                 f"{self}: Selected {np.count_nonzero(self.selected)} atoms based on the selection string"
             )
 
+    @annotate("Feature.query", category="query")
     def query(self, topology, frame_coords, focal_point):
         """
         Base function to query the coordinates within the the bounding box near the focal point and translate the coordinates to the center of the box
@@ -551,10 +554,12 @@ class Feature:
 
         if (len(self.resids) != topology.n_atoms) or self.force_recache:
             logger.info(f"{self}: Dealing with inhomogeneous topology")
+            push_range("query.recache", category="cache")
             if len(frame_coords.shape) == 2:
                 self.cache(pt.Trajectory(xyz=np.array([frame_coords]), top=topology))
             else:
                 self.cache(pt.Trajectory(xyz=frame_coords, top=topology))
+            pop_range()
 
         if self.center is None or self.lengths is None or self.padding is None:
             logger.warning(
@@ -565,7 +570,9 @@ class Feature:
             # Crop first (on the untranslated coordinates, via shifted bounds), then
             # only translate the atoms that survive the crop.
             offset = self.__center_offset - focal_point.astype(np.float32)
+            push_range("query.crop", category="query")
             mask = crop(frame_coords, self.lengths, self.padding, self.spacing, offset)
+            pop_range()
 
             if np.count_nonzero(mask) == 0:
                 logger.warning(
@@ -574,14 +581,21 @@ class Feature:
 
             # Get the boolean array of residues within the bounding box
             if self.byres:
+                # NOTE: two full-topology passes (the unique over the masked
+                # resids and the isin lookup). Annotated on its own because it
+                # scales with n_atoms even when few atoms are in the box.
+                push_range("query.byres", category="query")
                 res_inbox = np.unique(self.resids[mask])
                 final_mask = np.isin(self.resids, res_inbox)
+                pop_range()
             else:
                 final_mask = mask
             # Apply the selected atoms
             if self.selection is not None:
                 final_mask = final_mask * self.selected
+            push_range("query.gather", category="query")
             final_coords = _gather_translate_kernel(frame_coords, final_mask, offset)
+            pop_range()
             logger.debug(
                 f"Returned {np.count_nonzero(final_mask)}; Selected {np.count_nonzero(self.selected)}; Total {len(final_mask)}. "
             )
@@ -590,21 +604,34 @@ class Feature:
     def _dispatch_grid(self, command, coords, weights, *parameters):
         """Queue into the shared context; retain the pinned result until collection."""
         dims = tuple(self.dims)
+        push_range("dispatch.cast", category="gpu")
+        coords = np.ascontiguousarray(coords, dtype=np.float32)
+        weights = np.ascontiguousarray(weights, dtype=np.float32)
+        grid_dims = np.asarray(dims, dtype=np.int32)
+        pop_range()
+        push_range("dispatch.enqueue", category="gpu")
         pending = getattr(commands.all_actions, "_dispatch_" + command)(
-            np.ascontiguousarray(coords, dtype=np.float32),
-            np.ascontiguousarray(weights, dtype=np.float32),
-            np.asarray(dims, dtype=np.int32),
+            coords,
+            weights,
+            grid_dims,
             float(self.spacing),
             float(self.cutoff),
             *parameters,
         )
+        pop_range()
 
         def collect():
+            push_range("collect.result", category="gpu")
             result = pending.result().reshape(dims)
-            if command == "density_flow" and np.isnan(result).any():
-                log.warning(
-                    f"Found nan in the return: {np.count_nonzero(np.isnan(result))}"
-                )
+            pop_range()
+            if command == "density_flow":
+                push_range("collect.nancheck", category="gpu")
+                has_nan = np.isnan(result).any()
+                pop_range()
+                if has_nan:
+                    log.warning(
+                        f"Found nan in the return: {np.count_nonzero(np.isnan(result))}"
+                    )
             return result
 
         return collect
@@ -647,6 +674,7 @@ class Feature:
         )
         return ret
 
+    @annotate("Feature.dump", category="dump")
     def dump(self, result):
         """
         Dump the result feature to an HDF5 file, Feature.outfile and Feature.outkey should be set in its child class (Either via __init__ or hook function)
@@ -1321,6 +1349,7 @@ class Hydrophobicity(Feature):
 ###############################################################################
 # Label-Tyep Features
 ###############################################################################
+@annotate("cache_properties", category="cache")
 def cache_properties(trajectory, property_type, **kwargs):
     """
     Cache the required atomic properties for the trajectory (called in the :func:`nearl.features.DynamicFeature.cache`).
@@ -1591,6 +1620,7 @@ class DynamicFeature(Feature):
         assert isinstance(value, str), "The weight type should be a string"
         self._weight_type = value
 
+    @annotate("DynamicFeature.cache", category="cache")
     def cache(self, trajectory):
         """
         Take the required weight type (self.weight_type) and cache the weights for each atom in the trajectory
@@ -1600,6 +1630,7 @@ class DynamicFeature(Feature):
             trajectory, self.weight_type, **self.feature_args
         )
 
+    @annotate("DynamicFeature.query", category="query")
     def query(self, topology, frame_coords, focal_point):
         """
         Query the coordinates and weights and feed for the following self.run function
@@ -1621,6 +1652,9 @@ class DynamicFeature(Feature):
         selected_weights = []
         max_atom_nr = 0
         zero_count = 0
+        # NOTE: one base-class query per frame; the crop itself is cheap now, so
+        # this range measures the residual per-frame Python/gather overhead.
+        push_range("query.per_frame", category="query")
         for _idx, frame in enumerate(frame_coords):
             # Operation on each frame (Frame is modified inplace)
             idx_inbox, coord_inbox = super().query(topology, frame, focal_point)
@@ -1636,12 +1670,15 @@ class DynamicFeature(Feature):
             selected_coords.append(coord_inbox[:atomnr_inbox])
             selected_weights.append(self.cached_array[idx_inbox][:atomnr_inbox])
             max_atom_nr = max(max_atom_nr, atomnr_inbox)
+        pop_range()
 
         if zero_count > 0 and config.verbose():
             logger.warning(
                 f"{self.classname}: {zero_count} out of {len(frame_coords)} frames has no atoms in the box. The coordinates will be padded with {self.DEFAULT_COORD} and 0.0 for the weights."
             )
 
+        # Pack the per-frame selections into the padded (F, max_atom_nr, ...) arrays
+        push_range("query.assemble", category="query")
         coords = np.full(
             (len(frame_coords), max_atom_nr, 3), self.DEFAULT_COORD, dtype=np.float32
         )
@@ -1656,6 +1693,7 @@ class DynamicFeature(Feature):
         ret_weight = np.ascontiguousarray(
             weights[:, :max_atom_nr].flatten(), dtype=np.float32
         )
+        pop_range()
         return ret_coord, ret_weight
 
     def run(self, frames, weights):
