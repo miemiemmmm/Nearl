@@ -336,21 +336,22 @@ void voxelize_host(float *interpolated, const float *coord, const float *weight,
     CUDA_CHECK(cudaMalloc(&tmp_voxel_gpu, gridpoint_nr * sizeof(float)));
   }
 
-  CUDA_CHECK(cudaMemcpyAsync(coord_gpu, coord, atom_nr * 3 * sizeof(float), cudaMemcpyHostToDevice,
-                             stream));
-  CUDA_CHECK(
-      cudaMemcpyAsync(weight_gpu, weight, atom_nr * sizeof(float), cudaMemcpyHostToDevice, stream));
-  CUDA_CHECK(cudaMemcpyAsync(dims_gpu, dims, 3 * sizeof(int), cudaMemcpyHostToDevice, stream));
+  copy_h2d_async(ctx, coord_gpu, coord, atom_nr * 3 * sizeof(float), BufferSlot::COORDS, stream);
+  copy_h2d_async(ctx, weight_gpu, weight, atom_nr * sizeof(float), BufferSlot::WEIGHTS, stream);
+  copy_h2d_async(ctx, dims_gpu, dims, 3 * sizeof(int), BufferSlot::DIMS, stream);
   CUDA_CHECK(cudaMemsetAsync(tmp_voxel_gpu, 0.0f, gridpoint_nr * sizeof(float), stream));
 
-  frame_interp_global<<<atom_nr, BLOCK_SIZE, BLOCK_SIZE * sizeof(float), stream>>>(
-      coord_gpu, weight_gpu, tmp_voxel_gpu, dims_gpu, spacing, cutoff, sigma, atom_nr);
-  CUDA_CHECK_KERNEL();
+  if (atom_nr > 0) {
+    frame_interp_global<<<atom_nr, BLOCK_SIZE, BLOCK_SIZE * sizeof(float), stream>>>(
+        coord_gpu, weight_gpu, tmp_voxel_gpu, dims_gpu, spacing, cutoff, sigma, atom_nr);
+    CUDA_CHECK_KERNEL();
+  }
   CUDA_CHECK(cudaMemcpyAsync(interpolated, tmp_voxel_gpu, gridpoint_nr * sizeof(float),
                              cudaMemcpyDeviceToHost, stream));
 
   if (use_ctx) {
-    ctx->synchronize();
+    if (!ctx->pending())
+      ctx->synchronize();
   } else {
     CUDA_CHECK(cudaDeviceSynchronize());
     CUDA_CHECK(cudaFree(coord_gpu));
@@ -414,16 +415,16 @@ void trajectory_voxelization_host(float *voxelize_dynamics, const float *coord, 
     CUDA_CHECK(cudaMalloc(&dims_gpu, 3 * sizeof(int)));
   }
 
-  CUDA_CHECK(cudaMemcpyAsync(coord_gpu, coord, frame_nr * atom_nr * 3 * sizeof(float),
-                             cudaMemcpyHostToDevice, stream));
-  CUDA_CHECK(cudaMemcpyAsync(weight_gpu, weight, frame_nr * atom_nr * sizeof(float),
-                             cudaMemcpyHostToDevice, stream));
-  CUDA_CHECK(cudaMemcpyAsync(dims_gpu, dims, 3 * sizeof(int), cudaMemcpyHostToDevice, stream));
+  copy_h2d_async(ctx, coord_gpu, coord, frame_nr * atom_nr * 3 * sizeof(float), BufferSlot::COORDS,
+                 stream);
+  copy_h2d_async(ctx, weight_gpu, weight, frame_nr * atom_nr * sizeof(float), BufferSlot::WEIGHTS,
+                 stream);
+  copy_h2d_async(ctx, dims_gpu, dims, 3 * sizeof(int), BufferSlot::DIMS, stream);
   CUDA_CHECK(cudaMemsetAsync(tmp_voxel_gpu, 0.0f, gridpoint_nr * sizeof(float), stream));
   CUDA_CHECK(
       cudaMemsetAsync(voxelize_dynamics_gpu, 0, frame_nr * gridpoint_nr * sizeof(float), stream));
 
-  for (int frame_idx = 0; frame_idx < frame_nr; ++frame_idx) {
+  for (int frame_idx = 0; frame_idx < frame_nr && atom_nr > 0; ++frame_idx) {
     // Perform the observation of all the grid points (observers) in the frame i
     frame_interp_global<<<atom_nr, BLOCK_SIZE, BLOCK_SIZE * sizeof(float), stream>>>(
         coord_gpu + frame_idx * atom_nr * 3, weight_gpu + frame_idx * atom_nr,
@@ -445,7 +446,8 @@ void trajectory_voxelization_host(float *voxelize_dynamics, const float *coord, 
                              cudaMemcpyDeviceToHost, stream));
 
   if (use_ctx) {
-    ctx->synchronize();
+    if (!ctx->pending())
+      ctx->synchronize();
   } else {
     CUDA_CHECK(cudaDeviceSynchronize());
     CUDA_CHECK(cudaFree(coord_gpu));

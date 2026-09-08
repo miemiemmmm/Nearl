@@ -28,6 +28,42 @@ def wrapper_runner(func, args):
     return func(*args)
 
 
+def _run_prepared_tasks(featurizer, tasks, feature_map):
+    """Prepare one input ahead while the previous CUDA action is in flight."""
+    from .features import DensityFlow, Feature, MarchingObservers
+
+    results = []
+    pending = None
+    try:
+        for (feature, query_args), metadata in zip(tasks, feature_map):
+            featurizer.frame_slice = featurizer.FRAMESLICES[metadata[1]]
+            async_feature = type(feature).run in (
+                Feature.run,
+                DensityFlow.run,
+                MarchingObservers.run,
+            )
+            # A custom feature may itself use CUDA during query().
+            if pending is not None and not async_feature:
+                collect, pending = pending, None
+                results.append(collect())
+            queried = feature.query(*query_args)
+            if pending is not None:
+                collect, pending = pending, None
+                results.append(collect())
+            # Preserve custom run() implementations rather than bypassing them.
+            if async_feature:
+                pending = feature._dispatch(*queried)
+            else:
+                results.append(feature.run(*queried))
+        if pending is not None:
+            collect, pending = pending, None
+            results.append(collect())
+    finally:
+        if pending is not None:
+            pending()  # Drain CUDA if preparation of the next input raises.
+    return results
+
+
 class Featurizer:
     """
     Featurizer aims to automate the process of featurization of multiple Features for a batch of structures or trajectories
@@ -522,19 +558,15 @@ class Featurizer:
                         # Crop the trajectory and send the coordinates/trajectory to the featurizer
                         for fidx in range(self.FEATURENUMBER):
                             # NOTE: Isolate the effect on the calculation of the next feature
-                            queried = self.FEATURESPACE[fidx].query(
-                                self.top, frames, focal_point
-                            )
-                            tasks.append([self.FEATURESPACE[fidx].run, queried])
+                            query_args = (self.top, frames, focal_point)
+                            tasks.append([self.FEATURESPACE[fidx], query_args])
                             feature_map.append((tid, bid, fidx))
                 else:
                     # Without registeration of focal points: focal-point independent features such as label-generation
                     for fidx in range(self.FEATURENUMBER):
                         # Explicitly transfer the topology and frames to get the queried coordinates for the featurizer
-                        queried = self.FEATURESPACE[fidx].query(
-                            self.top, frames, [0, 0, 0]
-                        )
-                        tasks.append([self.FEATURESPACE[fidx].run, queried])
+                        query_args = (self.top, frames, [0, 0, 0])
+                        tasks.append([self.FEATURESPACE[fidx], query_args])
                         feature_map.append((tid, bid, fidx))
 
             log(
@@ -542,7 +574,7 @@ class Featurizer:
             )
 
             # Remove the dependency on the multiprocessing due to high overhead
-            results = [wrapper_runner(*task) for task in tasks]
+            results = _run_prepared_tasks(self, tasks, feature_map)
             log(
                 f"{self.classname}: Tasks are finished, dumping the results to the feature space..."
             )
@@ -601,10 +633,12 @@ class Featurizer:
                             sliced_coord = frames[:, s_, :]
                             focal_point = np.mean(sliced_coord[0], axis=0)
                             for fidx in range(self.FEATURENUMBER):
-                                queried = self.FEATURESPACE[fidx].query(
-                                    sliced_top, sliced_coord.copy(), focal_point
+                                query_args = (
+                                    sliced_top,
+                                    sliced_coord.copy(),
+                                    focal_point,
                                 )
-                                tasks.append([self.FEATURESPACE[fidx].run, queried])
+                                tasks.append([self.FEATURESPACE[fidx], query_args])
                                 feature_map.append((tid, bid, fidx, label))
 
                 elif restype == "dual":
@@ -629,16 +663,18 @@ class Featurizer:
                                 sliced_coord = frames[:, s_, :]
                                 focal_point = np.mean(sliced_coord[0], axis=0)
                                 for fidx in range(self.FEATURENUMBER):
-                                    queried = self.FEATURESPACE[fidx].query(
-                                        sliced_top, sliced_coord.copy(), focal_point
+                                    query_args = (
+                                        sliced_top,
+                                        sliced_coord.copy(),
+                                        focal_point,
                                     )
-                                    tasks.append([self.FEATURESPACE[fidx].run, queried])
+                                    tasks.append([self.FEATURESPACE[fidx], query_args])
                                     feature_map.append((tid, bid, fidx, label))
 
             log(
                 f"{self.classname}: Task set containing {len(tasks)} tasks are created for the trajectory {tid + 1}; "
             )
-            results = [wrapper_runner(*task) for task in tasks]
+            results = _run_prepared_tasks(self, tasks, feature_map)
 
             log(
                 f"{self.classname}: Tasks are finished, dumping the results to the feature space..."
