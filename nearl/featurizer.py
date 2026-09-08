@@ -6,7 +6,7 @@ import time
 import numpy as np
 
 from . import config, constants, log, utils
-from .pipeline import AsyncWriter, PrefetchBuffer, _ERROR, _SENTINEL
+from .pipeline import _ERROR, _SENTINEL, AsyncWriter, PrefetchBuffer
 
 __all__ = [
     "Featurizer",
@@ -506,7 +506,10 @@ class Featurizer:
         writer = AsyncWriter(self._dump_result, capacity=self._writer_capacity)
 
         producer = threading.Thread(
-            target=self._produce_tasks, args=(buffer,), name="nearl-cpu-producer", daemon=True
+            target=self._produce_tasks,
+            args=(buffer,),
+            name="nearl-cpu-producer",
+            daemon=True,
         )
         producer.start()
 

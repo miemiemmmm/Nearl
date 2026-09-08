@@ -1562,9 +1562,7 @@ class DynamicFeature(Feature):
             self.DEFAULT_COORD,
             dtype=np.float32,
         )
-        weights = np.full(
-            (n_frames, self.MAX_ALLOWED_ATOMS), 0.0, dtype=np.float32
-        )
+        weights = np.full((n_frames, self.MAX_ALLOWED_ATOMS), 0.0, dtype=np.float32)
 
         if self.center is None or self.lengths is None or self.padding is None:
             logger.warning(
