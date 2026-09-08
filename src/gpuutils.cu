@@ -7,28 +7,36 @@
 
 #include <algorithm>
 #include <mutex>
+#include <cstring>
+#include <limits>
 
 
 DeviceContext::DeviceContext() = default;
 
-DeviceContext::~DeviceContext() {
-  if (initialized_) {
+DeviceContext::~DeviceContext() noexcept {
+  cancel_call();
+  try {
     finalize();
-  }
+  } catch (...) {
+  } // Destruction must not throw during error cleanup.
 }
 
 void DeviceContext::init() {
   if (initialized_) {
     return;
   }
+  CUDA_CHECK(cudaGetDevice(&device_));
   CUDA_CHECK(cudaStreamCreate(&stream_));
   initialized_ = true;
 }
 
 void DeviceContext::finalize() {
+  if (pending_)
+    throw std::runtime_error("Collect the pending CUDA result before finalizing the context");
   if (!initialized_) {
     return;
   }
+  CUDA_CHECK(cudaSetDevice(device_));
   if (stream_) {
     CUDA_CHECK(cudaStreamSynchronize(stream_));
     CUDA_CHECK(cudaStreamDestroy(stream_));
@@ -41,11 +49,17 @@ void DeviceContext::finalize() {
       buffers_[i].capacity = 0;
     }
   }
+  for (auto &buffer : host_buffers_) {
+    if (buffer.ptr)
+      CUDA_CHECK(cudaFreeHost(buffer.ptr));
+    buffer = Buffer{};
+  }
   initialized_ = false;
 }
 
 void DeviceContext::synchronize() {
   if (initialized_ && stream_) {
+    CUDA_CHECK(cudaSetDevice(device_));
     CUDA_CHECK(cudaStreamSynchronize(stream_));
   } else {
     CUDA_CHECK(cudaDeviceSynchronize());
@@ -59,20 +73,68 @@ void *DeviceContext::get_buffer(size_t min_bytes, size_t slot) {
   if (slot >= NUM_SLOTS) {
     throw std::runtime_error("DeviceContext: buffer slot out of range");
   }
-  Buffer &buf = buffers_[slot];
-  if (buf.capacity < min_bytes) {
-    if (buf.ptr) {
-      CUDA_CHECK(cudaFree(buf.ptr));
+  return resize_buffer(buffers_[slot], min_bytes, false);
+}
+
+void *DeviceContext::resize_buffer(Buffer &buffer, size_t bytes, bool pinned) {
+  bytes = std::max(bytes, size_t(1));
+  if (buffer.capacity < bytes) {
+    if (buffer.ptr) {
+      if (pinned)
+        CUDA_CHECK(cudaFreeHost(buffer.ptr));
+      else
+        CUDA_CHECK(cudaFree(buffer.ptr));
+      buffer = Buffer{};
     }
-    // Round up to the next power of two to avoid many small reallocations.
-    size_t new_capacity = min_bytes ? 1 : 0;
-    while (new_capacity < min_bytes) {
-      new_capacity <<= 1;
-    }
-    CUDA_CHECK(cudaMalloc(&buf.ptr, new_capacity));
-    buf.capacity = new_capacity;
+    size_t capacity = 1;
+    while (capacity < bytes && capacity <= std::numeric_limits<size_t>::max() / 2)
+      capacity *= 2;
+    capacity = std::max(capacity, bytes);
+    if (pinned)
+      CUDA_CHECK(cudaMallocHost(&buffer.ptr, capacity));
+    else
+      CUDA_CHECK(cudaMalloc(&buffer.ptr, capacity));
+    buffer.capacity = capacity;
   }
-  return buf.ptr;
+  return buffer.ptr;
+}
+
+void *DeviceContext::stage_input(const void *source, size_t bytes, size_t slot) {
+  if (!initialized_ || slot >= NUM_SLOTS)
+    throw std::runtime_error("Invalid pinned input buffer request");
+  void *destination = resize_buffer(host_buffers_[slot], bytes, true);
+  if (bytes)
+    std::memcpy(destination, source, bytes);
+  return destination;
+}
+
+void DeviceContext::begin_call() {
+  if (!initialized_)
+    throw std::runtime_error("Initialize the CUDA context before dispatch");
+  if (pending_)
+    throw std::runtime_error("Collect the previous CUDA result before dispatch");
+  CUDA_CHECK(cudaSetDevice(device_));
+  pending_ = true;
+}
+
+void DeviceContext::end_call() {
+  synchronize();
+  pending_ = false;
+}
+
+void DeviceContext::cancel_call() noexcept {
+  if (!pending_)
+    return;
+  if (cudaSetDevice(device_) == cudaSuccess)
+    cudaStreamSynchronize(stream_);
+  pending_ = false;
+}
+
+void copy_h2d_async(DeviceContext *ctx, void *destination, const void *source, size_t bytes,
+                    BufferSlot slot, cudaStream_t stream) {
+  if (ctx && ctx->valid())
+    source = ctx->stage_input(source, bytes, static_cast<size_t>(slot));
+  CUDA_CHECK(cudaMemcpyAsync(destination, source, bytes, cudaMemcpyHostToDevice, stream));
 }
 
 namespace {
@@ -205,8 +267,8 @@ void aggregate_host(float *voxel_traj, float *result_grid, const int frame_numbe
     CUDA_CHECK(cudaMalloc(&tmp_grid_gpu, grid_number * sizeof(float)));
   }
 
-  CUDA_CHECK(cudaMemcpyAsync(voxel_traj_gpu, voxel_traj, frame_number * grid_number * sizeof(float),
-                             cudaMemcpyHostToDevice, stream));
+  copy_h2d_async(ctx, voxel_traj_gpu, voxel_traj, frame_number * grid_number * sizeof(float),
+                 BufferSlot::TRAJ_DYNAMICS, stream);
   CUDA_CHECK(cudaMemsetAsync(tmp_grid_gpu, 0, grid_number * sizeof(float), stream));
 
   gridwise_aggregation_global<<<grid_size, BLOCK_SIZE, 0, stream>>>(
@@ -215,7 +277,8 @@ void aggregate_host(float *voxel_traj, float *result_grid, const int frame_numbe
   CUDA_CHECK(cudaMemcpyAsync(result_grid, tmp_grid_gpu, grid_number * sizeof(float),
                              cudaMemcpyDeviceToHost, stream));
   if (use_ctx) {
-    ctx->synchronize();
+    if (!ctx->pending())
+      ctx->synchronize();
   } else {
     CUDA_CHECK(cudaDeviceSynchronize());
     CUDA_CHECK(cudaFree(voxel_traj_gpu));
@@ -224,13 +287,13 @@ void aggregate_host(float *voxel_traj, float *result_grid, const int frame_numbe
 }
 
 /**
- * @brief Sum the elements of a host float array on the GPU.
+ * @brief Queue a GPU reduction and copy its block sums to host storage.
  *
- * Performs a parallel reduction on the GPU and returns the scalar sum to the
- * host. Uses the global DeviceContext for allocations/streaming when active,
- * otherwise falls back to per-call cudaMalloc/cudaFree.
+ * With a pending context result, partial_host must stay alive until collection.
+ * The binding combines these partial sums after synchronization. Raw callers
+ * without a pending result retain synchronous behavior.
  */
-float sum_reduction_host(float *array, const int arr_length) {
+void sum_reduction_dispatch(float *array, const int arr_length, float *partial_host) {
   unsigned int grid_size = (arr_length + BLOCK_SIZE - 1) / BLOCK_SIZE;
 
   DeviceContext *ctx = get_global_device_context();
@@ -247,35 +310,34 @@ float sum_reduction_host(float *array, const int arr_length) {
     CUDA_CHECK(cudaMalloc(&array_gpu, arr_length * sizeof(float)));
   }
 
-  CUDA_CHECK(cudaMemcpyAsync(array_gpu, array, arr_length * sizeof(float), cudaMemcpyHostToDevice,
-                             stream));
+  copy_h2d_async(ctx, array_gpu, array, arr_length * sizeof(float), BufferSlot::COORDS, stream);
 
   // Perform the sum reduction on the array
   sum_reduction_global<<<grid_size, BLOCK_SIZE, 0, stream>>>(array_gpu, partial_sums, arr_length);
   CUDA_CHECK_KERNEL();
-  if (use_ctx) {
-    ctx->synchronize();
-  } else {
-    CUDA_CHECK(cudaDeviceSynchronize());
-  }
-
-  // Compute the final sum
-  float _partial_sums[grid_size];
-  float tmp_sum = 0.0f;
-  CUDA_CHECK(cudaMemcpyAsync(_partial_sums, partial_sums, grid_size * sizeof(float),
+  CUDA_CHECK(cudaMemcpyAsync(partial_host, partial_sums, grid_size * sizeof(float),
                              cudaMemcpyDeviceToHost, stream));
   if (use_ctx) {
-    ctx->synchronize();
+    if (!ctx->pending())
+      ctx->synchronize();
   } else {
     CUDA_CHECK(cudaDeviceSynchronize());
   }
-  for (int i = 0; i < grid_size; ++i)
-    tmp_sum += _partial_sums[i];
 
   if (!use_ctx) {
     CUDA_CHECK(cudaFree(partial_sums));
     CUDA_CHECK(cudaFree(array_gpu));
   }
+}
 
-  return tmp_sum;
+float sum_reduction_host(float *array, const int arr_length) {
+  std::vector<float> partials((arr_length + BLOCK_SIZE - 1) / BLOCK_SIZE);
+  sum_reduction_dispatch(array, arr_length, partials.data());
+  auto *ctx = get_global_device_context();
+  if (ctx && ctx->valid())
+    ctx->synchronize();
+  float sum = 0;
+  for (float value : partials)
+    sum += value;
+  return sum;
 }

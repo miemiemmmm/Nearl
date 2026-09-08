@@ -500,12 +500,11 @@ void marching_observer_host(float *mobs_dynamics, const float *coord, const floa
 
   CUDA_CHECK(cudaMemsetAsync(mobs_traj, 0, frame_number * observer_number * sizeof(float), stream));
   CUDA_CHECK(cudaMemsetAsync(tmp_mobs_gpu, 0, observer_number * sizeof(float), stream));
-  CUDA_CHECK(cudaMemcpyAsync(coords_device, coord,
-                             frame_number * atom_per_frame * 3 * sizeof(float),
-                             cudaMemcpyHostToDevice, stream));
-  CUDA_CHECK(cudaMemcpyAsync(weights_device, weights, frame_number * atom_per_frame * sizeof(float),
-                             cudaMemcpyHostToDevice, stream));
-  CUDA_CHECK(cudaMemcpyAsync(dims_device, dims, 3 * sizeof(int), cudaMemcpyHostToDevice, stream));
+  copy_h2d_async(ctx, coords_device, coord, frame_number * atom_per_frame * 3 * sizeof(float),
+                 BufferSlot::COORDS, stream);
+  copy_h2d_async(ctx, weights_device, weights, frame_number * atom_per_frame * sizeof(float),
+                 BufferSlot::WEIGHTS, stream);
+  copy_h2d_async(ctx, dims_device, dims, 3 * sizeof(int), BufferSlot::DIMS, stream);
 
   // NOTE: The coordinate should be uniformed meaning each frame have the same number of atoms
   for (int frame_idx = 0; frame_idx < frame_number; ++frame_idx) {
@@ -542,7 +541,8 @@ void marching_observer_host(float *mobs_dynamics, const float *coord, const floa
                              cudaMemcpyDeviceToHost, stream));
 
   if (use_ctx) {
-    ctx->synchronize();
+    if (!ctx->pending())
+      ctx->synchronize();
   } else {
     CUDA_CHECK(cudaDeviceSynchronize());
     CUDA_CHECK(cudaFree(mobs_traj));
@@ -591,11 +591,11 @@ void observe_frame_host(float *results, const float *coord_frame, const float *w
 
   CUDA_CHECK(
       cudaMemsetAsync(results_gpu, 0.0f, frame_nr * observer_number * sizeof(float), stream));
-  CUDA_CHECK(cudaMemcpyAsync(dims_gpu, dims, 3 * sizeof(int), cudaMemcpyHostToDevice, stream));
-  CUDA_CHECK(cudaMemcpyAsync(coord_frame_gpu, coord_frame, frame_nr * atomnr * 3 * sizeof(float),
-                             cudaMemcpyHostToDevice, stream));
-  CUDA_CHECK(cudaMemcpyAsync(weight_frame_gpu, weight_frame, frame_nr * atomnr * sizeof(float),
-                             cudaMemcpyHostToDevice, stream));
+  copy_h2d_async(ctx, dims_gpu, dims, 3 * sizeof(int), BufferSlot::DIMS, stream);
+  copy_h2d_async(ctx, coord_frame_gpu, coord_frame, frame_nr * atomnr * 3 * sizeof(float),
+                 BufferSlot::COORDS, stream);
+  copy_h2d_async(ctx, weight_frame_gpu, weight_frame, frame_nr * atomnr * sizeof(float),
+                 BufferSlot::WEIGHTS, stream);
 
   marching_observer_global<<<grid_size, BLOCK_SIZE, 0, stream>>>(
       results_gpu, coord_frame_gpu, weight_frame_gpu, dims_gpu, spacing, frame_nr, atomnr, cutoff,
@@ -606,7 +606,8 @@ void observe_frame_host(float *results, const float *coord_frame, const float *w
                              cudaMemcpyDeviceToHost, stream));
 
   if (use_ctx) {
-    ctx->synchronize();
+    if (!ctx->pending())
+      ctx->synchronize();
   } else {
     CUDA_CHECK(cudaDeviceSynchronize());
     CUDA_CHECK(cudaFree(results_gpu));

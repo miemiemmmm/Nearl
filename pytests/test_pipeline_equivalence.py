@@ -109,7 +109,7 @@ def _run_pipeline(outfile):
 
     results = {}
     with h5py.File(outfile, "r") as f:
-        for key in f.keys():
+        for key in f:
             if isinstance(f[key], h5py.Dataset):
                 results[key] = np.array(f[key])
     return results
