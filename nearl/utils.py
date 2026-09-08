@@ -562,8 +562,10 @@ def append_hdf_data(hdffile, key, data, dtype, maxshape, **kwargs):
 
     Parameters
     ----------
-    hdffile : str
-      The path to the HDF5 file
+    hdffile : str or h5py.File
+      The path to the HDF5 file, or an already-open h5py.File handle. When a handle
+      is passed, it is reused directly (no open/close), which avoids the repeated
+      open/close overhead when appending many times to the same file.
     key : str
       The key to the dataset
     data : array_like
@@ -576,7 +578,9 @@ def append_hdf_data(hdffile, key, data, dtype, maxshape, **kwargs):
       Additional keyword arguments for creating the dataset (If the dataset does not exist yet)
 
     """
-    with h5py.File(hdffile, "a") as hdf:
+    borrowed = isinstance(hdffile, h5py.File)
+    hdf = hdffile if borrowed else h5py.File(hdffile, "a")
+    try:
         if key in hdf:
             dset = hdf[key]
             current_shape = dset.shape
@@ -589,6 +593,9 @@ def append_hdf_data(hdffile, key, data, dtype, maxshape, **kwargs):
                 key, data.shape, dtype=dtype, maxshape=maxshape, **kwargs
             )
             dset[:] = data
+    finally:
+        if not borrowed:
+            hdf.close()
 
 
 def update_hdf_data(hdffile, dataset_name: str, data: np.ndarray, hdf_slice, **kwargs):
