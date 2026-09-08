@@ -120,6 +120,12 @@ void *DeviceContext::get_host_buffer(size_t min_bytes, size_t slot) {
   return resize_buffer(host_buffers_[slot], min_bytes, true);
 }
 
+size_t DeviceContext::host_buffer_capacity(size_t slot) const {
+  if (slot >= NUM_SLOTS)
+    throw std::runtime_error("DeviceContext: buffer slot out of range");
+  return host_buffers_[slot].capacity;
+}
+
 void DeviceContext::begin_call() {
   if (!initialized_)
     throw std::runtime_error("Initialize the CUDA context before dispatch");
