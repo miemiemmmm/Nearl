@@ -35,6 +35,7 @@ def test_frame_voxelize():
 
 def test_device_buffer_reuse_and_growth():
     """Repeated sizes reuse device memory; larger inputs grow it."""
+    commands.finalize_context()
     commands.init_context()
     dims = np.array([16, 16, 16], dtype=np.int32)
     small_coords = np.zeros((100, 3), dtype=np.float32)
@@ -55,6 +56,7 @@ def test_device_buffer_reuse_and_growth():
 
 def test_pinned_buffer_reuse_and_growth():
     """Repeated sizes reuse pinned staging memory; larger inputs grow it."""
+    commands.finalize_context()
     commands.init_context()
     dims = np.array([16, 16, 16], dtype=np.int32)
     small_coords = np.zeros((100, 3), dtype=np.float32)
