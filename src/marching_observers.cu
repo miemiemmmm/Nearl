@@ -21,7 +21,8 @@
  *
  * @param coord The reference coordinate of the observer
  * @param coord_framei The coordinates of all atoms in the frame
- * @param weight_framei UNUSED: only needed here to preserve a common call signature for all observables
+ * @param weight_framei UNUSED: only needed here to preserve a common call signature for all
+ * observables
  * @param atomnr The number of atoms in the frame
  * @param cutoff The cutoff distance
  *
@@ -29,8 +30,9 @@
  *
  * @note This direct count-based observation does not consider atom weights.
  */
-__device__ static float existence_device(const float *coord, const float *coord_framei, const float *weight_framei, 
-                                  const int atomnr, const float cutoff) {
+__device__ static float existence_device(const float *coord, const float *coord_framei,
+                                         const float *weight_framei, const int atomnr,
+                                         const float cutoff) {
   // Work on each atoms in a frame to calculate the observable in that frame
   float dist_sq;
   float cutoff_sq = cutoff * cutoff;
@@ -58,7 +60,8 @@ __device__ static float existence_device(const float *coord, const float *coord_
  * @param coord Pointer to the reference coordinate's float array (x, y, z).
  * @param coord_framei Pointer to the frame's atom coordinates float array, with each
  *        atom's coordinates stored consecutively as (x, y, z).
- * @param weight_framei UNUSED: only needed here to preserve a common call signature for all observables.
+ * @param weight_framei UNUSED: only needed here to preserve a common call signature for all
+ * observables.
  * @param atomnr The total number of atoms in the frame.
  * @param cutoff The distance threshold for counting an atom. Only atoms within this
  *        distance from the reference coordinate are counted.
@@ -67,8 +70,8 @@ __device__ static float existence_device(const float *coord, const float *coord_
  *
  * @note This direct count-based observation does not consider atom weights.
  */
-__device__ static float direct_count_device(const float *coord, const float *coord_framei, const float *weight_framei, 
-                                     int atomnr, float cutoff) {
+__device__ static float direct_count_device(const float *coord, const float *coord_framei,
+                                            const float *weight_framei, int atomnr, float cutoff) {
   // Work on each atoms in a frame to calculate the observable in that frame
   float dist_sq, retval = 0.0;
   float cutoff_sq = cutoff * cutoff;
@@ -111,7 +114,8 @@ __device__ static float direct_count_device(const float *coord, const float *coo
  *
  */
 __device__ static float distinct_count_device(const float *coord, const float *coord_framei,
-                                       const float *weight_framei, int atomnr, float cutoff) {
+                                              const float *weight_framei, int atomnr,
+                                              float cutoff) {
   // Work on each atoms in a frame to calculate the observable in that frame
   float dist_sq;
   float cutoff_sq = cutoff * cutoff;
@@ -153,8 +157,8 @@ __device__ static float distinct_count_device(const float *coord, const float *c
  * @brief Weighted mean distance of particles in frame i
  */
 __device__ static float mean_distance_device(const float *coord, const float *coord_framei,
-                                      const float *weight_framei, const int atomnr,
-                                      const float cutoff) {
+                                             const float *weight_framei, const int atomnr,
+                                             const float cutoff) {
   // Work on each atoms in a frame to calculate the observable in that frame
   float dist_sq;
   float cutoff_sq = cutoff * cutoff;
@@ -184,7 +188,8 @@ __device__ static float mean_distance_device(const float *coord, const float *co
  * @brief Calculate the cumulative weight of particles within a specified cutoff distance.
  */
 __device__ static float cumulative_weight_device(const float *coord, const float *coord_framei,
-                                          const float *weight_framei, int atomnr, float cutoff) {
+                                                 const float *weight_framei, int atomnr,
+                                                 float cutoff) {
   float dist_sq, retval = 0.0, cutoff_sq = cutoff * cutoff;
   for (int j = 0; j < atomnr; j++) {
     dist_sq = square_distance_device<float>(coord, coord_framei + j * 3);
@@ -202,7 +207,8 @@ __device__ static float cumulative_weight_device(const float *coord, const float
  * @brief Calculates the density of particles within a specified cutoff radius from a given point.
  */
 __device__ static float density_device(const float *coord, const float *coord_framei,
-                                const float *weight_framei, const int atomnr, const float cutoff) {
+                                       const float *weight_framei, const int atomnr,
+                                       const float cutoff) {
   float weight_sum = cumulative_weight_device(coord, coord_framei, weight_framei, atomnr, cutoff);
   float volume = (4.0 / 3.0) * M_PI * cutoff * cutoff * cutoff;
   return weight_sum / volume;
@@ -224,8 +230,8 @@ __device__ static float density_device(const float *coord, const float *coord_fr
  *
  */
 __device__ static float dispersion_device(const float *coord, const float *coord_framei,
-                                   const float *weight_framei, const int atomnr,
-                                   const float cutoff) {
+                                          const float *weight_framei, const int atomnr,
+                                          const float cutoff) {
   // Work on each atoms in a frame to calculate the observable in that frame
   float dist_sq, dist_sq_j, dist_sq_k;
   float cutoff_sq = cutoff * cutoff;
@@ -278,8 +284,8 @@ __device__ static float dispersion_device(const float *coord, const float *coord
  *
  */
 __device__ static float eccentricity_device(const float *coord, const float *coord_framei,
-                                     const float *weight_framei, const int atomnr,
-                                     const float cutoff) {
+                                            const float *weight_framei, const int atomnr,
+                                            const float cutoff) {
   float dist_sq;
   float cutoff_sq = cutoff * cutoff;
 
@@ -324,8 +330,8 @@ __device__ static float eccentricity_device(const float *coord, const float *coo
  * @note The signs of weights should be geater than 0 (otherwise Center of Mass will be wrong)
  */
 __device__ static float radius_of_gyration_device(const float *coord, const float *coord_framei,
-                                           const float *weight_framei, const int atomnr,
-                                           const float cutoff) {
+                                                  const float *weight_framei, const int atomnr,
+                                                  const float cutoff) {
   // Work on each atoms in a frame to calculate the observable in that frame
   float dist_sq, cutoff_sq = cutoff * cutoff;
 
@@ -465,8 +471,7 @@ static void launch_marching_observer(const ObservableType type_obs, const unsign
 void marching_observer_host(float *mobs_dynamics, const float *coord, const float *weights,
                             const int *dims, const float spacing, const int frame_number,
                             const int atom_per_frame, const float cutoff,
-                            const ObservableType type_obs,
-                            const AggregationType type_agg) {
+                            const ObservableType type_obs, const AggregationType type_agg) {
   unsigned int observer_number = dims[0] * dims[1] * dims[2];
   unsigned int grid_size = (observer_number + BLOCK_SIZE - 1) / BLOCK_SIZE;
 
@@ -590,7 +595,6 @@ void observe_frame_host(float *results, const float *coord_frame, const float *w
     CUDA_CHECK(cudaMalloc(&weight_frame_gpu, frame_nr * atomnr * sizeof(float)));
   }
 
-  
 
   CUDA_CHECK(
       cudaMemsetAsync(results_gpu, 0.0f, frame_nr * observer_number * sizeof(float), stream));
