@@ -49,7 +49,7 @@ inline void check_failed(cudaError_t err, const char *expr, const char *file, in
  */
 class DeviceContext {
 public:
-  static constexpr size_t NUM_SLOTS = 8;
+  static constexpr size_t NUM_SLOTS = 10;
 
   DeviceContext();
   ~DeviceContext() noexcept;
@@ -130,6 +130,8 @@ enum class BufferSlot {
   TRAJ_DYNAMICS = 5,
   PARTIAL_SUMS = 6,
   SCRATCH = 7,
+  CELL_HEAD = 8,
+  ATOM_NEXT = 9,
 };
 
 

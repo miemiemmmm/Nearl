@@ -1,11 +1,158 @@
 // Created by: Yang Zhang
 // Description: The CUDA implementation of the marching observer algorithm
 
+#include <algorithm>
+
 #include <iostream>
 
 #include "constants.h"  // For hard-coded variables: BLOCK_SIZE, MAX_FRAME_NUMBER
 #include "gpuutils.cuh" // For hard-coded BLOCK_SIZE and device functions: mean_device, mean_device, standard_deviation_device
 #include "marching_observers.cuh"
+
+
+////////////////////////////////////////////////////////////////////////////////
+// Spatial cell index over the atoms
+////////////////////////////////////////////////////////////////////////////////
+// Atoms are bucketed into a uniform grid of cells with cell size >= cutoff.
+// Every atom within cutoff of an observer then lies in one of the 27 cells
+// surrounding the observer's cell, so each observer only inspects those
+// instead of the whole frame. The per-(frame, cell) buckets are linked lists
+// built once per call: cell_head[frame * cell_count + cell] holds the head
+// atom index (or -1) and atom_next[frame * atomnr + atom] the next atom of
+// the same cell (or -1). Padded placeholder atoms are never bucketed.
+struct ObserverCells {
+  const int *cell_head;
+  const int *atom_next;
+  const float *coords;
+  int3 dims;
+  float3 min;
+  float cell_size;
+  int cell_count;
+  int frame_base;
+};
+
+
+__device__ int3 observer_cell_index(const float *coord, const ObserverCells &cells) {
+  return make_int3(static_cast<int>(floorf((coord[0] - cells.min.x) / cells.cell_size)),
+                   static_cast<int>(floorf((coord[1] - cells.min.y) / cells.cell_size)),
+                   static_cast<int>(floorf((coord[2] - cells.min.z) / cells.cell_size)));
+}
+
+
+__global__ void build_observer_cell_lists(int *cell_head, int *atom_next, const float *coord,
+                                          int atom_total, int atomnr, int3 cell_dims,
+                                          float3 cell_min, float cell_size, int cell_count) {
+  int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx >= atom_total)
+    return;
+  const float *c = coord + static_cast<size_t>(idx) * 3;
+  if (c[0] == DEFAULT_COORD_PLACEHOLDER && c[1] == DEFAULT_COORD_PLACEHOLDER &&
+      c[2] == DEFAULT_COORD_PLACEHOLDER)
+    return;
+  int cx = static_cast<int>(floorf((c[0] - cell_min.x) / cell_size));
+  int cy = static_cast<int>(floorf((c[1] - cell_min.y) / cell_size));
+  int cz = static_cast<int>(floorf((c[2] - cell_min.z) / cell_size));
+  cx = min(max(cx, 0), cell_dims.x - 1);
+  cy = min(max(cy, 0), cell_dims.y - 1);
+  cz = min(max(cz, 0), cell_dims.z - 1);
+  int cell = (idx / atomnr) * cell_count + (cz * cell_dims.y + cy) * cell_dims.x + cx;
+  atom_next[idx] = atomicExch(&cell_head[cell], idx);
+}
+
+
+namespace {
+
+struct ObserverCellGrid {
+  int3 dims;
+  float3 min;
+  float cell_size;
+  int cell_count;
+};
+
+
+// Cell grid covering every non-placeholder atom padded by cutoff on each side,
+// so any observer within cutoff of an atom lies inside the grid. The +1 cell
+// per axis keeps floor() on the device inside the range despite float rounding.
+ObserverCellGrid compute_observer_cell_grid(const float *coord, size_t atom_count, float cutoff) {
+  ObserverCellGrid grid;
+  grid.cell_size = cutoff > 0.0f ? cutoff : 1.0f;
+  float lo[3] = {0.0f, 0.0f, 0.0f}, hi[3] = {0.0f, 0.0f, 0.0f};
+  bool any = false;
+  for (size_t i = 0; i < atom_count; ++i) {
+    const float *c = coord + i * 3;
+    if (c[0] == DEFAULT_COORD_PLACEHOLDER && c[1] == DEFAULT_COORD_PLACEHOLDER &&
+        c[2] == DEFAULT_COORD_PLACEHOLDER)
+      continue;
+    for (int d = 0; d < 3; ++d) {
+      if (!any || c[d] < lo[d])
+        lo[d] = c[d];
+      if (!any || c[d] > hi[d])
+        hi[d] = c[d];
+    }
+    any = true;
+  }
+  if (!any) {
+    grid.dims = make_int3(1, 1, 1);
+    grid.min = make_float3(0.0f, 0.0f, 0.0f);
+    grid.cell_count = 1;
+    return grid;
+  }
+  grid.min = make_float3(lo[0] - cutoff, lo[1] - cutoff, lo[2] - cutoff);
+  float mins[3] = {grid.min.x, grid.min.y, grid.min.z};
+  int d[3];
+  for (int k = 0; k < 3; ++k)
+    d[k] = std::max(1, static_cast<int>(std::ceil((hi[k] + cutoff - mins[k]) / grid.cell_size)) + 1);
+  grid.dims = make_int3(d[0], d[1], d[2]);
+  grid.cell_count = d[0] * d[1] * d[2];
+  return grid;
+}
+
+
+struct ObserverCellBuffers {
+  int *cell_head = nullptr;
+  int *atom_next = nullptr;
+};
+
+
+// Allocates the cell buckets (context slots or per-call cudaMalloc), clears
+// the heads and fills the lists from the uploaded coordinates.
+ObserverCellBuffers build_observer_cell_buffers(DeviceContext *ctx, bool use_ctx,
+                                                cudaStream_t stream, const float *coord_device,
+                                                const float *coord_host, int frame_number,
+                                                int atomnr, float cutoff,
+                                                ObserverCellGrid &grid) {
+  grid = compute_observer_cell_grid(coord_host, static_cast<size_t>(frame_number) * atomnr, cutoff);
+  ObserverCellBuffers bufs;
+  size_t head_count = std::max(static_cast<size_t>(frame_number) * grid.cell_count, size_t(1));
+  size_t next_count = std::max(static_cast<size_t>(frame_number) * atomnr, size_t(1));
+  if (use_ctx) {
+    bufs.cell_head = ctx->get_buffer_i(head_count, static_cast<size_t>(BufferSlot::CELL_HEAD));
+    bufs.atom_next = ctx->get_buffer_i(next_count, static_cast<size_t>(BufferSlot::ATOM_NEXT));
+  } else {
+    CUDA_CHECK(cudaMalloc(&bufs.cell_head, head_count * sizeof(int)));
+    CUDA_CHECK(cudaMalloc(&bufs.atom_next, next_count * sizeof(int)));
+  }
+  CUDA_CHECK(cudaMemsetAsync(bufs.cell_head, -1, head_count * sizeof(int), stream));
+  int atom_total = frame_number * atomnr;
+  if (atom_total > 0) {
+    int blocks = (atom_total + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    build_observer_cell_lists<<<blocks, BLOCK_SIZE, 0, stream>>>(
+        bufs.cell_head, bufs.atom_next, coord_device, atom_total, atomnr, grid.dims, grid.min,
+        grid.cell_size, grid.cell_count);
+    CUDA_CHECK_KERNEL();
+  }
+  return bufs;
+}
+
+
+void free_observer_cell_buffers(bool use_ctx, const ObserverCellBuffers &bufs) {
+  if (!use_ctx) {
+    CUDA_CHECK(cudaFree(bufs.cell_head));
+    CUDA_CHECK(cudaFree(bufs.atom_next));
+  }
+}
+
+} // namespace
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -27,22 +174,22 @@
  *
  * @note This direct count-based observation does not consider atom weights.
  */
-__device__ float existence_device(const float *coord, const float *coord_framei, const int atomnr,
+__device__ float existence_device(const float *coord, const ObserverCells &cells,
                                   const float cutoff) {
-  // Work on each atoms in a frame to calculate the observable in that frame
-  float dist_sq;
   float cutoff_sq = cutoff * cutoff;
-  for (int j = 0; j < atomnr; ++j) {
-    // Filter atoms outside the cutoff distance
-    dist_sq = square_distance_device(coord, coord_framei + j * 3);
-
-    // Return 1 if any atom shows up within the cutoff distance
-    if (dist_sq > cutoff_sq) {
-      continue;
-    } else {
-      return 1.0f;
-    }
-  }
+  int3 oc = observer_cell_index(coord, cells);
+  for (int dz = -1; dz <= 1; ++dz)
+    for (int dy = -1; dy <= 1; ++dy)
+      for (int dx = -1; dx <= 1; ++dx) {
+        int cx = oc.x + dx, cy = oc.y + dy, cz = oc.z + dz;
+        if (cx < 0 || cx >= cells.dims.x || cy < 0 || cy >= cells.dims.y || cz < 0 ||
+            cz >= cells.dims.z)
+          continue;
+        int cell = cells.frame_base + (cz * cells.dims.y + cy) * cells.dims.x + cx;
+        for (int j = cells.cell_head[cell]; j != -1; j = cells.atom_next[j])
+          if (square_distance_device(coord, cells.coords + j * 3) <= cutoff_sq)
+            return 1.0f;
+      }
   return 0.0f;
 }
 
@@ -64,22 +211,23 @@ __device__ float existence_device(const float *coord, const float *coord_framei,
  *
  * @note This direct count-based observation does not consider atom weights.
  */
-__device__ float direct_count_device(const float *coord, const float *coord_framei, int atomnr,
-                                     float cutoff) {
-  // Work on each atoms in a frame to calculate the observable in that frame
-  float dist_sq, retval = 0.0;
+__device__ float direct_count_device(const float *coord, const ObserverCells &cells,
+                                     const float cutoff) {
   float cutoff_sq = cutoff * cutoff;
-  for (int j = 0; j < atomnr; ++j) {
-    // Filter atoms outside the cutoff distance
-    dist_sq = square_distance_device(coord, coord_framei + j * 3);
-
-    // Count 1 if the atom is within the cutoff distance
-    if (dist_sq > cutoff_sq) {
-      continue;
-    } else {
-      retval += 1.0f;
-    }
-  }
+  float retval = 0.0f;
+  int3 oc = observer_cell_index(coord, cells);
+  for (int dz = -1; dz <= 1; ++dz)
+    for (int dy = -1; dy <= 1; ++dy)
+      for (int dx = -1; dx <= 1; ++dx) {
+        int cx = oc.x + dx, cy = oc.y + dy, cz = oc.z + dz;
+        if (cx < 0 || cx >= cells.dims.x || cy < 0 || cy >= cells.dims.y || cz < 0 ||
+            cz >= cells.dims.z)
+          continue;
+        int cell = cells.frame_base + (cz * cells.dims.y + cy) * cells.dims.x + cx;
+        for (int j = cells.cell_head[cell]; j != -1; j = cells.atom_next[j])
+          if (square_distance_device(coord, cells.coords + j * 3) <= cutoff_sq)
+            retval += 1.0f;
+      }
   return retval;
 }
 
@@ -107,10 +255,8 @@ __device__ float direct_count_device(const float *coord, const float *coord_fram
  * comparison issues).
  *
  */
-__device__ float distinct_count_device(const float *coord, const float *coord_framei,
-                                       const float *weight_framei, int atomnr, float cutoff) {
-  // Work on each atoms in a frame to calculate the observable in that frame
-  float dist_sq;
+__device__ float distinct_count_device(const float *coord, const ObserverCells &cells,
+                                       const float *weight_framei, const float cutoff) {
   float cutoff_sq = cutoff * cutoff;
   float distinct_count = 0.0f;
 
@@ -121,24 +267,32 @@ __device__ float distinct_count_device(const float *coord, const float *coord_fr
   }
 
   float val_check;
-  for (int j = 0; j < atomnr; ++j) {
-    // Filter atoms outside the cutoff distance
-    dist_sq = square_distance_device(coord, coord_framei + j * 3);
-    if (dist_sq > cutoff_sq)
-      continue;
+  int3 oc = observer_cell_index(coord, cells);
+  for (int dz = -1; dz <= 1; ++dz)
+    for (int dy = -1; dy <= 1; ++dy)
+      for (int dx = -1; dx <= 1; ++dx) {
+        int cx = oc.x + dx, cy = oc.y + dy, cz = oc.z + dz;
+        if (cx < 0 || cx >= cells.dims.x || cy < 0 || cy >= cells.dims.y || cz < 0 ||
+            cz >= cells.dims.z)
+          continue;
+        int cell = cells.frame_base + (cz * cells.dims.y + cy) * cells.dims.x + cx;
+        for (int j = cells.cell_head[cell]; j != -1; j = cells.atom_next[j]) {
+          if (square_distance_device(coord, cells.coords + j * 3) > cutoff_sq)
+            continue;
 
-    val_check = weight_framei[j];
-    // Linear search unique values with early termination and insertion
-    for (int k = 0; k < DISTINCT_LIMIT; ++k) {
-      if (val_check == encountered_values[k]) {
-        break;
-      } else if (encountered_values[k] == DEFAULT_PLACEHOLDER) {
-        encountered_values[k] = val_check;
-        distinct_count += 1;
-        break;
+          val_check = weight_framei[j];
+          // Linear search unique values with early termination and insertion
+          for (int k = 0; k < DISTINCT_LIMIT; ++k) {
+            if (val_check == encountered_values[k]) {
+              break;
+            } else if (encountered_values[k] == DEFAULT_PLACEHOLDER) {
+              encountered_values[k] = val_check;
+              distinct_count += 1;
+              break;
+            }
+          }
+        }
       }
-    }
-  }
   return distinct_count;
 }
 
@@ -149,25 +303,32 @@ __device__ float distinct_count_device(const float *coord, const float *coord_fr
 /**
  * @brief Weighted mean distance of particles in frame i
  */
-__device__ float mean_distance_device(const float *coord, const float *coord_framei,
-                                      const float *weight_framei, const int atomnr,
-                                      const float cutoff) {
-  // Work on each atoms in a frame to calculate the observable in that frame
-  float dist_sq;
+__device__ float mean_distance_device(const float *coord, const ObserverCells &cells,
+                                      const float *weight_framei, const float cutoff) {
   float cutoff_sq = cutoff * cutoff;
 
   float retval = 0.0;
   float weight_sum = 0.0;
   int count = 0;
-  for (int j = 0; j < atomnr; ++j) {
-    dist_sq = square_distance_device<float>(coord, coord_framei + j * 3);
-    if (dist_sq > cutoff_sq)
-      continue;
+  int3 oc = observer_cell_index(coord, cells);
+  for (int dz = -1; dz <= 1; ++dz)
+    for (int dy = -1; dy <= 1; ++dy)
+      for (int dx = -1; dx <= 1; ++dx) {
+        int cx = oc.x + dx, cy = oc.y + dy, cz = oc.z + dz;
+        if (cx < 0 || cx >= cells.dims.x || cy < 0 || cy >= cells.dims.y || cz < 0 ||
+            cz >= cells.dims.z)
+          continue;
+        int cell = cells.frame_base + (cz * cells.dims.y + cy) * cells.dims.x + cx;
+        for (int j = cells.cell_head[cell]; j != -1; j = cells.atom_next[j]) {
+          float dist_sq = square_distance_device(coord, cells.coords + j * 3);
+          if (dist_sq > cutoff_sq)
+            continue;
 
-    retval += sqrt(dist_sq) * weight_framei[j];
-    weight_sum += weight_framei[j];
-    count += 1;
-  }
+          retval += sqrt(dist_sq) * weight_framei[j];
+          weight_sum += weight_framei[j];
+          count += 1;
+        }
+      }
   if (count > 0) {
     retval = retval / weight_sum;
     return retval;
@@ -180,17 +341,23 @@ __device__ float mean_distance_device(const float *coord, const float *coord_fra
 /**
  * @brief Calculate the cumulative weight of particles within a specified cutoff distance.
  */
-__device__ float cumulative_weight_device(const float *coord, const float *coord_framei,
-                                          const float *weight_framei, int atomnr, float cutoff) {
-  float dist_sq, retval = 0.0, cutoff_sq = cutoff * cutoff;
-  for (int j = 0; j < atomnr; j++) {
-    dist_sq = square_distance_device<float>(coord, coord_framei + j * 3);
-    if (dist_sq > cutoff_sq)
-      continue;
-
-    // Count the weight if the atom is within the cutoff distance
-    retval += weight_framei[j];
-  }
+__device__ float cumulative_weight_device(const float *coord, const ObserverCells &cells,
+                                         const float *weight_framei, const float cutoff) {
+  float cutoff_sq = cutoff * cutoff;
+  float retval = 0.0;
+  int3 oc = observer_cell_index(coord, cells);
+  for (int dz = -1; dz <= 1; ++dz)
+    for (int dy = -1; dy <= 1; ++dy)
+      for (int dx = -1; dx <= 1; ++dx) {
+        int cx = oc.x + dx, cy = oc.y + dy, cz = oc.z + dz;
+        if (cx < 0 || cx >= cells.dims.x || cy < 0 || cy >= cells.dims.y || cz < 0 ||
+            cz >= cells.dims.z)
+          continue;
+        int cell = cells.frame_base + (cz * cells.dims.y + cy) * cells.dims.x + cx;
+        for (int j = cells.cell_head[cell]; j != -1; j = cells.atom_next[j])
+          if (square_distance_device(coord, cells.coords + j * 3) <= cutoff_sq)
+            retval += weight_framei[j];
+      }
   return retval;
 }
 
@@ -198,9 +365,9 @@ __device__ float cumulative_weight_device(const float *coord, const float *coord
 /**
  * @brief Calculates the density of particles within a specified cutoff radius from a given point.
  */
-__device__ float density_device(const float *coord, const float *coord_framei,
-                                const float *weight_framei, const int atomnr, const float cutoff) {
-  float weight_sum = cumulative_weight_device(coord, coord_framei, weight_framei, atomnr, cutoff);
+__device__ float density_device(const float *coord, const ObserverCells &cells,
+                                const float *weight_framei, const float cutoff) {
+  float weight_sum = cumulative_weight_device(coord, cells, weight_framei, cutoff);
   float volume = (4.0 / 3.0) * M_PI * cutoff * cutoff * cutoff;
   return weight_sum / volume;
 }
@@ -220,36 +387,57 @@ __device__ float density_device(const float *coord, const float *coord_framei,
  * is zero, the function returns 0.0, indicating no dispersion or an invalid state.
  *
  */
-__device__ float dispersion_device(const float *coord, const float *coord_framei,
-                                   const float *weight_framei, const int atomnr,
-                                   const float cutoff) {
-  // Work on each atoms in a frame to calculate the observable in that frame
+__device__ float dispersion_device(const float *coord, const ObserverCells &cells,
+                                   const float *weight_framei, const float cutoff) {
   float dist_sq, dist_sq_j, dist_sq_k;
   float cutoff_sq = cutoff * cutoff;
 
   float weight_sum = 0.0f;
   float retval = 0.0f;
-  // Pairwise distance summation
-  for (int j = 0; j < atomnr; ++j) {
-    // Filter atom 1 outside the cutoff distance
-    dist_sq_j = square_distance_device(coord, coord_framei + j * 3);
-    if (dist_sq_j > cutoff_sq)
-      continue;
+  // Pairwise distance summation over the neighbourhood atoms; the k > j index
+  // check enumerates each pair once regardless of the linked-list order.
+  int3 oc = observer_cell_index(coord, cells);
+  for (int dzj = -1; dzj <= 1; ++dzj)
+    for (int dyj = -1; dyj <= 1; ++dyj)
+      for (int dxj = -1; dxj <= 1; ++dxj) {
+        int cxj = oc.x + dxj, cyj = oc.y + dyj, czj = oc.z + dzj;
+        if (cxj < 0 || cxj >= cells.dims.x || cyj < 0 || cyj >= cells.dims.y || czj < 0 ||
+            czj >= cells.dims.z)
+          continue;
+        int cellj = cells.frame_base + (czj * cells.dims.y + cyj) * cells.dims.x + cxj;
+        for (int j = cells.cell_head[cellj]; j != -1; j = cells.atom_next[j]) {
+          // Filter atom 1 outside the cutoff distance
+          dist_sq_j = square_distance_device(coord, cells.coords + j * 3);
+          if (dist_sq_j > cutoff_sq)
+            continue;
 
-    for (int k = j + 1; k < atomnr; ++k) {
-      // Filter atom 2 outside the cutoff distance
-      dist_sq_k = square_distance_device(coord, coord_framei + k * 3);
-      if (dist_sq_k > cutoff_sq)
-        continue;
+          for (int dzk = -1; dzk <= 1; ++dzk)
+            for (int dyk = -1; dyk <= 1; ++dyk)
+              for (int dxk = -1; dxk <= 1; ++dxk) {
+                int cxk = oc.x + dxk, cyk = oc.y + dyk, czk = oc.z + dzk;
+                if (cxk < 0 || cxk >= cells.dims.x || cyk < 0 || cyk >= cells.dims.y || czk < 0 ||
+                    czk >= cells.dims.z)
+                  continue;
+                int cellk = cells.frame_base + (czk * cells.dims.y + cyk) * cells.dims.x + cxk;
+                for (int k = cells.cell_head[cellk]; k != -1; k = cells.atom_next[k]) {
+                  if (k <= j)
+                    continue;
 
-      dist_sq = square_distance_device(coord_framei + j * 3, coord_framei + k * 3);
-      // Need to clarify what is the formula it follows to characterize the dispersion
-      retval += weight_framei[j] * weight_framei[k] * sqrt(dist_sq);
-      weight_sum += weight_framei[j] * weight_framei[k];
-    }
-  }
+                  // Filter atom 2 outside the cutoff distance
+                  dist_sq_k = square_distance_device(coord, cells.coords + k * 3);
+                  if (dist_sq_k > cutoff_sq)
+                    continue;
+
+                  dist_sq = square_distance_device(cells.coords + j * 3, cells.coords + k * 3);
+                  // Need to clarify what is the formula it follows to characterize the dispersion
+                  retval += weight_framei[j] * weight_framei[k] * sqrt(dist_sq);
+                  weight_sum += weight_framei[j] * weight_framei[k];
+                }
+              }
+        }
+      }
   if (weight_sum == 0.0) {
-    return 0.0;
+    return 0.0f;
   } else {
     return retval / weight_sum;
   }
@@ -274,9 +462,8 @@ __device__ float dispersion_device(const float *coord, const float *coord_framei
  * the cutoff distance as an indication of high dispersion.
  *
  */
-__device__ float eccentricity_device(const float *coord, const float *coord_framei,
-                                     const float *weight_framei, const int atomnr,
-                                     const float cutoff) {
+__device__ float eccentricity_device(const float *coord, const ObserverCells &cells,
+                                     const float *weight_framei, const float cutoff) {
   float dist_sq;
   float cutoff_sq = cutoff * cutoff;
 
@@ -284,16 +471,26 @@ __device__ float eccentricity_device(const float *coord, const float *coord_fram
   float weight_sum = 0.0f;
   int count = 0;
   // Get the center of mass
-  for (int j = 0; j < atomnr; ++j) {
-    dist_sq = square_distance_device(coord, coord_framei + j * 3);
-    if (dist_sq > cutoff_sq)
-      continue;
-    count += 1;
-    com[0] += weight_framei[j] * coord_framei[j * 3];
-    com[1] += weight_framei[j] * coord_framei[j * 3 + 1];
-    com[2] += weight_framei[j] * coord_framei[j * 3 + 2];
-    weight_sum += weight_framei[j];
-  }
+  int3 oc = observer_cell_index(coord, cells);
+  for (int dz = -1; dz <= 1; ++dz)
+    for (int dy = -1; dy <= 1; ++dy)
+      for (int dx = -1; dx <= 1; ++dx) {
+        int cx = oc.x + dx, cy = oc.y + dy, cz = oc.z + dz;
+        if (cx < 0 || cx >= cells.dims.x || cy < 0 || cy >= cells.dims.y || cz < 0 ||
+            cz >= cells.dims.z)
+          continue;
+        int cell = cells.frame_base + (cz * cells.dims.y + cy) * cells.dims.x + cx;
+        for (int j = cells.cell_head[cell]; j != -1; j = cells.atom_next[j]) {
+          dist_sq = square_distance_device(coord, cells.coords + j * 3);
+          if (dist_sq > cutoff_sq)
+            continue;
+          count += 1;
+          com[0] += weight_framei[j] * cells.coords[j * 3];
+          com[1] += weight_framei[j] * cells.coords[j * 3 + 1];
+          com[2] += weight_framei[j] * cells.coords[j * 3 + 2];
+          weight_sum += weight_framei[j];
+        }
+      }
 
   if (count > 0 && weight_sum != 0) {
     com[0] = com[0] / weight_sum;
@@ -320,28 +517,36 @@ __device__ float eccentricity_device(const float *coord, const float *coord_fram
  *
  * @note The signs of weights should be geater than 0 (otherwise Center of Mass will be wrong)
  */
-__device__ float radius_of_gyration_device(const float *coord, const float *coord_framei,
-                                           const float *weight_framei, const int atomnr,
-                                           const float cutoff) {
-  // Work on each atoms in a frame to calculate the observable in that frame
+__device__ float radius_of_gyration_device(const float *coord, const ObserverCells &cells,
+                                           const float *weight_framei, const float cutoff) {
   float dist_sq, cutoff_sq = cutoff * cutoff;
 
   // Calculate the center of mass
   float com[3] = {0.0, 0.0, 0.0};
   float weight_sum = 0.0f;
   int count = 0;
-  for (int j = 0; j < atomnr; ++j) {
-    // Filter atoms outside of the cutoff distance
-    dist_sq = square_distance_device(coord, coord_framei + j * 3);
-    if (dist_sq > cutoff_sq)
-      continue;
+  int3 oc = observer_cell_index(coord, cells);
+  for (int dz = -1; dz <= 1; ++dz)
+    for (int dy = -1; dy <= 1; ++dy)
+      for (int dx = -1; dx <= 1; ++dx) {
+        int cx = oc.x + dx, cy = oc.y + dy, cz = oc.z + dz;
+        if (cx < 0 || cx >= cells.dims.x || cy < 0 || cy >= cells.dims.y || cz < 0 ||
+            cz >= cells.dims.z)
+          continue;
+        int cell = cells.frame_base + (cz * cells.dims.y + cy) * cells.dims.x + cx;
+        for (int j = cells.cell_head[cell]; j != -1; j = cells.atom_next[j]) {
+          // Filter atoms outside of the cutoff distance
+          dist_sq = square_distance_device(coord, cells.coords + j * 3);
+          if (dist_sq > cutoff_sq)
+            continue;
 
-    com[0] += weight_framei[j] * coord_framei[j * 3];
-    com[1] += weight_framei[j] * coord_framei[j * 3 + 1];
-    com[2] += weight_framei[j] * coord_framei[j * 3 + 2];
-    weight_sum += weight_framei[j];
-    count += 1;
-  }
+          com[0] += weight_framei[j] * cells.coords[j * 3];
+          com[1] += weight_framei[j] * cells.coords[j * 3 + 1];
+          com[2] += weight_framei[j] * cells.coords[j * 3 + 2];
+          weight_sum += weight_framei[j];
+          count += 1;
+        }
+      }
 
   if (count <= 1) {
     // If no particle or only 1 particle in the cutoff distance, return 0.0
@@ -356,14 +561,23 @@ __device__ float radius_of_gyration_device(const float *coord, const float *coor
 
   // Calculate the radius of gyration to the center of mass
   float retval = 0.0f;
-  for (int j = 0; j < atomnr; ++j) {
-    dist_sq = square_distance_device(coord, coord_framei + j * 3);
-    if (dist_sq > cutoff_sq)
-      continue;
+  for (int dz = -1; dz <= 1; ++dz)
+    for (int dy = -1; dy <= 1; ++dy)
+      for (int dx = -1; dx <= 1; ++dx) {
+        int cx = oc.x + dx, cy = oc.y + dy, cz = oc.z + dz;
+        if (cx < 0 || cx >= cells.dims.x || cy < 0 || cy >= cells.dims.y || cz < 0 ||
+            cz >= cells.dims.z)
+          continue;
+        int cell = cells.frame_base + (cz * cells.dims.y + cy) * cells.dims.x + cx;
+        for (int j = cells.cell_head[cell]; j != -1; j = cells.atom_next[j]) {
+          dist_sq = square_distance_device(coord, cells.coords + j * 3);
+          if (dist_sq > cutoff_sq)
+            continue;
 
-    dist_sq = square_distance_device(com, coord_framei + j * 3);
-    retval += weight_framei[j] * dist_sq;
-  }
+          dist_sq = square_distance_device(com, cells.coords + j * 3);
+          retval += weight_framei[j] * dist_sq;
+        }
+      }
   return sqrt(retval / weight_sum);
 }
 
@@ -374,14 +588,14 @@ __device__ float radius_of_gyration_device(const float *coord, const float *coor
 /**
  * @brief The device function to calculate the observable in frame i
  */
-__device__ float make_observation_device(const float *coord, const float *coord_framei,
-                                         const int atomnr, const float cutoff, const int type_obs) {
+__device__ float make_observation_device(const float *coord, const ObserverCells &cells,
+                                         const float cutoff, const int type_obs) {
   // Does not consider the weight of the particles
   float ret_framei = 0.0f;
   if (type_obs == 1) {
-    ret_framei = existence_device(coord, coord_framei, atomnr, cutoff);
+    ret_framei = existence_device(coord, cells, cutoff);
   } else if (type_obs == 2) {
-    ret_framei = direct_count_device(coord, coord_framei, atomnr, cutoff);
+    ret_framei = direct_count_device(coord, cells, cutoff);
   }
   return ret_framei;
 }
@@ -390,24 +604,24 @@ __device__ float make_observation_device(const float *coord, const float *coord_
 /**
  * @brief The device function to calculate the observable in frame i
  */
-__device__ float make_observation_device(const float *coord, const float *coord_framei,
-                                         const float *weight_framei, const int atomnr,
-                                         const float cutoff, const int type_obs) {
+__device__ float make_observation_device(const float *coord, const ObserverCells &cells,
+                                         const float *weight_framei, const float cutoff,
+                                         const int type_obs) {
   float ret_framei = 0.0f;
   if (type_obs == 3) {
-    ret_framei = distinct_count_device(coord, coord_framei, weight_framei, atomnr, cutoff);
+    ret_framei = distinct_count_device(coord, cells, weight_framei, cutoff);
   } else if (type_obs == 11) {
-    ret_framei = mean_distance_device(coord, coord_framei, weight_framei, atomnr, cutoff);
+    ret_framei = mean_distance_device(coord, cells, weight_framei, cutoff);
   } else if (type_obs == 12) {
-    ret_framei = cumulative_weight_device(coord, coord_framei, weight_framei, atomnr, cutoff);
+    ret_framei = cumulative_weight_device(coord, cells, weight_framei, cutoff);
   } else if (type_obs == 13) {
-    ret_framei = density_device(coord, coord_framei, weight_framei, atomnr, cutoff);
+    ret_framei = density_device(coord, cells, weight_framei, cutoff);
   } else if (type_obs == 14) {
-    ret_framei = dispersion_device(coord, coord_framei, weight_framei, atomnr, cutoff);
+    ret_framei = dispersion_device(coord, cells, weight_framei, cutoff);
   } else if (type_obs == 15) {
-    ret_framei = eccentricity_device(coord, coord_framei, weight_framei, atomnr, cutoff);
+    ret_framei = eccentricity_device(coord, cells, weight_framei, cutoff);
   } else if (type_obs == 16) {
-    ret_framei = radius_of_gyration_device(coord, coord_framei, weight_framei, atomnr, cutoff);
+    ret_framei = radius_of_gyration_device(coord, cells, weight_framei, cutoff);
   }
   return ret_framei;
 }
@@ -420,16 +634,26 @@ __global__ void marching_observer_global(float *mobs_ret, const float *coord_fra
                                          const float *weight_frame, const int *dims,
                                          const float spacing, const int frame_number,
                                          const int atomnr, const float cutoff,
-                                         const int type_observable) {
+                                         const int type_observable, const int *cell_head,
+                                         const int *atom_next, int3 cell_dims, float3 cell_min,
+                                         float cell_size, int cell_count) {
   unsigned int index = blockIdx.x * blockDim.x + threadIdx.x;
   unsigned int frame_idx = blockIdx.y;
   unsigned int grid_size = dims[0] * dims[1] * dims[2];
   if (index >= grid_size || frame_idx >= static_cast<unsigned int>(frame_number))
     return;
 
-  const float *frame_coords = coord_frame + frame_idx * atomnr * 3;
-  const float *frame_weights = weight_frame + frame_idx * atomnr;
-  float *frame_output = mobs_ret + frame_idx * grid_size;
+  ObserverCells cells;
+  cells.cell_head = cell_head;
+  cells.atom_next = atom_next;
+  cells.coords = coord_frame;
+  cells.dims = cell_dims;
+  cells.min = cell_min;
+  cells.cell_size = cell_size;
+  cells.cell_count = cell_count;
+  cells.frame_base = static_cast<int>(frame_idx) * cell_count;
+
+  float *frame_output = mobs_ret + static_cast<size_t>(frame_idx) * grid_size;
 
   // Get the coordinate of the grid point (Observer) in real space
   float coord[3] = {static_cast<float>(index / (dims[0] * dims[1])) * spacing,
@@ -439,11 +663,10 @@ __global__ void marching_observer_global(float *mobs_ret, const float *coord_fra
   // Calculate the observable of grid point at index in the given frame
   if ((type_observable == 1) || (type_observable == 2)) {
     // Hard-coded for the direct count-based observables
-    frame_output[index] =
-        make_observation_device(coord, frame_coords, atomnr, cutoff, type_observable);
+    frame_output[index] = make_observation_device(coord, cells, cutoff, type_observable);
   } else {
-    frame_output[index] = make_observation_device(coord, frame_coords, frame_weights, atomnr,
-                                                  cutoff, type_observable);
+    frame_output[index] =
+        make_observation_device(coord, cells, weight_frame, cutoff, type_observable);
   }
 }
 
@@ -513,10 +736,15 @@ void marching_observer_host(float *mobs_dynamics, const float *coord, const floa
                  BufferSlot::WEIGHTS, stream);
   copy_h2d_async(ctx, dims_device, dims, 3 * sizeof(int), BufferSlot::DIMS, stream);
 
+  ObserverCellGrid cell_grid;
+  ObserverCellBuffers cell_buffers = build_observer_cell_buffers(
+      ctx, use_ctx, stream, coords_device, coord, frame_number, atom_per_frame, cutoff, cell_grid);
+
   // Process every frame in one launch; blockIdx.y selects the frame.
   marching_observer_global<<<dim3(grid_size, frame_number, 1), BLOCK_SIZE, 0, stream>>>(
       mobs_traj, coords_device, weights_device, dims_device, spacing, frame_number, atom_per_frame,
-      cutoff, type_obs);
+      cutoff, type_obs, cell_buffers.cell_head, cell_buffers.atom_next, cell_grid.dims,
+      cell_grid.min, cell_grid.cell_size, cell_grid.cell_count);
   CUDA_CHECK_KERNEL();
 
   // Perform frame-wise aggregation on the voxelized trajectory
@@ -543,6 +771,7 @@ void marching_observer_host(float *mobs_dynamics, const float *coord, const floa
     CUDA_CHECK(cudaFree(coords_device));
     CUDA_CHECK(cudaFree(weights_device));
     CUDA_CHECK(cudaFree(dims_device));
+    free_observer_cell_buffers(use_ctx, cell_buffers);
   }
 }
 
@@ -663,9 +892,14 @@ void observe_frame_host(float *results, const float *coord_frame, const float *w
   copy_h2d_async(ctx, weight_frame_gpu, weight_frame, frame_nr * atomnr * sizeof(float),
                  BufferSlot::WEIGHTS, stream);
 
+  ObserverCellGrid cell_grid;
+  ObserverCellBuffers cell_buffers = build_observer_cell_buffers(
+      ctx, use_ctx, stream, coord_frame_gpu, coord_frame, frame_nr, atomnr, cutoff, cell_grid);
+
   marching_observer_global<<<dim3(grid_size, frame_nr, 1), BLOCK_SIZE, 0, stream>>>(
       results_gpu, coord_frame_gpu, weight_frame_gpu, dims_gpu, spacing, frame_nr, atomnr, cutoff,
-      type_obs);
+      type_obs, cell_buffers.cell_head, cell_buffers.atom_next, cell_grid.dims, cell_grid.min,
+      cell_grid.cell_size, cell_grid.cell_count);
   CUDA_CHECK_KERNEL();
 
   CUDA_CHECK(cudaMemcpyAsync(results, results_gpu, observer_number * sizeof(float),
@@ -680,6 +914,7 @@ void observe_frame_host(float *results, const float *coord_frame, const float *w
     CUDA_CHECK(cudaFree(dims_gpu));
     CUDA_CHECK(cudaFree(coord_frame_gpu));
     CUDA_CHECK(cudaFree(weight_frame_gpu));
+    free_observer_cell_buffers(use_ctx, cell_buffers);
   }
 }
 
