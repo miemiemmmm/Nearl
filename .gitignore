@@ -70,8 +70,9 @@ venv.bak/
 # mkdocs documentation
 /site
 
-# PyCharm
+# IDE folders
 .idea/
+.vscode/
 
 # Other 
 *.gif
@@ -88,5 +89,5 @@ notebooks/Test*
 logs/
 *.log
 *prof
-
+.claude/
 
