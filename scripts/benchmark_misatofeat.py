@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import time
 from collections import OrderedDict
 
 import numpy as np
@@ -12,8 +13,26 @@ from nearl.io.traj import MisatoTraj
 # Define the way to generation labels for the misato trajectories
 
 
+class _PreserveNewlinesHelpFormatter(argparse.HelpFormatter):
+    """HelpFormatter that keeps explicit newlines and leading indentation."""
+
+    def _split_lines(self, text, width):
+        lines = []
+        for paragraph in text.splitlines():
+            # Keep the leading whitespace of each line so tabs/spaces used to
+            # align columns are not collapsed by textwrap.
+            stripped = paragraph.lstrip()
+            indent = paragraph[: len(paragraph) - len(stripped)]
+            wrapped = super()._split_lines(stripped, width)
+            lines.extend(indent + line for line in wrapped)
+        return lines
+
+
 def parser():
-    parser = argparse.ArgumentParser(description="Featurize the misato trajectories")
+    parser = argparse.ArgumentParser(
+        description="Featurize the misato trajectories",
+        formatter_class=_PreserveNewlinesHelpFormatter,
+    )
     parser.add_argument(
         "-f",
         "--pdbcodes",
@@ -31,9 +50,18 @@ def parser():
     parser.add_argument(
         "-o", "--output_dir", type=str, default="", help="The output directory"
     )
-    # parser.add_argument(
-    #     "-t", "--feature_type", type=int, default=1, help="Feature type to benchmark."
-    # )
+    parser.add_argument(
+        "-t",
+        "--feature_type",
+        type=str,
+        required=True,
+        choices=FEATURE_TYPES,
+        help=(
+            "Which feature set to benchmark. One of:\n"
+            + "\n".join(f"  {k:<10}-> {v}" for k, v in FEATURE_TYPES.items())
+            + "\n"
+        ),
+    )
 
     # Featurization settings
     parser.add_argument(
@@ -97,38 +125,85 @@ def get_trajlist(training_set, misatodir):
     return trajlists
 
 
-def get_features(sigma):
+# ---------------------------------------------------------------------------
+# Feature-set enumeration for the -t / --feature_type flag.
+#
+# Each entry maps a short, documented name to a callable that builds the
+# OrderedDict of features to benchmark. This lets you isolate a single feature
+# (or a specific selection/aggregation variant) so its cost can be measured on
+# its own, instead of always running the full three-feature set together.
+#
+# The "prot" variants select the protein (all atoms except :MOL).
+# ---------------------------------------------------------------------------
+FEATURE_TYPES = {
+    "mass": "Mass only (static, CPU-side)",
+    "mo": "MarchingObservers only (dynamic, GPU)",
+    "pdf": "DensityFlow only (dynamic, GPU)",
+    "mass_prot": "Mass on the protein (selection='!:MOL')",
+    "mo_prot": "MarchingObservers on the protein (selection='!:MOL')",
+    "pdf_prot": "DensityFlow on the protein (selection='!:MOL')",
+}
+
+
+def _mass(selection=None, outkey="mass_feat", sigma=1.5):
+    kwargs = {"outkey": outkey, "sigma": sigma}
+    if selection is not None:
+        kwargs["selection"] = selection
+    return nearl.features.Mass(**kwargs)
+
+
+def _mo(
+    selection=None, outkey="mobs_feat", obs="mean_distance", agg="standard_deviation"
+):
+    kwargs = {
+        "weight_type": "mass",
+        "obs": obs,
+        "agg": agg,
+        "outkey": outkey,
+    }
+    if selection is not None:
+        kwargs["selection"] = selection
+    return nearl.features.MarchingObservers(**kwargs)
+
+
+def _pdf(selection=None, outkey="pdf_feat", agg="standard_deviation", sigma=1.5):
+    kwargs = {"weight_type": "mass", "agg": agg, "outkey": outkey, "sigma": sigma}
+    if selection is not None:
+        kwargs["selection"] = selection
+    return nearl.features.DensityFlow(**kwargs)
+
+
+def _build_features(sigma, feature_type):
+    """Return the OrderedDict of features for the given -t enumeration."""
     features = OrderedDict()
 
-    # Modify the feature type here.
-    # features["feat_prot"] = nearl.features.Mass(selection="!:MOL", outkey="mass_prot", sigma=sigma)
-    # features["feat_lig"] = nearl.features.Mass(selection=":MOL", outkey="mass_lig", sigma=sigma)
-
-    # features["mo_prot2"] = nearl.features.MarchingObservers(weight_type="mass", selection="!:MOL", obs="mean_distance", agg="standard_deviation", outkey="mobs_prot")
-    # features["mo_lig2"] = nearl.features.MarchingObservers(weight_type="mass", selection=":MOL", obs="mean_distance", agg="standard_deviation", outkey="mobs_lig")
-
-    # features["pdf_prot2"] = nearl.features.DensityFlow(weight_type="mass", selection="!:MOL", agg="standard_deviation", outkey="pdb_prot", sigma=sigma)
-    # features["pdf_lig2"] = nearl.features.DensityFlow(weight_type="mass", selection=":MOL", agg="standard_deviation", outkey="pdb_lig", sigma=sigma)
-
-    features["stat"] = nearl.features.Mass(outkey="mass_feat", sigma=sigma)
-    features["mo"] = nearl.features.MarchingObservers(
-        weight_type="mass",
-        obs="mean_distance",
-        agg="standard_deviation",
-        outkey="mobs_feat",
-    )
-    features["pdf"] = nearl.features.DensityFlow(
-        weight_type="mass", agg="standard_deviation", outkey="pdf_feat", sigma=sigma
-    )
+    if feature_type == "mass":
+        features["stat"] = _mass(sigma=sigma)
+    elif feature_type == "mo":
+        features["mo"] = _mo()
+    elif feature_type == "pdf":
+        features["pdf"] = _pdf(sigma=sigma)
+    elif feature_type == "mass_prot":
+        features["stat"] = _mass(selection="!:MOL", outkey="mass_prot", sigma=sigma)
+    elif feature_type == "mo_prot":
+        features["mo"] = _mo(selection="!:MOL", outkey="mobs_prot")
+    elif feature_type == "pdf_prot":
+        features["pdf"] = _pdf(selection="!:MOL", outkey="pdf_prot", sigma=sigma)
+    else:  # pragma: no cover - argparse choices already restrict this
+        raise ValueError(f"Unknown feature type: {feature_type}")
 
     return features
 
 
+def get_features(sigma, feature_type):
+    """Build the feature set for the requested -t enumeration."""
+    return _build_features(sigma, feature_type)
+
+
 if __name__ == "__main__":
     """
-  Usage: 
-  python3 /MieT5/Nearl/scripts/benchmark_misatofeat.py -f /MieT5/Nearl/data/casf2016_test.txt -o /tmp/ -t 1 -d 32 -m /Matter/misato_database/ -c 2.5 -s 1.5 
-
+  Usage:
+  python3 /MieT5/Nearl/scripts/benchmark_misatofeat.py -f /MieT5/Nearl/data/casf2016_test.txt -o /tmp/ -t pdf -d 32 -m /Matter/misato_database/ -c 2.5 -s 1.5
   """
     nearl.update_config(
         verbose=False,
@@ -142,7 +217,7 @@ if __name__ == "__main__":
     task_nr = args.get("task_nr")
     task_index = args.get("task_index")
     h5_prefix = args.get("h5prefix")
-    # feattype = args.get("feature_type")
+    feature_type = args.get("feature_type")
     outputfile = os.path.join(
         os.path.abspath(args["output_dir"]), f"{h5_prefix}{task_index}.h5"
     )
@@ -195,7 +270,7 @@ if __name__ == "__main__":
     feat.register_trajloader(loader)
     feat.register_focus([":MOL"], "mask")
 
-    features = get_features(VOX_sigma)
+    features = get_features(VOX_sigma, feature_type)
 
     # Labels
     features["pk_original"] = nearl.features.LabelAffinity(
@@ -205,4 +280,13 @@ if __name__ == "__main__":
     print(f"There are {len(features)} features registered: {features.keys()}")
 
     feat.register_features(features)
+
+    # Time only the featurization itself (feat.run()). The CUDA kernels
+    # synchronize internally (blocking cudaMemcpy back to host after each
+    # kernel), so the elapsed time includes all GPU work. Interpreter
+    # startup, argument parsing, trajectory-list setup and HDF5 output-file
+    # checks are excluded.
+    _t0 = time.perf_counter()
     feat.run()
+    _t1 = time.perf_counter()
+    print(f"BENCHMARK_RUN_SECONDS={(_t1 - _t0):.6f}")
