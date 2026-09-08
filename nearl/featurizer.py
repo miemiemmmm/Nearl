@@ -1,3 +1,4 @@
+import contextlib
 import json
 import logging
 import threading
@@ -6,7 +7,13 @@ import time
 import numpy as np
 
 from . import config, constants, log, utils
-from .pipeline import _ERROR, _SENTINEL, AsyncWriter, PrefetchBuffer
+from .pipeline import (
+    _ERROR,
+    _SENTINEL,
+    AsyncWriter,
+    PipelineCancelled,
+    PrefetchBuffer,
+)
 
 __all__ = [
     "Featurizer",
@@ -537,6 +544,18 @@ class Featurizer:
         This mirrors a ``torch.utils.data.DataLoader`` prefetch buffer: the CPU
         preprocessing for task ``N + 1`` overlaps with the GPU compute of task
         ``N``, and the HDF5 writes overlap with the next kernel launch.
+
+        The overlap depends on the CUDA extension releasing the GIL around each
+        kernel launch (``py::gil_scoped_release`` in ``src/actions_py.cpp``);
+        while it is held no background thread can run and this degenerates to
+        the serial schedule.
+
+        In exchange, that release makes the extension re-entrant, which the
+        global device context is not. Only this loop may launch kernels: the
+        producer confines itself to ``cache``/``query`` and the writer to
+        ``dump``, none of which enter the extension. Adding a second consumer
+        thread, or a feature whose ``cache`` calls a kernel, would race on the
+        shared device buffers.
         """
         buffer = PrefetchBuffer(capacity=self._prefetch_capacity)
         writer = AsyncWriter(self._dump_result, capacity=self._writer_capacity)
@@ -562,6 +581,11 @@ class Featurizer:
                 # Hand the result to the background writer (async HDF5 dump)
                 writer.submit(feature, result)
         finally:
+            # Anything raised above (a kernel error, a missing extension) leaves
+            # the producer parked in buffer.put() on a full buffer. Cancel it
+            # first: joining a stranded producer would hang the process instead
+            # of surfacing the exception.
+            buffer.cancel()
             producer.join()
             writer.close()
             # Close any persistent HDF5 file handles held by the features
@@ -651,8 +675,13 @@ class Featurizer:
                 if tid < self.SLICENUMBER - 1:
                     msg += "\n"
                 log(f"{self.classname}: {msg}")
+        except PipelineCancelled:
+            # The consumer stopped early and cancelled us; it is already
+            # raising its own exception, so there is nothing to report.
+            pass
         except Exception as exc:  # pragma: no cover - surfaced on the main thread
-            buffer.put((_ERROR, exc))
+            with contextlib.suppress(PipelineCancelled):
+                buffer.put((_ERROR, exc))
         finally:
             buffer.close()
 

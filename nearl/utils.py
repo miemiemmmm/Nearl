@@ -578,7 +578,8 @@ def append_hdf_data(hdffile, key, data, dtype, maxshape, **kwargs):
       Additional keyword arguments for creating the dataset (If the dataset does not exist yet)
 
     """
-    hdf = hdffile if isinstance(hdffile, h5py.File) else h5py.File(hdffile, "a")
+    borrowed = isinstance(hdffile, h5py.File)
+    hdf = hdffile if borrowed else h5py.File(hdffile, "a")
     try:
         if key in hdf:
             dset = hdf[key]
@@ -593,7 +594,7 @@ def append_hdf_data(hdffile, key, data, dtype, maxshape, **kwargs):
             )
             dset[:] = data
     finally:
-        if not isinstance(hdffile, h5py.File):
+        if not borrowed:
             hdf.close()
 
 

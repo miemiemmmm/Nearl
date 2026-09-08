@@ -31,7 +31,12 @@ Both primitives are deliberately small, dependency-free and unit-testable.
 import queue
 import threading
 
-__all__ = ["PrefetchBuffer", "AsyncWriter"]
+__all__ = ["PrefetchBuffer", "AsyncWriter", "PipelineCancelled"]
+
+
+class PipelineCancelled(Exception):
+    """Raised inside the producer once the consumer has stopped consuming."""
+
 
 #: Sentinel used to signal end-of-stream on a :class:`PrefetchBuffer` or
 #: :class:`AsyncWriter` queue.
@@ -68,8 +73,9 @@ class PrefetchBuffer:
 
     def __init__(self, capacity=2):
         self._queue = queue.Queue(maxsize=capacity)
+        self._cancelled = threading.Event()
 
-    def put(self, item):
+    def put(self, item, poll=0.05):
         """
         Deposit an item onto the buffer, blocking if the buffer is full.
 
@@ -77,8 +83,43 @@ class PrefetchBuffer:
         ----------
         item : object
           The item to buffer (typically a ``(feature, queried)`` GPU task).
+        poll : float, optional
+          How often to re-check for cancellation while the buffer is full.
+
+        Raises
+        ------
+        PipelineCancelled
+          If the consumer has stopped consuming. A plain blocking put would
+          strand the producer on a full buffer that nobody will drain again,
+          and joining it from the consumer's ``finally`` would then deadlock
+          the process rather than surface the consumer's exception.
         """
-        self._queue.put(item)
+        while True:
+            if self._cancelled.is_set():
+                raise PipelineCancelled
+            try:
+                self._queue.put(item, timeout=poll)
+                return
+            except queue.Full:
+                continue
+
+    def cancel(self):
+        """
+        Stop the producer and discard whatever is still buffered.
+
+        Called by the consumer on its way out, so that a producer parked in
+        :meth:`put` wakes up and returns instead of being joined forever.
+        """
+        self._cancelled.set()
+        while True:
+            try:
+                self._queue.get_nowait()
+            except queue.Empty:
+                return
+
+    @property
+    def cancelled(self):
+        return self._cancelled.is_set()
 
     def get(self):
         """
@@ -98,8 +139,12 @@ class PrefetchBuffer:
         Signal that no more items will be produced.
 
         A single end-of-stream sentinel is enqueued so a consumer blocked in
-        :meth:`get` wakes up and can terminate its loop.
+        :meth:`get` wakes up and can terminate its loop. After :meth:`cancel`
+        there is no consumer left to wake, so the sentinel is skipped rather
+        than blocking on a buffer nobody drains.
         """
+        if self._cancelled.is_set():
+            return
         self._queue.put(_SENTINEL)
 
     def qsize(self):
