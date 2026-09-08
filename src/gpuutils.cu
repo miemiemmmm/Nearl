@@ -76,6 +76,12 @@ void *DeviceContext::get_buffer(size_t min_bytes, size_t slot) {
   return resize_buffer(buffers_[slot], min_bytes, false);
 }
 
+size_t DeviceContext::buffer_capacity(size_t slot) const {
+  if (slot >= NUM_SLOTS)
+    throw std::runtime_error("DeviceContext: buffer slot out of range");
+  return buffers_[slot].capacity;
+}
+
 void *DeviceContext::resize_buffer(Buffer &buffer, size_t bytes, bool pinned) {
   bytes = std::max(bytes, size_t(1));
   if (buffer.capacity < bytes) {

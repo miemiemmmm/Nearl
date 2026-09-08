@@ -330,6 +330,21 @@ void do_finalize_context() { finalize_global_device_context(); }
 
 bool do_context_valid() { return global_device_context_valid(); }
 
+size_t do_buffer_capacity(const std::string &name) {
+  auto *ctx = get_global_device_context();
+  if (!ctx || !ctx->valid())
+    return 0;
+  if (name == "coords")
+    return ctx->buffer_capacity(static_cast<size_t>(BufferSlot::COORDS));
+  if (name == "weights")
+    return ctx->buffer_capacity(static_cast<size_t>(BufferSlot::WEIGHTS));
+  if (name == "output")
+    return ctx->buffer_capacity(static_cast<size_t>(BufferSlot::OUTPUT_GRID));
+  if (name == "trajectory")
+    return ctx->buffer_capacity(static_cast<size_t>(BufferSlot::TRAJ_DYNAMICS));
+  throw py::value_error("Unknown device buffer: " + name);
+}
+
 
 PYBIND11_MODULE(all_actions, m) {
   py::class_<CommandExecution>(m, "_CommandExecution").def("result", &CommandExecution::result);
@@ -360,4 +375,6 @@ PYBIND11_MODULE(all_actions, m) {
         "Destroy the persistent DeviceContext and release cached GPU memory.");
   m.def("context_valid", &do_context_valid,
         "Return True if the persistent DeviceContext is active.");
+  m.def("_buffer_capacity", &do_buffer_capacity, py::arg("name"),
+        "Return the current capacity of a named reusable device buffer.");
 }

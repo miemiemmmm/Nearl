@@ -75,6 +75,7 @@ public:
    * slot's current capacity is smaller than @p min_bytes, the slot is reallocated.
    */
   void *get_buffer(size_t min_bytes, size_t slot);
+  size_t buffer_capacity(size_t slot) const;
 
   float *get_buffer_f(size_t min_count, size_t slot) {
     return static_cast<float *>(get_buffer(min_count * sizeof(float), slot));
