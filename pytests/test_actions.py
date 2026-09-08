@@ -53,6 +53,26 @@ def test_device_buffer_reuse_and_growth():
     assert large_capacity > small_capacity
 
 
+def test_pinned_buffer_reuse_and_growth():
+    """Repeated sizes reuse pinned staging memory; larger inputs grow it."""
+    commands.init_context()
+    dims = np.array([16, 16, 16], dtype=np.int32)
+    small_coords = np.zeros((100, 3), dtype=np.float32)
+    small_weights = np.ones(100, dtype=np.float32)
+    large_coords = np.zeros((500, 3), dtype=np.float32)
+    large_weights = np.ones(500, dtype=np.float32)
+
+    commands.frame_voxelize(small_coords, small_weights, dims, spacing, cutoff, sigma)
+    small_capacity = all_actions._host_buffer_capacity("coords")
+    commands.frame_voxelize(small_coords, small_weights, dims, spacing, cutoff, sigma)
+    repeated_capacity = all_actions._host_buffer_capacity("coords")
+    commands.frame_voxelize(large_coords, large_weights, dims, spacing, cutoff, sigma)
+    large_capacity = all_actions._host_buffer_capacity("coords")
+
+    assert repeated_capacity == small_capacity
+    assert large_capacity > small_capacity
+
+
 def test_marching_observer():
     """
     Perform marching observers on a trajectory of coordinates and weights
