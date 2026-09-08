@@ -27,13 +27,16 @@ except ImportError:
 # Maps the observation and aggregation names to the enumerators exposed by the CUDA extension. The
 # extension is the only definition of the supported types, see OBSERVABLE_TYPE_LIST in
 # src/marching_observers.cuh and AGGREGATION_TYPE_LIST in src/gpuutils.cuh.
+# The values are the plain integers of the enumerators: the scoped C++ enums are not comparable
+# to int from Python, so exposing the members themselves would silently break `feature.obs == 2`
+# and make the maps unserializable. The extension accepts either form as an argument.
 try:
     SUPPORTED_OBSERVATION = {
-        name.lower(): member
+        name.lower(): int(member)
         for name, member in all_actions.ObservableType.__members__.items()
     }
     SUPPORTED_AGGREGATION = {
-        name.lower(): member
+        name.lower(): int(member)
         for name, member in all_actions.AggregationType.__members__.items()
     }
 except ImportError:
