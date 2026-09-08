@@ -7,6 +7,18 @@
 // 4. density_flow: Property density flow for a slice of frames/trajectory
 // 5. aggregate: Aggregate the observable from a slice of frames to a single frame
 // 6. summation: Summation of the array on GPU
+//
+// GIL: every kernel launch below releases the GIL for the duration of the
+// *_host call, so the CPU producer thread in nearl.featurizer can prepare the
+// next task while a kernel is in flight. Each released block touches raw
+// pointers only: the result array is allocated and zeroed before the release,
+// and no Python object is read or written until after it.
+//
+// That makes this module re-entrant from Python, which the global DeviceContext
+// is not -- it is one set of device buffers shared by every call. Exactly one
+// thread may be inside these functions at a time. Featurizer.run honours that:
+// a single consumer thread launches every kernel. A second consumer would need
+// its own context.
 
 #include <iostream>
 
@@ -73,8 +85,11 @@ py::array_t<float> do_voxelize(py::array_t<float> arr_coords, py::array_t<float>
   py::array_t<float> result({grid_point_nr});
   for (int i = 0; i < grid_point_nr; i++)
     result.mutable_at(i) = 0;
-  voxelize_host(result.mutable_data(), coords, static_cast<float *>(buf_weights.ptr), dims, spacing,
-                atom_nr, cutoff, sigma);
+  {
+    py::gil_scoped_release release;
+    voxelize_host(result.mutable_data(), coords, static_cast<float *>(buf_weights.ptr), dims,
+                  spacing, atom_nr, cutoff, sigma);
+  }
   return result;
 }
 
@@ -146,9 +161,12 @@ py::array_t<float> do_marching_observers(py::array_t<float> arr_coord,
   py::array_t<float> result({gridpoint_nr});
   for (int i = 0; i < gridpoint_nr; i++)
     result.mutable_at(i) = 0;
-  marching_observer_host(result.mutable_data(), static_cast<float *>(buf_coord.ptr),
-                         static_cast<float *>(buf_weights.ptr), dims, spacing, frame_nr, atom_nr,
-                         cutoff, type_obs, type_agg);
+  {
+    py::gil_scoped_release release;
+    marching_observer_host(result.mutable_data(), static_cast<float *>(buf_coord.ptr),
+                           static_cast<float *>(buf_weights.ptr), dims, spacing, frame_nr, atom_nr,
+                           cutoff, type_obs, type_agg);
+  }
 
   return result;
 }
@@ -200,9 +218,12 @@ py::array_t<float> do_traj_voxelize(py::array_t<float> arr_traj, py::array_t<flo
   py::array_t<float> result({gridpoint_nr});
   for (int i = 0; i < gridpoint_nr; i++)
     result.mutable_at(i) = 0;
-  trajectory_voxelization_host(result.mutable_data(), static_cast<float *>(buf_traj.ptr),
-                               static_cast<float *>(buf_weights.ptr), dims, spacing, frame_nr,
-                               atom_nr, cutoff, sigma, type_agg);
+  {
+    py::gil_scoped_release release;
+    trajectory_voxelization_host(result.mutable_data(), static_cast<float *>(buf_traj.ptr),
+                                 static_cast<float *>(buf_weights.ptr), dims, spacing, frame_nr,
+                                 atom_nr, cutoff, sigma, type_agg);
+  }
   return result;
 }
 
@@ -215,8 +236,11 @@ py::array_t<float> do_aggregation(py::array_t<float> arr, const int type_agg) {
 
   py::array_t<float> result({gridpoint_nr});
 
-  aggregate_host(static_cast<float *>(buf_arr.ptr), result.mutable_data(), frame_nr, gridpoint_nr,
-                 type_agg);
+  {
+    py::gil_scoped_release release;
+    aggregate_host(static_cast<float *>(buf_arr.ptr), result.mutable_data(), frame_nr, gridpoint_nr,
+                   type_agg);
+  }
 
   return result;
 }
@@ -225,7 +249,11 @@ float do_summation(py::array_t<float> arr) {
   py::buffer_info buf_arr = arr.request();
   const int arr_length = buf_arr.shape[0];
 
-  float sum = sum_reduction_host(static_cast<float *>(buf_arr.ptr), arr_length);
+  float sum;
+  {
+    py::gil_scoped_release release;
+    sum = sum_reduction_host(static_cast<float *>(buf_arr.ptr), arr_length);
+  }
 
   return sum;
 }
@@ -242,9 +270,12 @@ py::array_t<float> do_frame_observation(py::array_t<float> coord_arr, py::array_
   const int atom_nr = buf_coords.shape[0];
   py::array_t<float> result({gridpoint_nr});
 
-  observe_frame_host(result.mutable_data(), static_cast<float *>(buf_coords.ptr),
-                     static_cast<float *>(buf_weights.ptr), static_cast<int *>(buf_dims.ptr),
-                     spacing, atom_nr, cutoff, type_obs);
+  {
+    py::gil_scoped_release release;
+    observe_frame_host(result.mutable_data(), static_cast<float *>(buf_coords.ptr),
+                       static_cast<float *>(buf_weights.ptr), static_cast<int *>(buf_dims.ptr),
+                       spacing, atom_nr, cutoff, type_obs);
+  }
 
   return result;
 }

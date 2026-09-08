@@ -501,6 +501,18 @@ class Featurizer:
         This mirrors a ``torch.utils.data.DataLoader`` prefetch buffer: the CPU
         preprocessing for task ``N + 1`` overlaps with the GPU compute of task
         ``N``, and the HDF5 writes overlap with the next kernel launch.
+
+        The overlap depends on the CUDA extension releasing the GIL around each
+        kernel launch (``py::gil_scoped_release`` in ``src/actions_py.cpp``);
+        while it is held no background thread can run and this degenerates to
+        the serial schedule.
+
+        In exchange, that release makes the extension re-entrant, which the
+        global device context is not. Only this loop may launch kernels: the
+        producer confines itself to ``cache``/``query`` and the writer to
+        ``dump``, none of which enter the extension. Adding a second consumer
+        thread, or a feature whose ``cache`` calls a kernel, would race on the
+        shared device buffers.
         """
         buffer = PrefetchBuffer(capacity=self._prefetch_capacity)
         writer = AsyncWriter(self._dump_result, capacity=self._writer_capacity)
