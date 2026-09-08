@@ -26,7 +26,9 @@ Workflow
    will fail the test.
 
 The tests cover both a DensityFlow feature and a MarchingObservers feature, so
-both GPU code paths are exercised.
+both GPU code paths are exercised. They therefore need the compiled CUDA
+extension and are skipped without it -- a GPU-less runner cannot say anything
+about numerical equivalence.
 """
 
 import os
@@ -53,6 +55,21 @@ LENGTHS = 8
 TIME_WINDOW = 5
 SIGMA = 1.5
 CUTOFF = 3.5
+
+
+def _extension_built():
+    try:
+        from nearl import all_actions  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+# Every test here runs real kernels; on the CPU-only CI runner there are none.
+pytestmark = pytest.mark.skipif(
+    not _extension_built(),
+    reason="nearl.all_actions is not built (no nvcc in this environment)",
+)
 
 # Baseline file lives next to this test module.
 BASELINE_PATH = os.path.join(os.path.dirname(__file__), "pipeline_baseline.npz")
