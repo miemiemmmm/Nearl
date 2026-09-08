@@ -21,6 +21,7 @@ import pathlib
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import warnings
 from collections import defaultdict
@@ -37,11 +38,23 @@ CHILD_ENV = "NEARL_PROFILING_CHILD"
 
 
 class PhaseTimer:
-    """Accumulate wall time per labelled phase by wrapping bound methods."""
+    """Accumulate wall time per (phase, thread) by wrapping bound methods.
+
+    Featurizer.run drives three threads at once -- the CPU producer, the GPU
+    consumer and the HDF5 writer -- so the phases overlap in wall-clock time and
+    do not partition the run. Summing them against the wall clock is what made
+    the old report print a large negative "unattributed". Keyed by thread, the
+    phases within each thread *are* sequential, which is what makes a residual
+    meaningful.
+
+    The lock is load-bearing now that several threads report: ``d[k] += v`` is
+    three bytecodes, so concurrent updates would silently drop samples.
+    """
 
     def __init__(self):
         self.seconds = defaultdict(float)
         self.calls = defaultdict(int)
+        self._lock = threading.Lock()
 
     def wrap(self, obj, name, label):
         original = getattr(obj, name)
@@ -51,10 +64,26 @@ class PhaseTimer:
             try:
                 return original(*args, **kwargs)
             finally:
-                self.seconds[label] += time.perf_counter() - t0
-                self.calls[label] += 1
+                dt = time.perf_counter() - t0
+                key = (label, threading.current_thread().name)
+                with self._lock:
+                    self.seconds[key] += dt
+                    self.calls[key] += 1
 
         setattr(obj, name, timed)
+
+    def total(self, label):
+        return sum(v for (lbl, _), v in self.seconds.items() if lbl == label)
+
+    def count(self, label):
+        return sum(v for (lbl, _), v in self.calls.items() if lbl == label)
+
+    def by_thread(self):
+        """{thread: {label: (seconds, calls)}}"""
+        out = defaultdict(dict)
+        for (label, thread), sec in self.seconds.items():
+            out[thread][label] = (sec, self.calls[(label, thread)])
+        return out
 
 
 def parse_args():
@@ -70,6 +99,12 @@ def parse_args():
         "--cold-start",
         action="store_true",
         help="skip the warm-up, so CUDA context creation is timed too",
+    )
+    p.add_argument(
+        "--trajlist",
+        default=None,
+        help="file listing one trajectory per line as '<trajectory> <topology>', "
+        "used instead of the bundled example data",
     )
     p.add_argument(
         "--multi",
@@ -120,8 +155,18 @@ def build_multi_trajset(datadir, n):
     return trajs
 
 
+def read_trajlist(path):
+    """One trajectory per line, whitespace-separated: ``<trajectory> <topology>``."""
+    with open(path) as handle:
+        return [line.split() for line in handle if line.strip()]
+
+
 def build_featurizer(args, timer):
-    trajs = build_multi_trajset(args.datadir, args.multi)
+    if args.trajlist:
+        trajs = read_trajlist(args.trajlist)
+    else:
+        trajs = build_multi_trajset(args.datadir, args.multi)
+    args.n_trajectories = len(trajs)
     loader = nearl.io.TrajectoryLoader(trajs)
     # run() loads trajectories on the CPU producer thread via __getitem__,
     # so time that call to expose the trajectory-load cost.
@@ -165,13 +210,39 @@ def build_featurizer(args, timer):
     return featurizer
 
 
-HOST_ROWS = (
-    "cache",
+# Real work. feature.run is the only one that contains the device call, so the
+# device row is reported nested under it and never added alongside it.
+WORK_ROWS = (
     "trajectory load",
+    "cache",
     "query + crop",
     "feature.run",
     "HDF5 dump",
 )
+DEVICE_ROW = "device call"
+# Waiting, not work: these name the idle time on each thread.
+BLOCKED_ROWS = (
+    "blocked: buffer.get",
+    "blocked: buffer.put",
+    "blocked: writer.submit",
+)
+WALL_LABEL = "wall clock of run()"
+DEVICE_LABEL = "inside CUDA calls (device)"
+
+
+def instrument_queues(timer):
+    """Time the queue waits, so each thread's idle time has a name.
+
+    Only the pipelined featurizer has these. Against the serial one the import
+    fails and the report simply carries no blocked rows.
+    """
+    try:
+        from nearl import pipeline
+    except ImportError:
+        return
+    timer.wrap(pipeline.PrefetchBuffer, "get", "blocked: buffer.get")
+    timer.wrap(pipeline.PrefetchBuffer, "put", "blocked: buffer.put")
+    timer.wrap(pipeline.AsyncWriter, "submit", "blocked: writer.submit")
 
 
 def warm_up():
@@ -191,8 +262,9 @@ def warm_up():
 def run_workload(args):
     timer = PhaseTimer()
     for fn in ("density_flow", "marching_observer"):
-        timer.wrap(commands, fn, "device call")
+        timer.wrap(commands, fn, DEVICE_ROW)
     featurizer = build_featurizer(args, timer)
+    instrument_queues(timer)
 
     if not args.cold_start:
         warm_up()
@@ -205,35 +277,80 @@ def run_workload(args):
     featurizer.run()
     total = time.perf_counter() - t0
 
-    print("\n" + "=" * 62)
+    device_call = timer.total(DEVICE_ROW)
+    print_report(args, timer, total, device_call)
+    return total, device_call
+
+
+def print_report(args, timer, total, device_call):
+    """Report each phase against the thread it ran on.
+
+    Phases on different threads overlap, so they cannot be laid end to end
+    against the wall clock. Within one thread they are sequential, so there the
+    leftover is real idle time and is reported as such.
+    """
+    width = 66
+    per_thread = timer.by_thread()
+    print("\n" + "=" * width)
     print(
         f"dims={args.dims}  time_window={args.window}  "
-        f"trajectories={args.multi}  "
+        f"trajectories={getattr(args, 'n_trajectories', args.multi)}  "
         f"features=DensityFlow,MarchingObservers  weight=mass"
     )
-    print("=" * 62)
-    print(f"{'HOST PHASE':<26}{'seconds':>10}{'calls':>8}{'% wall':>10}")
-    print("-" * 62)
-    accounted = 0.0
-    for row in HOST_ROWS:
+    print("=" * width)
+    print(f"{'THREAD / PHASE':<30}{'seconds':>10}{'calls':>8}{'% wall':>10}")
+    print("-" * width)
+
+    order = list(WORK_ROWS) + list(BLOCKED_ROWS)
+
+    # The thread that launched the kernels first, then the rest by busy time.
+    def rank(item):
+        _thread, rows = item
+        return (DEVICE_ROW not in rows, -sum(sec for sec, _ in rows.values()))
+
+    for thread, rows in sorted(per_thread.items(), key=rank):
+        print(f"{thread}")
+        busy = 0.0
+        for label in order + [k for k in rows if k not in order and k != DEVICE_ROW]:
+            if label not in rows:
+                continue
+            sec, calls = rows[label]
+            busy += sec
+            print(f"{'  ' + label:<30}{sec:>10.3f}{calls:>8}{100 * sec / total:>9.1f}%")
+            if label == "feature.run" and DEVICE_ROW in rows:
+                sec_d, calls_d = rows[DEVICE_ROW]
+                print(
+                    f"{'    of which ' + DEVICE_ROW:<30}{sec_d:>10.3f}{calls_d:>8}"
+                    f"{100 * sec_d / total:>9.1f}%"
+                )
+        idle = total - busy
         print(
-            f"{row:<26}{timer.seconds[row]:>10.3f}{timer.calls[row]:>8}"
-            f"{100 * timer.seconds[row] / total:>9.1f}%"
+            f"{'  idle / unaccounted':<30}{idle:>10.3f}{'':>8}"
+            f"{100 * idle / total:>9.1f}%"
         )
-        accounted += timer.seconds[row]
-    device_call = timer.seconds["device call"]
+
+    work = sum(timer.total(row) for row in WORK_ROWS)
+    host = work - device_call
+    print("-" * width)
+    print(f"{WALL_LABEL:<30}{total:>10.3f}{'':>8}{100.0:>9.1f}%")
     print(
-        f"{'  (device call inside)':<26}{device_call:>10.3f}"
-        f"{timer.calls['device call']:>8}{100 * device_call / total:>9.1f}%"
+        f"{DEVICE_LABEL:<30}{device_call:>10.3f}{'':>8}"
+        f"{100 * device_call / total:>9.1f}%"
     )
     print(
-        f"{'unattributed':<26}{total - accounted:>10.3f}{'':>8}"
-        f"{100 * (total - accounted) / total:>9.1f}%"
+        f"{'host work, summed over threads':<30}{host:>10.3f}{'':>8}"
+        f"{100 * host / total:>9.1f}%"
     )
-    print("-" * 62)
-    print(f"{'TOTAL run()':<26}{total:>10.3f}")
-    print("=" * 62)
-    return total, device_call
+    print(
+        f"{'overlap achieved':<30}{work - total:>10.3f}{'':>8}"
+        f"{100 * (work - total) / total:>9.1f}%"
+    )
+    print("=" * width)
+    print("Host work is summed across threads, so it can exceed the wall clock;")
+    print("the excess is the overlap the pipeline won. 'of which device call' is")
+    print("the wall time inside commands.density_flow / marching_observer -- the")
+    print("synchronous transfers, kernels and CUDA API overhead -- and is a part")
+    print("of feature.run, not a phase beside it.")
 
 
 def csv_total_ns(path):
@@ -337,16 +454,25 @@ def nsys_pass(args):
         summarize(host_out, kernel_ns, memory_ns)
 
 
+def _labelled_value(text, label):
+    """First number on the line starting with `label`, or None."""
+    for line in text.splitlines():
+        if not line.strip().startswith(label):
+            continue
+        for token in line.replace("%", " ").split():
+            try:
+                return float(token)
+            except ValueError:
+                continue
+    return None
+
+
 def summarize(host_out, kernel_ns, memory_ns):
     if kernel_ns is None or memory_ns is None:
         print("\n(could not read nsys CSV totals; skipping the derived summary)")
         return
-    total = device_call = None
-    for line in host_out.splitlines():
-        if line.startswith("TOTAL run()"):
-            total = float(line.split()[-1])
-        elif "(device call inside)" in line:
-            device_call = float(line.split()[-3])
+    total = _labelled_value(host_out, WALL_LABEL)
+    device_call = _labelled_value(host_out, DEVICE_LABEL)
     if total is None or device_call is None:
         return
 
@@ -356,7 +482,7 @@ def summarize(host_out, kernel_ns, memory_ns):
     print("HOST vs DEVICE")
     print("-" * 62)
     for label, value in (
-        ("wall clock of run()", total),
+        ("wall clock", total),
         ("time inside device calls", device_call),
         ("  GPU kernel execution", kernel),
         ("  GPU memory operations", memory),
