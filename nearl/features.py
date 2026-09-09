@@ -1617,81 +1617,41 @@ class DynamicFeature(Feature):
             f"{self.classname}::Warning: from feature ({self.__str__()}): The coordinates should follow the convention (frames, atoms, 3); "
         )
 
-        n_frames = len(frame_coords)
-        n_atoms = frame_coords.shape[1]
+        selected_coords = []
+        selected_weights = []
+        max_atom_nr = 0
+        zero_count = 0
+        for _idx, frame in enumerate(frame_coords):
+            # Operation on each frame (Frame is modified inplace)
+            idx_inbox, coord_inbox = super().query(topology, frame, focal_point)
 
-        # Handle inhomogeneous topology / forced recache (same as the base query)
-        if (len(self.resids) != topology.n_atoms) or self.force_recache:
-            logger.info(f"{self}: Dealing with inhomogeneous topology")
-            self.cache(pt.Trajectory(xyz=frame_coords, top=topology))
+            atomnr_inbox = np.count_nonzero(idx_inbox)
+            if atomnr_inbox > self.MAX_ALLOWED_ATOMS:
+                logger.warning(
+                    f"{self.classname}: The maximum allowed atom slice is {self.MAX_ALLOWED_ATOMS} but the maximum atom number is {atomnr_inbox}"
+                )
+            zero_count += 1 if atomnr_inbox == 0 else 0
+            atomnr_inbox = min(atomnr_inbox, self.MAX_ALLOWED_ATOMS)
 
-        coords = np.full(
-            (n_frames, self.MAX_ALLOWED_ATOMS, 3),
-            self.DEFAULT_COORD,
-            dtype=np.float32,
-        )
-        weights = np.full((n_frames, self.MAX_ALLOWED_ATOMS), 0.0, dtype=np.float32)
-
-        if self.center is None or self.lengths is None or self.padding is None:
-            logger.warning(
-                f"{self} Skipping the coordinates cropping due to the missing center, lengths or padding information"
-            )
-            max_atom_nr = min(n_atoms, self.MAX_ALLOWED_ATOMS)
-            coords[:, :max_atom_nr] = frame_coords[:, :max_atom_nr]
-            weights[:, :max_atom_nr] = self.cached_array[:max_atom_nr]
-            ret_coord = np.ascontiguousarray(coords[:, :max_atom_nr], dtype=np.float32)
-            ret_weight = np.ascontiguousarray(
-                weights[:, :max_atom_nr].flatten(), dtype=np.float32
-            )
-            return ret_coord, ret_weight
-
-        # Vectorized translation over all frames at once
-        translated = frame_coords - focal_point + self.center - self.spacing / 2
-
-        # Vectorized crop over all frames (reshape to (F*A, 3) and back)
-        mask = crop(
-            translated.reshape(-1, 3), self.lengths, self.padding, self.spacing
-        ).reshape(n_frames, n_atoms)
-
-        # Apply the (frame-independent) selection mask
-        if self.selection is not None:
-            mask = mask & self.selected
-
-        # byres handling: expand the crop mask to whole residues (per frame)
-        if self.byres:
-            resids = self.resids
-            final_masks = np.empty_like(mask)
-            for f in range(n_frames):
-                res_inbox = np.unique(resids[mask[f]])
-                fm = np.zeros(len(resids), dtype=bool)
-                for res in res_inbox:
-                    fm[np.where(resids == res)] = True
-                final_masks[f] = fm
-            mask = final_masks
-
-        # Count the atoms in the box for each frame
-        atomnr_inbox = np.count_nonzero(mask, axis=1)
-        if np.any(atomnr_inbox > self.MAX_ALLOWED_ATOMS):
-            logger.warning(
-                f"{self.classname}: The maximum allowed atom slice is {self.MAX_ALLOWED_ATOMS} but the maximum atom number is {atomnr_inbox.max()}"
-            )
-        zero_count = int(np.count_nonzero(atomnr_inbox == 0))
-        atomnr_inbox = np.minimum(atomnr_inbox, self.MAX_ALLOWED_ATOMS)
-        max_atom_nr = int(atomnr_inbox.max()) if n_frames > 0 else 0
+            selected_coords.append(coord_inbox[:atomnr_inbox])
+            selected_weights.append(self.cached_array[idx_inbox][:atomnr_inbox])
+            max_atom_nr = max(max_atom_nr, atomnr_inbox)
 
         if zero_count > 0 and config.verbose():
             logger.warning(
-                f"{self.classname}: {zero_count} out of {n_frames} frames has no atoms in the box. The coordinates will be padded with {self.DEFAULT_COORD} and 0.0 for the weights."
+                f"{self.classname}: {zero_count} out of {len(frame_coords)} frames has no atoms in the box. The coordinates will be padded with {self.DEFAULT_COORD} and 0.0 for the weights."
             )
 
-        # Gather the translated coordinates and weights for each frame
-        for f in range(n_frames):
-            n = atomnr_inbox[f]
-            if n > 0:
-                coords[f, :n] = translated[f][mask[f]][:n]
-                weights[f, :n] = self.cached_array[mask[f]][:n]
-
-        # Prepare the return arrays
+        coords = np.full(
+            (len(frame_coords), max_atom_nr, 3), self.DEFAULT_COORD, dtype=np.float32
+        )
+        weights = np.zeros((len(frame_coords), max_atom_nr), dtype=np.float32)
+        for idx, (coord_frame, weight_frame) in enumerate(
+            zip(selected_coords, selected_weights)
+        ):
+            atomnr_inbox = len(coord_frame)
+            coords[idx, :atomnr_inbox] = coord_frame
+            weights[idx, :atomnr_inbox] = weight_frame
         ret_coord = np.ascontiguousarray(coords[:, :max_atom_nr], dtype=np.float32)
         ret_weight = np.ascontiguousarray(
             weights[:, :max_atom_nr].flatten(), dtype=np.float32
