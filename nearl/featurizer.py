@@ -740,11 +740,18 @@ class Featurizer:
                     break
                 if item[0] is _ERROR:
                     raise item[1]
-                feature, queried = item
-                # Launch the GPU kernel on the main process
-                result = feature.run(*queried)
-                # Hand the result to the background writer (async HDF5 dump)
-                writer.submit(feature, result)
+                # Each item is a sample bundle: the ``(feature, queried)``
+                # GPU tasks of every feature for one (frame-slice,
+                # focal-point) sample, in feature order. Bundling keeps the
+                # output datasets row-aligned: the writer appends in
+                # consumption order, so all datasets see the same sample
+                # sequence even when several producers interleave bundles on
+                # the buffer.
+                for feature, queried in item:
+                    # Launch the GPU kernel on the main process
+                    result = feature.run(*queried)
+                    # Hand the result to the background writer (async HDF5 dump)
+                    writer.submit(feature, result)
         finally:
             # Anything raised above (a kernel error, a missing extension) leaves
             # the producers parked in buffer.put() on a full buffer. Cancel it
@@ -838,7 +845,9 @@ class Featurizer:
         Parameters
         ----------
         buffer : :class:`nearl.pipeline.PrefetchBuffer`
-          The buffer onto which ``(feature, queried)`` GPU tasks are deposited.
+          The buffer onto which sample bundles (lists of ``(feature,
+          queried)`` GPU tasks, one per feature for a single sample) are
+          deposited.
         """
         try:
             for tid in range(self.TRAJECTORYNUMBER):
@@ -880,22 +889,30 @@ class Featurizer:
                         for pid in range(self.FOCALNUMBER):
                             focal_point = self.FOCALPOINTS[bid, pid]
                             # Crop the trajectory and send the coordinates/trajectory to the featurizer
+                            # NOTE: All features of one sample are enqueued as a
+                            # single bundle so every output dataset receives
+                            # rows in the same sample order.
+                            bundle = []
                             for fidx in range(self.FEATURENUMBER):
                                 # NOTE: Isolate the effect on the calculation of the next feature
                                 queried = self.FEATURESPACE[fidx].query(
                                     self.top, frames, focal_point
                                 )
-                                buffer.put((self.FEATURESPACE[fidx], queried))
-                                task_count += 1
+                                bundle.append((self.FEATURESPACE[fidx], queried))
+                            buffer.put(bundle)
+                            task_count += len(bundle)
                     else:
                         # Without registeration of focal points: focal-point independent features such as label-generation
+                        # NOTE: Bundled for the same reason as above.
+                        bundle = []
                         for fidx in range(self.FEATURENUMBER):
                             # Explicitly transfer the topology and frames to get the queried coordinates for the featurizer
                             queried = self.FEATURESPACE[fidx].query(
                                 self.top, frames, [0, 0, 0]
                             )
-                            buffer.put((self.FEATURESPACE[fidx], queried))
-                            task_count += 1
+                            bundle.append((self.FEATURESPACE[fidx], queried))
+                        buffer.put(bundle)
+                        task_count += len(bundle)
 
                 log(
                     f"{self.classname}: Trajectory {tid + 1} yields {task_count} frame-slices (tasks) for the featurization. "
@@ -933,7 +950,9 @@ class Featurizer:
         worker : :class:`_ProducerWorker`
           The per-thread state and cloned feature set for this producer.
         buffer : :class:`nearl.pipeline.PrefetchBuffer`
-          The buffer onto which ``(feature, queried)`` GPU tasks are deposited.
+          The buffer onto which sample bundles (lists of ``(feature,
+          queried)`` GPU tasks, one per feature for a single sample) are
+          deposited.
         traj_indices : np.ndarray
           The indices of the trajectories this worker should process.
         """
@@ -978,22 +997,32 @@ class Featurizer:
                         for pid in range(worker.FOCALNUMBER):
                             focal_point = worker.FOCALPOINTS[bid, pid]
                             # Crop the trajectory and send the coordinates/trajectory to the featurizer
+                            # NOTE: All features of one sample are enqueued as a
+                            # single bundle. A bundle is atomic on the buffer,
+                            # so even when other producers interleave between
+                            # bundles, every output dataset receives rows in
+                            # the same sample order.
+                            bundle = []
                             for fidx in range(self.FEATURENUMBER):
                                 # NOTE: Isolate the effect on the calculation of the next feature
                                 queried = worker.features[fidx].query(
                                     worker.traj.top, frames, focal_point
                                 )
-                                buffer.put((self.FEATURESPACE[fidx], queried))
-                                task_count += 1
+                                bundle.append((self.FEATURESPACE[fidx], queried))
+                            buffer.put(bundle)
+                            task_count += len(bundle)
                     else:
                         # Without registeration of focal points: focal-point independent features such as label-generation
+                        # NOTE: Bundled for the same reason as above.
+                        bundle = []
                         for fidx in range(self.FEATURENUMBER):
                             # Explicitly transfer the topology and frames to get the queried coordinates for the featurizer
                             queried = worker.features[fidx].query(
                                 worker.traj.top, frames, [0, 0, 0]
                             )
-                            buffer.put((self.FEATURESPACE[fidx], queried))
-                            task_count += 1
+                            bundle.append((self.FEATURESPACE[fidx], queried))
+                        buffer.put(bundle)
+                        task_count += len(bundle)
 
                 log(
                     f"{self.classname}: Trajectory {tid + 1} yields {task_count} frame-slices (tasks) for the featurization. "

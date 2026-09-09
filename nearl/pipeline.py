@@ -82,7 +82,8 @@ class PrefetchBuffer:
         Parameters
         ----------
         item : object
-          The item to buffer (typically a ``(feature, queried)`` GPU task).
+          The item to buffer (typically a sample bundle: a list of
+          ``(feature, queried)`` GPU tasks).
         poll : float, optional
           How often to re-check for cancellation while the buffer is full.
 

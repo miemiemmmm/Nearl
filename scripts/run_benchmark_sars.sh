@@ -166,11 +166,23 @@ esac
 # ---------------------------------------------------------------------------
 # 4) Append to the CSV (create header only if the file does not exist yet, so
 #    repeated invocations APPEND).
+#
+# The header check-and-write is protected by an flock because the slurm wrapper
+# (scripts/slurm/benchmark_sars.slurm) launches one job per ref concurrently,
+# and all of them append to this same CSV. Without the lock, two jobs starting
+# at the same time could both see the file as missing and both write the header,
+# corrupting the CSV. The lock file is a separate "$CSV.lock" (not the CSV
+# itself) so the O_APPEND row writes below stay lock-free and atomic. We use
+# `-s` (non-empty) rather than `-f` (exists) so a zero-byte CSV left behind by a
+# crashed run is re-created with a proper header instead of being appended to.
 # ---------------------------------------------------------------------------
 mkdir -p "$(dirname "$CSV")" "$OUT_DIR"
-if [ ! -f "$CSV" ]; then
-    echo "hash,label,feature_type,wall_time_s,gpu_busy_s,trajlist,trajlist_format,database_dir,output_dir,dimension,length,cutoff,sigma,windowsize,focus_mask,h5prefix,baseline_map,task_nr,task_index,producer_threads" > "$CSV"
-fi
+(
+    flock 9
+    if [ ! -s "$CSV" ]; then
+        echo "hash,label,feature_type,wall_time_s,gpu_busy_s,trajlist,trajlist_format,database_dir,output_dir,dimension,length,cutoff,sigma,windowsize,focus_mask,h5prefix,baseline_map,task_nr,task_index,producer_threads" > "$CSV"
+    fi
+) 9>"$CSV.lock"
 
 # The CSV stores the git hash and the human-readable label in SEPARATE columns
 # (hash, label) so the notebook can combine them into a "ref" key for plotting.
