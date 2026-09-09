@@ -13,6 +13,7 @@ authors = [
 # NOTE: PyTraj 3.0.X.X should be installed separately
 dependencies = [
     "numpy",
+    "numba",
     "h5py",
     "scipy",
     "torch",

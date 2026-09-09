@@ -56,6 +56,7 @@ autodoc_mock_imports = [
     for name in (
         "pytraj",
         "h5py",
+        "numba",
         "scipy",
         "torch",
         "rdkit",
