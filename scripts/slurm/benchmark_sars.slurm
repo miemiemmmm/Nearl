@@ -12,8 +12,8 @@
 #   benchmark_sars.slurm
 #
 # The CSV (results/sars_benchmark_walltime.csv) is shared: each job appends its
-# own rows. Because each job writes its own (git_ref, feature) rows and the
-# git_ref column includes the unique hash, concurrent appends never collide.
+# own rows. The CSV stores the git hash and the human-readable label in
+# SEPARATE columns (hash,label,...)
 set -u
 
 # Resolve paths relative to this script so it can be run from anywhere.

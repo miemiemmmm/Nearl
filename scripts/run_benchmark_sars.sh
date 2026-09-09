@@ -217,7 +217,7 @@ run_feature_suite() {
             if [ "$rc" -ne 0 ] || [ -z "$wall" ] || [ -z "$gpu_busy" ]; then
                 echo "  $label / $feat : FAILED (rc=$rc, wall='$wall', gpu_busy='$gpu_busy')" >&2
                 rm -f "$outfile"
-                return 1
+                exit 1
             fi
             rm -f "$outfile"
             # Append one row with the git hash, label, feature, wall time, GPU
