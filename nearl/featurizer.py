@@ -1,4 +1,5 @@
 import contextlib
+import copy
 import json
 import logging
 import threading
@@ -6,7 +7,7 @@ import time
 
 import numpy as np
 
-from . import config, constants, log, utils
+from . import config, constants, features, log, utils
 from .pipeline import (
     _ERROR,
     _SENTINEL,
@@ -20,6 +21,61 @@ __all__ = [
 ]
 
 logger = logging.getLogger(__name__)
+
+
+class _ProducerWorker:
+    """
+    Per-thread state for a CPU producer thread.
+
+    The featurizer's mutable attributes (``traj``, ``FOCALPOINTS``,
+    ``FRAMESLICES``, ``SLICENUMBER``, ``frame_slice``) and the per-feature
+    caches (``cached_array``, ``selected``, ``resids``, ``identity``, ...) are
+    trajectory-scoped. When several producer threads run concurrently they must
+    not share that state, or they would clobber each other. Each worker owns a
+    private copy of that state plus a private clone of the feature set, so the
+    threads can process disjoint trajectories in parallel.
+
+    Attributes
+    ----------
+    traj : pytraj.Trajectory
+      The trajectory currently being processed by this worker.
+    FRAMENUMBER : int
+      Number of frames in the active trajectory.
+    SLICENUMBER : int
+      Number of frame-slices in the active trajectory.
+    FRAMESLICES : list of slice
+      The frame-slices of the active trajectory.
+    FOCALPOINTS : np.ndarray or None
+      Parsed focal points for the active trajectory.
+    FOCALNUMBER : int
+      Number of focal points per frame-slice.
+    frame_slice : slice
+      The frame-slice currently being processed.
+    features : list of :class:`nearl.features.Feature`
+      Private clones of the featurizer's feature set, used for ``cache`` and
+      ``query`` so that concurrent workers do not share mutable feature state.
+    """
+
+    __slots__ = (
+        "FOCALNUMBER",
+        "FOCALPOINTS",
+        "FRAMENUMBER",
+        "FRAMESLICES",
+        "SLICENUMBER",
+        "features",
+        "frame_slice",
+        "traj",
+    )
+
+    def __init__(self, features):
+        self.traj = None
+        self.FRAMENUMBER = 0
+        self.SLICENUMBER = 0
+        self.FRAMESLICES = []
+        self.FOCALPOINTS = None
+        self.FOCALNUMBER = 0
+        self.frame_slice = None
+        self.features = features
 
 
 def wrapper_runner(func, args):
@@ -224,6 +280,23 @@ class Featurizer:
         # further ahead of the GPU consumer, at the cost of more memory.
         self._prefetch_capacity = int(parms.get("prefetch_capacity", 2))
         self._writer_capacity = int(parms.get("writer_capacity", 16))
+
+        # Number of background CPU producer threads. Each thread owns a private
+        # clone of the feature set and processes a disjoint subset of the
+        # trajectories, so the CPU preprocessing (trajectory loading, focal
+        # parsing, weight caching, coordinate cropping) runs in parallel across
+        # trajectories. The GPU consumer stays single-threaded (the CUDA
+        # extension shares one global device context), so this only helps when
+        # the CPU preprocessing is the bottleneck. Defaults to 1 (the original
+        # single-producer schedule) for backward compatibility.
+        self._producer_threads = int(parms.get("producer_threads", 1))
+
+        # Whether to accumulate GPU busy time during run(). Disable to skip the
+        # per-dispatch timing overhead when the figure is not needed.
+        self._gpu_busy_capture = bool(
+            parms.get("gpu_busy_capture", kwargs.get("gpu_busy_capture", True))
+        )
+        features.Feature.gpu_busy_capture = self._gpu_busy_capture
 
         self.classname = self.__class__.__name__
         if config.verbose():
@@ -472,60 +545,96 @@ class Featurizer:
         After registering the active trajectory, parse the focal points for each frame-slice in the ``run`` method.
         The resulting shape will be a 3D array with the shape ``(slice_number, focus_number, 3)``
 
+        Notes
+        -----
+        This is a thin wrapper around :meth:`_parse_focus` that operates on the
+        featurizer's own mutable state, for the single-producer schedule. The
+        multi-producer schedule calls :meth:`_parse_focus` on a per-thread
+        :class:`_ProducerWorker` instead, so that concurrent producers do not
+        clobber each other's focal points.
+        """
+        return self._parse_focus(self)
+
+    def _parse_focus(self, worker):
+        """
+        Parse the focal points for each frame-slice of the worker's active
+        trajectory. The resulting shape is a 3D array with the shape
+        ``(slice_number, focus_number, 3)``.
+
+        Parameters
+        ----------
+        worker : :class:`_ProducerWorker` or :class:`Featurizer`
+          The object holding the active trajectory (``worker.traj``) and the
+          parsed focal points (``worker.FOCALPOINTS``). For the single-producer
+          schedule this is the featurizer itself.
         """
         # Parse the focus points to the correct format
-        self.FOCALPOINTS = np.full(
-            (self.SLICENUMBER, len(self.FOCALPOINTS_PROTOTYPE), 3),
+        worker.FOCALPOINTS = np.full(
+            (worker.SLICENUMBER, len(self.FOCALPOINTS_PROTOTYPE), 3),
             99999,
             dtype=np.float32,
         )
-        logger.debug(f"Shape of the focal points prototype: {self.FOCALPOINTS.shape}")
-        self.FOCALNUMBER = len(self.FOCALPOINTS_PROTOTYPE)
+        logger.debug(f"Shape of the focal points prototype: {worker.FOCALPOINTS.shape}")
+        worker.FOCALNUMBER = len(self.FOCALPOINTS_PROTOTYPE)
         if self.FOCALPOINTS_TYPE == "mask":
             # Get the center of geometry for the frames with self.interval
             for midx, mask in enumerate(self.FOCALPOINTS_PROTOTYPE):
-                selection = self.traj.top.select(mask)
+                selection = worker.traj.top.select(mask)
                 if len(selection) == 0:
                     log.warning(
-                        f"{self.classname}: The trajectory {self.traj.identity} does not have any atoms in the selection {mask}"
+                        f"{self.classname}: The trajectory {worker.traj.identity} does not have any atoms in the selection {mask}"
                     )
                     return False
-                for fidx in range(self.SLICENUMBER):
-                    frame = self.traj.xyz[fidx * self.time_window]
-                    self.FOCALPOINTS[fidx, midx] = np.mean(frame[selection], axis=0)
+                for fidx in range(worker.SLICENUMBER):
+                    frame = worker.traj.xyz[fidx * self.time_window]
+                    worker.FOCALPOINTS[fidx, midx] = np.mean(frame[selection], axis=0)
             return 1
         elif self.FOCALPOINTS_TYPE == "index":
             for midx, mask in enumerate(self.FOCALPOINTS_PROTOTYPE):
-                for idx, frame in enumerate(self.traj.xyz[:: self.time_window]):
-                    if idx >= self.SLICENUMBER:
+                for idx, frame in enumerate(worker.traj.xyz[:: self.time_window]):
+                    if idx >= worker.SLICENUMBER:
                         break
-                    self.FOCALPOINTS[idx, midx] = np.mean(frame[mask], axis=0)
+                    worker.FOCALPOINTS[idx, midx] = np.mean(frame[mask], axis=0)
             return 1
 
         elif self.FOCALPOINTS_TYPE == "absolute":
             for focusidx, focus in enumerate(self.FOCALPOINTS_PROTOTYPE):
                 assert len(focus) == 3, "The focus should be a 3D coordinate"
                 logger.debug(f"Shape of the focus: {focus.shape}")
-                for idx, _frame in enumerate(self.traj.xyz[:: self.time_window]):
-                    if idx >= self.SLICENUMBER:
+                for idx, _frame in enumerate(worker.traj.xyz[:: self.time_window]):
+                    if idx >= worker.SLICENUMBER:
                         break
-                    self.FOCALPOINTS[idx, focusidx] = focus
+                    worker.FOCALPOINTS[idx, focusidx] = focus
             return 1
 
         elif self.FOCALPOINTS_TYPE == "json":
             with open(self.FOCALPOINTS_PROTOTYPE) as f:
                 focus = json.load(f)
-                indices = focus[utils.get_pdbcode(self.traj.identity)]
+                indices = focus[utils.get_pdbcode(worker.traj.identity)]
             indices = np.array(indices, dtype=int)
-            for idx, frame in enumerate(self.traj.xyz[:: self.time_window]):
-                if idx >= self.SLICENUMBER:
+            for idx, frame in enumerate(worker.traj.xyz[:: self.time_window]):
+                if idx >= worker.SLICENUMBER:
                     break
                 focus = np.mean(frame[indices], axis=0)
-                self.FOCALPOINTS[0, idx] = focus
+                worker.FOCALPOINTS[0, idx] = focus
             return 1
 
         else:
             raise ValueError(f"Unexpected focus format: {self.FOCALPOINTS_TYPE}")
+
+    @property
+    def gpu_busy_time(self):
+        """
+        Total wall-clock time (seconds) the GPU was busy during the last
+        ``run()``.
+
+        This is the accumulated dispatch-to-collection window for every CUDA
+        kernel launched by the featurizer (see ``features.Feature.gpu_busy_seconds``).
+        It is a lower bound on GPU utilization: it excludes time the GPU spent
+        idle waiting for CPU work, and can slightly overcount when the GPU
+        finishes a kernel before the host reaches the next ``collect()``.
+        """
+        return features.Feature.gpu_busy_seconds
 
     def run(self):
         """
@@ -533,9 +642,9 @@ class Featurizer:
 
         The pipeline is overlapped with background threads:
 
-        * A **CPU producer** thread runs all the CPU preprocessing (trajectory
+        * **CPU producer** thread(s) run all the CPU preprocessing (trajectory
           loading, focal-point parsing, weight caching and coordinate cropping)
-          and deposits the resulting GPU tasks onto a :class:`PrefetchBuffer`.
+          and deposit the resulting GPU tasks onto a :class:`PrefetchBuffer`.
         * The **main process** consumes the GPU tasks from the buffer and
           launches the CUDA kernels (``Feature.run``).
         * An :class:`AsyncWriter` thread drains the results and writes them to
@@ -545,6 +654,12 @@ class Featurizer:
         preprocessing for task ``N + 1`` overlaps with the GPU compute of task
         ``N``, and the HDF5 writes overlap with the next kernel launch.
 
+        When ``producer_threads > 1``, the CPU preprocessing is additionally
+        parallelized *across trajectories*: each producer thread owns a private
+        clone of the feature set and a private copy of the trajectory-scoped
+        state, and processes a disjoint subset of the trajectories. This helps
+        when the CPU preprocessing is the bottleneck.
+
         The overlap depends on the CUDA extension releasing the GIL around each
         kernel launch (``py::gil_scoped_release`` in ``src/actions_py.cpp``);
         while it is held no background thread can run and this degenerates to
@@ -552,7 +667,7 @@ class Featurizer:
 
         In exchange, that release makes the extension re-entrant, which the
         global device context is not. Only this loop may launch kernels: the
-        producer confines itself to ``cache``/``query`` and the writer to
+        producers confine themselves to ``cache``/``query`` and the writer to
         ``dump``, none of which enter the extension. Adding a second consumer
         thread, or a feature whose ``cache`` calls a kernel, would race on the
         shared device buffers.
@@ -560,13 +675,53 @@ class Featurizer:
         buffer = PrefetchBuffer(capacity=self._prefetch_capacity)
         writer = AsyncWriter(self._dump_result, capacity=self._writer_capacity)
 
-        producer = threading.Thread(
-            target=self._produce_tasks,
-            args=(buffer,),
-            name="nearl-cpu-producer",
+        if self._producer_threads <= 1:
+            # Single-producer schedule (original behavior): one thread owns the
+            # featurizer's own mutable state.
+            producers = [
+                threading.Thread(
+                    target=self._produce_tasks,
+                    args=(buffer,),
+                    name="nearl-cpu-producer",
+                    daemon=True,
+                )
+            ]
+        else:
+            # Multi-producer schedule: split the trajectories into disjoint
+            # chunks and give each chunk its own worker thread with a private
+            # clone of the feature set and a private copy of the
+            # trajectory-scoped state, so the threads do not clobber each other.
+            traj_indices = np.array_split(
+                np.arange(self.TRAJECTORYNUMBER), self._producer_threads
+            )
+            producers = []
+            for wid, indices in enumerate(traj_indices):
+                if len(indices) == 0:
+                    continue
+                worker = _ProducerWorker(self._clone_features())
+                producers.append(
+                    threading.Thread(
+                        target=self._produce_worker,
+                        args=(worker, buffer, indices),
+                        name=f"nearl-cpu-producer-{wid}",
+                        daemon=True,
+                    )
+                )
+
+        # Coordinator: join every producer, then signal the consumer with a
+        # single sentinel once all of them have finished (or been cancelled).
+        # Only one sentinel may be enqueued, otherwise the consumer would stop
+        # as soon as the first producer finished and drop the remaining tasks.
+        coordinator = threading.Thread(
+            target=self._coordinate_producers,
+            args=(buffer, producers),
+            name="nearl-cpu-producer-coordinator",
             daemon=True,
         )
-        producer.start()
+
+        for producer in producers:
+            producer.start()
+        coordinator.start()
 
         try:
             while True:
@@ -582,11 +737,11 @@ class Featurizer:
                 writer.submit(feature, result)
         finally:
             # Anything raised above (a kernel error, a missing extension) leaves
-            # the producer parked in buffer.put() on a full buffer. Cancel it
+            # the producers parked in buffer.put() on a full buffer. Cancel it
             # first: joining a stranded producer would hang the process instead
             # of surfacing the exception.
             buffer.cancel()
-            producer.join()
+            coordinator.join()
             writer.close()
             # Close any persistent HDF5 file handles held by the features
             for feat in self.FEATURESPACE:
@@ -594,10 +749,75 @@ class Featurizer:
 
         log(f"{self.classname}: All trajectories and tasks are finished. \n")
 
+    def _clone_features(self):
+        """
+        Return a shallow copy of the feature set.
+
+        Each producer thread needs its own feature instances because ``cache``
+        and ``query`` write trajectory-scoped state (``cached_array``,
+        ``selected``, ``resids``, ``identity``, ...) onto the feature. A shallow
+        copy shares the immutable configuration (dims, spacing, cutoff, sigma,
+        outfile, ...) while giving each thread its own slots for the mutable
+        per-trajectory state, which is always *reassigned* (never mutated in
+        place) by ``cache``/``query``. The class-level ``_topology_cache`` is
+        shared read-mostly, which is exactly what we want.
+        """
+        return [copy.copy(feat) for feat in self.FEATURESPACE]
+
+    def _setup_worker_trajectory(self, worker, traj):
+        """
+        Attach a trajectory to a worker and compute its frame-slices.
+
+        This mirrors the logic of the :attr:`traj` setter, but writes the
+        trajectory-scoped state onto the worker instead of the featurizer, so
+        concurrent producers do not clobber each other.
+
+        Parameters
+        ----------
+        worker : :class:`_ProducerWorker`
+          The worker to attach the trajectory to.
+        traj : pytraj.Trajectory
+          The trajectory to process.
+        """
+        worker.traj = traj
+        worker.FRAMENUMBER = traj.n_frames
+        worker.SLICENUMBER = worker.FRAMENUMBER // self.time_window
+        if worker.SLICENUMBER == 0:
+            logger.warning(
+                f"{self.classname}: No frame slice is available. The trajectory have {worker.FRAMENUMBER} frames and the time window is {self.time_window}."
+            )
+        if worker.FRAMENUMBER % self.time_window != 0 and worker.FRAMENUMBER != 1:
+            logger.warning(
+                f"{self.classname}: the number of frames ({worker.FRAMENUMBER}) is not divisible by the time window ({self.time_window}). The last few frames will be ignored."
+            )
+        frame_array = np.array(
+            [0, *np.cumsum([self.time_window] * worker.SLICENUMBER).tolist()]
+        )
+        worker.FRAMESLICES = [
+            np.s_[frame_array[i] : frame_array[i + 1]]
+            for i in range(worker.SLICENUMBER)
+        ]
+
+    def _coordinate_producers(self, buffer, producers):
+        """
+        Join all producer threads, then enqueue the single end-of-stream
+        sentinel once every producer has finished.
+
+        Parameters
+        ----------
+        buffer : :class:`nearl.pipeline.PrefetchBuffer`
+          The buffer to close.
+        producers : list of threading.Thread
+          The producer threads to join.
+        """
+        for producer in producers:
+            producer.join()
+        buffer.close()
+
     def _produce_tasks(self, buffer):
         """
-        Background CPU producer: run all CPU preprocessing and feed GPU tasks to
-        the buffer.
+        Background CPU producer (single-producer schedule): run all CPU
+        preprocessing and feed GPU tasks to the buffer.
 
         This method runs on a single background thread. It owns the mutable
         featurizer state (``self.traj``, ``self.FOCALPOINTS``, ``self.FRAMESLICES``
@@ -682,8 +902,106 @@ class Featurizer:
         except Exception as exc:  # pragma: no cover - surfaced on the main thread
             with contextlib.suppress(PipelineCancelled):
                 buffer.put((_ERROR, exc))
-        finally:
-            buffer.close()
+        # NOTE: no buffer.close() here. The coordinator enqueues the single
+        # end-of-stream sentinel after joining every producer.
+
+    def _produce_worker(self, worker, buffer, traj_indices):
+        """
+        Background CPU producer (multi-producer schedule): run all CPU
+        preprocessing for a disjoint subset of trajectories and feed GPU tasks
+        to the buffer.
+
+        Each worker owns a private clone of the feature set (``worker.features``)
+        and a private copy of the trajectory-scoped state, so several of these
+        threads can run concurrently without clobbering each other. The GPU
+        tasks carry the *original* feature (``self.FEATURESPACE[fidx]``) so the
+        single consumer keeps using the original features for ``run``/``dump``
+        and their single persistent HDF5 handles.
+
+        Parameters
+        ----------
+        worker : :class:`_ProducerWorker`
+          The per-thread state and cloned feature set for this producer.
+        buffer : :class:`nearl.pipeline.PrefetchBuffer`
+          The buffer onto which ``(feature, queried)`` GPU tasks are deposited.
+        traj_indices : np.ndarray
+          The indices of the trajectories this worker should process.
+        """
+        try:
+            for tid in traj_indices:
+                tid = int(tid)
+                # Setup the trajectory and its related parameters such as slicing of the trajectory
+                self._setup_worker_trajectory(worker, self.TRAJLOADER[tid])
+                msg = f"Processing the trajectory {tid + 1} ({worker.traj.identity}) with {worker.SLICENUMBER} frame slices"
+                log(f"{self.classname}: {msg:=^80}")
+                st = time.perf_counter()
+
+                if self.FOCALPOINTS_PROTOTYPE is not None:
+                    # NOTE: Re-parse the focal points for each trajectory
+                    # Expected output shape is (worker.SLICENUMBER, worker.FOCALNUMBER, 3) array
+                    focus_state = self._parse_focus(worker)
+                    if focus_state == 0:
+                        log.warning(
+                            f"{self.classname}: Skipping the trajectory {worker.traj.identity}(index {tid + 1}) because focal points parsing is failed. "
+                        )
+                        continue
+                    if config.verbose() or config.debug():
+                        log(
+                            f"{self.classname}: Parsing of focal points on trajectory ({tid + 1}/{worker.traj.identity}) yeield the shape: {worker.FOCALPOINTS.shape}. "
+                        )
+
+                # Cache the weights for each atoms in the trajectory (run once for each trajectory)
+                for feat in worker.features:
+                    if config.verbose():
+                        log(
+                            f"{self.classname}: Caching the weights of feature {feat.classname} for the trajectory {tid + 1}"
+                        )
+                    feat.cache(worker.traj)
+
+                task_count = 0
+                # Pool the actions for each trajectory
+                for bid in range(worker.SLICENUMBER):
+                    worker.frame_slice = worker.FRAMESLICES[bid]
+                    frames = worker.traj.xyz[worker.FRAMESLICES[bid]]
+                    if worker.FOCALNUMBER > 0:
+                        # After determineing each focus point, run the featurizer for each focus point
+                        for pid in range(worker.FOCALNUMBER):
+                            focal_point = worker.FOCALPOINTS[bid, pid]
+                            # Crop the trajectory and send the coordinates/trajectory to the featurizer
+                            for fidx in range(self.FEATURENUMBER):
+                                # NOTE: Isolate the effect on the calculation of the next feature
+                                queried = worker.features[fidx].query(
+                                    worker.traj.top, frames, focal_point
+                                )
+                                buffer.put((self.FEATURESPACE[fidx], queried))
+                                task_count += 1
+                    else:
+                        # Without registeration of focal points: focal-point independent features such as label-generation
+                        for fidx in range(self.FEATURENUMBER):
+                            # Explicitly transfer the topology and frames to get the queried coordinates for the featurizer
+                            queried = worker.features[fidx].query(
+                                worker.traj.top, frames, [0, 0, 0]
+                            )
+                            buffer.put((self.FEATURESPACE[fidx], queried))
+                            task_count += 1
+
+                log(
+                    f"{self.classname}: Trajectory {tid + 1} yields {task_count} frame-slices (tasks) for the featurization. "
+                )
+                msg = f"Finished the trajectory {tid + 1} / {self.TRAJECTORYNUMBER} with {task_count} tasks in {time.perf_counter() - st:.6f} seconds"
+                msg = f"{msg:=^80}"
+                if tid < worker.SLICENUMBER - 1:
+                    msg += "\n"
+                log(f"{self.classname}: {msg}")
+        except PipelineCancelled:
+            # The consumer stopped early and cancelled us; it is already
+            # raising its own exception, so there is nothing to report.
+            pass
+        except Exception as exc:  # pragma: no cover - surfaced on the main thread
+            with contextlib.suppress(PipelineCancelled):
+                buffer.put((_ERROR, exc))
+        # NOTE: no buffer.close() here. The coordinator enqueues the single
+        # end-of-stream sentinel after joining every producer.
 
     def _dump_result(self, feature, result):
         """
