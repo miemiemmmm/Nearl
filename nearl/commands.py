@@ -300,8 +300,6 @@ def frame_voxelize_dlpack(coords, weights, grid_dims, spacing, cutoff, sigma):
     The output tensor is allocated by PyTorch and filled directly by the CUDA
     kernel, avoiding the Device-to-Host copy performed by :func:`frame_voxelize`.
     """
-    import torch
-
     if coords.dtype != np.float32:
         coords = coords.astype(np.float32)
     if weights.dtype != np.float32:
