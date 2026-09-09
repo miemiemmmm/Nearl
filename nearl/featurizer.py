@@ -418,7 +418,7 @@ class Featurizer:
         self.SLICENUMBER = self.FRAMENUMBER // self.time_window
         if self.SLICENUMBER == 0:
             logger.warning(
-                f"{self.classname}: No frame slice is available. The trajectory have {self.FRAMENUMBER} frames and the time window is {self.time_window}."
+                f"{self.classname}: No frame slice is available. The trajectory has {self.FRAMENUMBER} frames and the time window is {self.time_window}."
             )
         if self.FRAMENUMBER % self.time_window != 0 and self.FRAMENUMBER != 1:
             logger.warning(
@@ -616,7 +616,7 @@ class Featurizer:
                 if idx >= worker.SLICENUMBER:
                     break
                 focus = np.mean(frame[indices], axis=0)
-                worker.FOCALPOINTS[0, idx] = focus
+                worker.FOCALPOINTS[idx, 0] = focus
             return 1
 
         else:
@@ -672,6 +672,9 @@ class Featurizer:
         thread, or a feature whose ``cache`` calls a kernel, would race on the
         shared device buffers.
         """
+        # Reset the GPU busy-time accumulator so ``gpu_busy_time``
+        features.Feature.gpu_busy_seconds = 0.0
+
         buffer = PrefetchBuffer(capacity=self._prefetch_capacity)
         writer = AsyncWriter(self._dump_result, capacity=self._writer_capacity)
 
@@ -784,7 +787,7 @@ class Featurizer:
         worker.SLICENUMBER = worker.FRAMENUMBER // self.time_window
         if worker.SLICENUMBER == 0:
             logger.warning(
-                f"{self.classname}: No frame slice is available. The trajectory have {worker.FRAMENUMBER} frames and the time window is {self.time_window}."
+                f"{self.classname}: No frame slice is available. The trajectory has {worker.FRAMENUMBER} frames and the time window is {self.time_window}."
             )
         if worker.FRAMENUMBER % self.time_window != 0 and worker.FRAMENUMBER != 1:
             logger.warning(
@@ -849,7 +852,7 @@ class Featurizer:
                         continue
                     if config.verbose() or config.debug():
                         log(
-                            f"{self.classname}: Parsing of focal points on trajectory ({tid + 1}/{self.traj.identity}) yeield the shape: {self.FOCALPOINTS.shape}. "
+                            f"{self.classname}: Parsing of focal points on trajectory ({tid + 1}/{self.traj.identity}) yield the shape: {self.FOCALPOINTS.shape}. "
                         )
 
                 # Cache the weights for each atoms in the trajectory (run once for each trajectory)
@@ -947,7 +950,7 @@ class Featurizer:
                         continue
                     if config.verbose() or config.debug():
                         log(
-                            f"{self.classname}: Parsing of focal points on trajectory ({tid + 1}/{worker.traj.identity}) yeield the shape: {worker.FOCALPOINTS.shape}. "
+                            f"{self.classname}: Parsing of focal points on trajectory ({tid + 1}/{worker.traj.identity}) yield the shape: {worker.FOCALPOINTS.shape}. "
                         )
 
                 # Cache the weights for each atoms in the trajectory (run once for each trajectory)
@@ -990,7 +993,7 @@ class Featurizer:
                 )
                 msg = f"Finished the trajectory {tid + 1} / {self.TRAJECTORYNUMBER} with {task_count} tasks in {time.perf_counter() - st:.6f} seconds"
                 msg = f"{msg:=^80}"
-                if tid < worker.SLICENUMBER - 1:
+                if tid != int(traj_indices[-1]):
                     msg += "\n"
                 log(f"{self.classname}: {msg}")
         except PipelineCancelled:

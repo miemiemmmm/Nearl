@@ -572,10 +572,11 @@ class Feature:
         )
 
         def collect():
+            result = pending.result()
             if Feature.gpu_busy_capture:
                 # pending.result() syncs the stream; elapsed time is the busy window.
                 Feature.gpu_busy_seconds += time.perf_counter() - t_launch
-            result = pending.result().reshape(dims)
+            result = result.reshape(dims)
             if command == "density_flow" and np.isnan(result).any():
                 log.warning(
                     f"Found nan in the return: {np.count_nonzero(np.isnan(result))}"

@@ -206,9 +206,19 @@ run_feature_suite() {
             CUDA_VISIBLE_DEVICES=$gpu PYTHONPATH="$CLONE_DIR:${PYTHONPATH:-}" python scripts/benchmark_dataset.py \
                 -f "$SARS_TRAJLIST" --trajlist_format "$TRAJLIST_FORMAT" -o "$OUT_DIR/gpu$slot" -t "$feat" \
                 -d "$DIMENSION" -c "$CUTOFF" -s "$SIGMA" -l "$LENGTH" \
-                --producer_threads "$PRODUCER_THREADS" >"$outfile" 2>/dev/null
+                --producer_threads "$PRODUCER_THREADS" >"$outfile" 2>&1
+            rc=$?
             wall=$(grep -oE 'BENCHMARK_RUN_SECONDS=[0-9]+\.[0-9]+' "$outfile" | cut -d= -f2 | tail -1)
             gpu_busy=$(grep -oE 'GPU_BUSY_SECONDS=[0-9]+\.[0-9]+' "$outfile" | cut -d= -f2 | tail -1)
+            # Reliability guard: only append a row when the benchmark actually
+            # succeeded AND produced parseable timings. Otherwise we would
+            # silently write a row of empty/invalid values that corrupts the
+            # CSV and any downstream analysis.
+            if [ "$rc" -ne 0 ] || [ -z "$wall" ] || [ -z "$gpu_busy" ]; then
+                echo "  $label / $feat : FAILED (rc=$rc, wall='$wall', gpu_busy='$gpu_busy')" >&2
+                rm -f "$outfile"
+                return 1
+            fi
             rm -f "$outfile"
             # Append one row with the git hash, label, feature, wall time, GPU
             # busy time, and every benchmark_dataset.py parameter so the CSV is
@@ -221,11 +231,13 @@ run_feature_suite() {
         # Once 4 are in flight (one per GPU), wait for them before launching
         # the next batch.
         if [ "${#pids[@]}" -ge 4 ]; then
-            wait "${pids[@]}"
+            wait "${pids[@]}" || return 1
             pids=()
         fi
     done
-    wait "${pids[@]}"
+    if [ "${#pids[@]}" -gt 0 ]; then
+        wait "${pids[@]}" || return 1
+    fi
 }
 
 run_feature_suite "$GIT_REF"
