@@ -11,6 +11,9 @@
 #define MAX_FRAME_NUMBER 512
 #define DISTINCT_LIMIT 1000
 
+// MATH
+#define SQRT_2_PI 2.5066282746310002f
+
 
 // Obervable types
 #define OBSERVABLE_COUNT 9
