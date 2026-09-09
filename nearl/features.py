@@ -712,9 +712,6 @@ class AtomicNumber(Feature):
         idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
         self.cached_array = np.array(self.atomic_numbers, dtype=np.float32)
         weights = self.cached_array[idx_inbox]
-        logger.info(
-            f"{self.classname}: Found {len(weights)} atoms in the bounding box and total weight is {np.sum(weights)}"
-        )
         return coord_inbox, weights
 
 
@@ -762,9 +759,6 @@ class Mass(Feature):
 
         idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
         weights = self.cached_array[idx_inbox]
-        logger.debug(
-            f"Query: Sum of weights: {np.sum(weights)}, {weights.shape}, {weights[:5]}, {np.mean(weights)}"
-        )
         return coord_inbox, weights
 
 
@@ -1057,12 +1051,6 @@ class AtomType(Feature):
 
         idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
         weights = self.cached_array[idx_inbox]
-
-        if np.sum(weights) == 0:
-            logger.warning(
-                f"{self.classname}: No atoms of the type {self.focus_element} is found in the bounding box"
-            )
-
         return coord_inbox, weights
 
 
