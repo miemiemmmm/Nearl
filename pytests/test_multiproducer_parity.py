@@ -76,7 +76,9 @@ class _FakeTraj:
         self.n_atoms = 3
         self.top = _FakeTop(self.n_atoms)
         # Deterministic per-trajectory coordinates.
-        rng = np.random.default_rng(int.from_bytes(self.identity.encode("utf-8"), "little") % (2**32))
+        rng = np.random.default_rng(
+            int.from_bytes(self.identity.encode("utf-8"), "little") % (2**32)
+        )
         self.xyz = rng.random((self.n_frames, self.n_atoms, 3))
 
 
