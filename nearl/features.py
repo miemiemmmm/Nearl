@@ -10,13 +10,15 @@ import numpy as np
 import pytraj as pt
 
 from . import (  # local modules   # local static methods/objects
-    chemtools,
     commands,
     config,
     constants,
     log,
     utils,
 )
+
+# chemtools pulls in rdkit and openbabel (~110 ms). Only the chemistry-label
+# features need it, so it is imported in the five cache() methods that do.
 
 # TODO:
 # - Add description of each features in the docstring
@@ -858,6 +860,8 @@ class Aromaticity(Feature):
 
     def cache(self, trajectory):
         super().cache(trajectory)
+        from . import chemtools
+
         atoms_aromatic = chemtools.label_aromaticity(trajectory)
 
         if self.reverse:
@@ -892,6 +896,8 @@ class Ring(Feature):
 
     def cache(self, trajectory):
         super().cache(trajectory)
+        from . import chemtools
+
         atoms_in_ring = chemtools.label_ring_status(trajectory)
 
         if self.reverse:
@@ -952,6 +958,8 @@ class HBondDonor(Feature):
 
     def cache(self, trajectory):
         super().cache(trajectory)
+        from . import chemtools
+
         atoms_hbond_donor = chemtools.label_hbond_donor(trajectory)
 
         self.cached_array = np.array(atoms_hbond_donor, dtype=np.float32)
@@ -971,6 +979,8 @@ class HBondAcceptor(Feature):
 
     def cache(self, trajectory):
         super().cache(trajectory)
+        from . import chemtools
+
         atoms_hbond_acceptor = chemtools.label_hbond_acceptor(trajectory)
 
         self.cached_array = np.array(atoms_hbond_acceptor, dtype=np.float32)
@@ -990,6 +1000,8 @@ class Hybridization(Feature):
 
     def cache(self, trajectory):
         super().cache(trajectory)
+        from . import chemtools
+
         atoms_hybridization = chemtools.label_hybridization(trajectory)
 
         self.cached_array = np.asarray(atoms_hybridization, dtype=np.float32)
