@@ -75,7 +75,16 @@ public:
   float *data() { return output_data_; }
   py::object result() {
     if (active_) {
-      ctx_->end_call();
+      {
+        // Release the GIL across the wait, not just across the launch. Since the
+        // dispatch became asynchronous the *_host calls return immediately, so
+        // the release inside them spans almost nothing while the real kernel
+        // time is spent here in end_call() -> synchronize(). Holding the GIL
+        // through it freezes the featurizer's CPU producer for every kernel and
+        // costs exactly the overlap the pipeline exists to win.
+        py::gil_scoped_release release;
+        ctx_->end_call();
+      }
       active_ = false;
     }
     if (!value_) {
