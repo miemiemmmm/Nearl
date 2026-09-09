@@ -13,7 +13,7 @@ install: clean
 
 
 reinstall: 
-	pip install --force-reinstall ./ 
+	pip install --force-reinstall --no-deps ./ 
 
 
 # TODO: Add the installation later 
