@@ -7,6 +7,7 @@
 #include "cpuutils.h"   // For gaussian_map
 #include "gpuutils.cuh" // For CUDA kernels
 #include "voxelize.cuh"
+#include "voxelize_math.h"
 
 /**
  * @brief Per-atom Gaussian density on the full grid (legacy one-atom kernel).
@@ -76,10 +77,8 @@ __global__ void frame_interp_global(const float *coords_frame, const float *weig
   const float weight = weights_frame[frame_idx * atom_nr + atom_idx];
   float *frame_output = interpolated_frame + frame_idx * gridpoint_nr;
 
-  if (coord[0] == DEFAULT_COORD_PLACEHOLDER && coord[1] == DEFAULT_COORD_PLACEHOLDER &&
-      coord[2] == DEFAULT_COORD_PLACEHOLDER) {
+  if (nearl_is_placeholder(coord))
     return;
-  }
   if (weight == 0.0f)
     return;
 
@@ -90,16 +89,13 @@ __global__ void frame_interp_global(const float *coords_frame, const float *weig
   // Index range of the atom's cutoff ball along each axis, before clipping.
   // A grid point at integer index i sits at i * spacing, so the ball spans
   // [(c - cutoff) / spacing, (c + cutoff) / spacing].
-  const int ball_lo[3] = {static_cast<int>(ceilf((coord[0] - cutoff) / spacing)),
-                          static_cast<int>(ceilf((coord[1] - cutoff) / spacing)),
-                          static_cast<int>(ceilf((coord[2] - cutoff) / spacing))};
-  const int ball_hi[3] = {static_cast<int>(floorf((coord[0] + cutoff) / spacing)),
-                          static_cast<int>(floorf((coord[1] + cutoff) / spacing)),
-                          static_cast<int>(floorf((coord[2] + cutoff) / spacing))};
+  int ball_lo[3], ball_hi[3];
+  for (int d = 0; d < 3; ++d)
+    nearl_ball_bounds(coord[d], cutoff, spacing, &ball_lo[d], &ball_hi[d]);
 
   float local_sum = 0.0f;
   int x, y, z;
-  float grid_x, grid_y, grid_z, dist_sq;
+  float dist_sq;
 
   // Normalizer pass, over the buffered grid: axis i runs over
   // [-buff_dim, buff_dims[i] - buff_dim). NOTE the axis-to-extent pairing below
@@ -123,14 +119,9 @@ __global__ void frame_interp_global(const float *coords_frame, const float *weig
     y = nlo_y + (bid / n_nz) % n_ny;
     z = nlo_z + bid % n_nz;
 
-    grid_x = x * spacing;
-    grid_y = y * spacing;
-    grid_z = z * spacing;
-
-    dist_sq = (coord[0] - grid_x) * (coord[0] - grid_x) +
-              (coord[1] - grid_y) * (coord[1] - grid_y) + (coord[2] - grid_z) * (coord[2] - grid_z);
+    dist_sq = nearl_dist_sq(coord, x, y, z, spacing);
     if (dist_sq < cutoff_sq)
-      local_sum += gaussian_map_device(sqrt(dist_sq), 0.0f, sigma);
+      local_sum += nearl_gaussian(sqrtf(dist_sq), sigma);
   }
 
   // Store partial sum to shared memory
@@ -169,96 +160,10 @@ __global__ void frame_interp_global(const float *coords_frame, const float *weig
     y = slo_y + (bid / s_nz) % s_ny;
     z = slo_z + bid % s_nz;
 
-    grid_x = x * spacing;
-    grid_y = y * spacing;
-    grid_z = z * spacing;
-
-    dist_sq = (coord[0] - grid_x) * (coord[0] - grid_x) +
-              (coord[1] - grid_y) * (coord[1] - grid_y) + (coord[2] - grid_z) * (coord[2] - grid_z);
-
-    if (dist_sq < cutoff_sq) {
-      const int gid = x * dims[0] * dims[1] + y * dims[0] + z;
-      atomicAdd(frame_output + gid, gaussian_map_device(sqrt(dist_sq), 0.0f, sigma) * inv_sum);
-    }
-  }
-}
-
-
-/**
- * @brief CPU reference implementation of single-frame Gaussian voxelization.
- *
- * For each atom, loops over grid points within cutoff, accumulates the Gaussian
- * density, normalises by the total density, and writes the weighted density into
- * the output grid. Used for validation and when the CUDA extension is not built.
- */
-void voxelize_host_cpu(float *interpolated, const float *coord, const float *weight,
-                       const int *dims, const float spacing, const int atom_nr, const float cutoff,
-                       const float sigma) {
-  unsigned int gridpoint_nr = dims[0] * dims[1] * dims[2];
-
-  int ai = 0, aj = 0, ak = 0, gix = -1;
-  int damax = ceil(cutoff / spacing);
-
-  float dvec[3], grid_spac[3], grid_llim[3] = {0.0f, 0.0f, 0.0f};
-  float c2 = cutoff * cutoff, d2 = 0.0, netw = 0.0;
-
-  for (int dd = 0; dd < 3; dd++) {
-    grid_spac[dd] = spacing;
-  } // ??????????????????
-
-  for (int atm_idx = 0; atm_idx < atom_nr; ++atm_idx) {
-    // Copy the coordinates of the atom to the GPU and do interpolation on this atom
-    int offset = atm_idx * 3;
-
-    // Skip the padded coordinates (all coordinates are DEFAULT_COORD_PLACEHOLDER) and zero weights
-    if (coord[offset] == DEFAULT_COORD_PLACEHOLDER &&
-        coord[offset + 1] == DEFAULT_COORD_PLACEHOLDER &&
-        coord[offset + 2] == DEFAULT_COORD_PLACEHOLDER) {
-      continue;
-    }
-
-    if (weight[atm_idx] == 0.0f) {
-      // Skip the voxelization if the weight is 0
-      continue;
-    }
-
-    ai = floor((coord[offset]) / grid_spac[0]);
-    aj = floor((coord[offset + 1]) / grid_spac[1]);
-    ak = floor((coord[offset + 2]) / grid_spac[2]);
-    netw = 0.0;
-    for (int ii = ai - damax; ii <= ai + damax; ii++) {
-      dvec[0] = coord[offset] - (grid_llim[0] + (ii + 0.5) * grid_spac[0]);
-      for (int jj = aj - damax; jj <= aj + damax; jj++) {
-        dvec[1] = coord[offset + 1] - (grid_llim[1] + (jj + 0.5) * grid_spac[1]);
-        for (int kk = ak - damax; kk <= ak + damax; kk++) {
-          dvec[2] = coord[offset + 2] - (grid_llim[2] + (kk + 0.5) * grid_spac[2]);
-          d2 = dvec[0] * dvec[0] + dvec[1] * dvec[1] + dvec[2] * dvec[2];
-          if (d2 > c2) {
-            continue;
-          }
-          netw += gaussian_map(std::sqrt(d2), 0.0, sigma);
-        }
-      }
-    }
-    netw = 1.0 / netw;
-    for (int ii = ai - damax; ii <= ai + damax; ii++) {
-      dvec[0] = coord[offset] - (grid_llim[0] + (ii + 0.5) * grid_spac[0]);
-      for (int jj = aj - damax; jj <= aj + damax; jj++) {
-        dvec[1] = coord[offset + 1] - (grid_llim[1] + (jj + 0.5) * grid_spac[1]);
-        for (int kk = ak - damax; kk <= ak + damax; kk++) {
-          gix = ii * dims[0] * dims[1] + jj * dims[0] + kk;
-          if ((gix < 0) || (gix >= gridpoint_nr)) {
-            continue;
-          }
-          dvec[2] = coord[offset + 2] - (grid_llim[2] + (kk + 0.5) * grid_spac[2]);
-          d2 = dvec[0] * dvec[0] + dvec[1] * dvec[1] + dvec[2] * dvec[2];
-          if (d2 > c2) {
-            continue;
-          }
-          interpolated[gix] += netw * weight[atm_idx] * gaussian_map(std::sqrt(d2), 0.0, sigma);
-        }
-      }
-    }
+    dist_sq = nearl_dist_sq(coord, x, y, z, spacing);
+    if (dist_sq < cutoff_sq)
+      atomicAdd(frame_output + nearl_grid_index(x, y, z, dims),
+                nearl_gaussian(sqrtf(dist_sq), sigma) * inv_sum);
   }
 }
 
@@ -495,21 +400,5 @@ void trajectory_voxelization_host(float *voxelize_dynamics, const float *coord, 
     CUDA_CHECK(cudaFree(tmp_voxel_gpu));
     CUDA_CHECK(cudaFree(voxelize_dynamics_gpu));
     CUDA_CHECK(cudaFree(dims_gpu));
-  }
-}
-
-/**
- * @brief CPU reference for trajectory density flow (serial, for comparison only).
- *
- * Repeatedly calls voxelize_host_cpu for each frame, accumulating densities in
- * the output buffer. Intended as a correctness/performance baseline.
- */
-void trajectory_voxelization_host_cpu(float *voxelize_dynamics, const float *coord,
-                                      const float *weight, const int *dims, const float spacing,
-                                      const int frame_nr, const int atom_nr, const float cutoff,
-                                      const float sigma, const int type_agg) {
-  for (int frame_idx = 0; frame_idx < frame_nr; ++frame_idx) {
-    voxelize_host_cpu(voxelize_dynamics, coord + frame_idx * atom_nr * 3,
-                      weight + frame_idx * atom_nr, dims, spacing, atom_nr, cutoff, sigma);
   }
 }

@@ -4,6 +4,7 @@
 #include "cuda_runtime.h"
 #include "constants.h"
 #include "gpuutils.cuh"
+#include "voxelize_math.h"
 
 #include <algorithm>
 #include <mutex>
@@ -233,26 +234,9 @@ __global__ void gridwise_aggregation_global(float *d_in, float *d_out, const int
     tmp_array[i] = d_in[i * gridpoint_nr + idx];
   }
 
-  if (type_agg == 1) {
-    d_out[idx] = mean_device<float>(tmp_array, frame_nr);
-  } else if (type_agg == 2) {
-    d_out[idx] = standard_deviation_device<float>(tmp_array, frame_nr);
-  } else if (type_agg == 3) {
-    d_out[idx] = median_device<float>(tmp_array, frame_nr);
-  } else if (type_agg == 4) {
-    d_out[idx] = variance_device<float>(tmp_array, frame_nr);
-  } else if (type_agg == 5) {
-    d_out[idx] = max_device<float>(tmp_array, frame_nr);
-  } else if (type_agg == 6) {
-    d_out[idx] = min_device<float>(tmp_array, frame_nr);
-  } else if (type_agg == 7) {
-    d_out[idx] = information_entropy_histogram_device(tmp_array, frame_nr);
-  } else if (type_agg == 8) {
-    d_out[idx] = slope_device<float>(tmp_array, frame_nr);
-  } else {
-    // Should throw exception in the python-end
-    d_out[idx] = 0;
-  }
+  // Shared with the CPU reference so the two backends cannot drift; an
+  // unsupported code yields 0 here and is rejected at the Python boundary.
+  d_out[idx] = nearl_aggregate(tmp_array, frame_nr, type_agg);
 }
 
 

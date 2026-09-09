@@ -6,10 +6,10 @@ from . import log, utils
 
 try:
     from . import all_actions
+
+    HAS_CUDA_EXTENSION = True
 except ImportError:
-    log.warning(
-        "Could not import all_actions submodule. Please check if the package is compiled correctly."
-    )
+    HAS_CUDA_EXTENSION = False
 
     class _MissingExtension:
         """Stands in for the unbuilt extension so use-sites fail with a clear reason."""
@@ -23,6 +23,45 @@ except ImportError:
             )
 
     all_actions = _MissingExtension()
+
+try:
+    from . import _voxelize_cpu
+except ImportError:
+    _voxelize_cpu = None
+
+if not HAS_CUDA_EXTENSION:
+    log.warning(
+        "Could not import all_actions submodule. Please check if the package is compiled correctly."
+        + (
+            " Voxelization will fall back to the CPU."
+            if _voxelize_cpu is not None
+            else ""
+        )
+    )
+
+_cpu_fallback_announced = False
+
+
+def _voxelize_backend(name):
+    """Return the voxelization entry point to call, GPU for preference.
+
+    Only a *missing* CUDA extension routes to the CPU. A CUDA error on a machine
+    that has one still propagates: quietly switching to a path orders of magnitude
+    slower would hide a broken install, the same reasoning that makes a failed
+    CUDA call raise instead of returning an empty grid.
+    """
+    global _cpu_fallback_announced
+    if HAS_CUDA_EXTENSION or _voxelize_cpu is None:
+        # Without the CPU module this yields the stub's informative ImportError.
+        return getattr(all_actions, name)
+    if not _cpu_fallback_announced:
+        log.warning(
+            "Running voxelization on the CPU reference; it matches the GPU result "
+            "but is far slower. Build the CUDA extension for production runs."
+        )
+        _cpu_fallback_announced = True
+    return getattr(_voxelize_cpu, name)
+
 
 __all__ = [
     # Single frame methods
@@ -80,7 +119,7 @@ def frame_voxelize(coords, weights, grid_dims, spacing, cutoff, sigma):
     cutoff = float(cutoff)
     sigma = float(sigma)
     # NOTE: no auto translation in the C++ part
-    ret_arr = all_actions.frame_voxelize(
+    ret_arr = _voxelize_backend("frame_voxelize")(
         coords, weights, grid_dims, spacing, cutoff, sigma, 0
     )
     return ret_arr.reshape(grid_dims)
@@ -208,7 +247,7 @@ def density_flow(traj, weights, grid_dims, spacing, cutoff, sigma, type_agg):
     sigma = float(sigma)
     type_agg = int(type_agg)
 
-    ret_arr = all_actions.density_flow(
+    ret_arr = _voxelize_backend("density_flow")(
         traj, weights, grid_dims, spacing, cutoff, sigma, type_agg
     )
     if np.isnan(ret_arr).any():
