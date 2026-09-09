@@ -52,7 +52,7 @@ public:
   static constexpr size_t NUM_SLOTS = 8;
 
   DeviceContext();
-  ~DeviceContext();
+  ~DeviceContext() noexcept;
 
   // Non-copyable, non-movable
   DeviceContext(const DeviceContext &) = delete;
@@ -75,6 +75,7 @@ public:
    * slot's current capacity is smaller than @p min_bytes, the slot is reallocated.
    */
   void *get_buffer(size_t min_bytes, size_t slot);
+  size_t buffer_capacity(size_t slot) const;
 
   float *get_buffer_f(size_t min_count, size_t slot) {
     return static_cast<float *>(get_buffer(min_count * sizeof(float), slot));
@@ -87,15 +88,29 @@ public:
   // Convenience: block until all work on the context's stream is complete.
   void synchronize();
 
+  // A pending result exclusively owns the reusable buffers until collection.
+  // Host entry points defer their final wait only while such a result is pending.
+  void begin_call();
+  void end_call();
+  void cancel_call() noexcept;
+  bool pending() const { return pending_; }
+  void *stage_input(const void *source, size_t bytes, size_t slot);
+  void *get_host_buffer(size_t min_bytes, size_t slot);
+  size_t host_buffer_capacity(size_t slot) const;
+
 private:
   struct Buffer {
     void *ptr = nullptr;
     size_t capacity = 0;
   };
 
+  void *resize_buffer(Buffer &buffer, size_t bytes, bool pinned);
+  bool pending_ = false;
+  int device_ = -1;
   bool initialized_ = false;
   cudaStream_t stream_ = 0;
   Buffer buffers_[NUM_SLOTS];
+  Buffer host_buffers_[NUM_SLOTS];
 };
 
 // Global context used by all host functions when initialized.  Falls back to
@@ -116,6 +131,12 @@ enum class BufferSlot {
   PARTIAL_SUMS = 6,
   SCRATCH = 7,
 };
+
+
+// Stage pageable input in the context's pinned storage before asynchronous upload.
+void copy_h2d_async(DeviceContext *ctx, void *destination, const void *source, size_t bytes,
+                    BufferSlot slot, cudaStream_t stream);
+void sum_reduction_dispatch(float *array, int arr_length, float *partial_host);
 
 
 template <typename T> __device__ T max_device(const T *Arr, const int N) {
@@ -415,13 +436,17 @@ __device__ void com_device(const T *coord, const T *mass, T *com, const int poin
 
 
 // To calculate the distance based gaussian map.
+//
+// The arithmetic is float regardless of T, so the computation stays in single
+// precision. This is the innermost function of frame_interp_global.
 template <typename T>
 __device__ float gaussian_map_device(const T distance, const T mu, const T sigma) {
   if (sigma == 0) {
     return 0;
   } else {
-    return exp(-0.5 * ((distance - mu) / sigma) * ((distance - mu) / sigma)) /
-           (sigma * sqrtf(2 * M_PI));
+    const float sigma_f = static_cast<float>(sigma);
+    const float z = (static_cast<float>(distance) - static_cast<float>(mu)) / sigma_f;
+    return expf(-0.5f * z * z) / (sigma_f * SQRT_2_PI);
   }
 }
 

@@ -408,17 +408,22 @@ __global__ void marching_observer_global(float *mobs_ret, const float *coord_fra
                                          const float spacing, const int frame_number,
                                          const int atomnr, const float cutoff) {
   unsigned int index = blockIdx.x * blockDim.x + threadIdx.x;
+  unsigned int frame_idx = blockIdx.y;
   unsigned int grid_size = dims[0] * dims[1] * dims[2];
-  if (index >= grid_size)
+  if (index >= grid_size || frame_idx >= static_cast<unsigned int>(frame_number))
     return;
+
+  const float *frame_coords = coord_frame + frame_idx * atomnr * 3;
+  const float *frame_weights = weight_frame + frame_idx * atomnr;
+  float *frame_output = mobs_ret + frame_idx * grid_size;
 
   // Get the coordinate of the grid point (Observer) in real space
   float coord[3] = {static_cast<float>(index / (dims[0] * dims[1])) * spacing,
                     static_cast<float>((index / dims[0]) % dims[1]) * spacing,
                     static_cast<float>(index % dims[0]) * spacing};
 
-  mobs_ret[index] =
-      observable_kernel<Observable>::apply(coord, coord_frame, weight_frame, atomnr, cutoff);
+  frame_output[index] =
+      observable_kernel<Observable>::apply(coord, frame_coords, frame_weights, atomnr, cutoff);
 }
 
 
@@ -436,7 +441,7 @@ static void launch_marching_observer(const ObservableType type_obs, const unsign
   switch (type_obs) {
 #define OBSERVABLE_LAUNCH_CASE(NAME, VALUE, FN)                                                    \
   case ObservableType::NAME:                                                                       \
-    marching_observer_global<ObservableType::NAME><<<grid_size, BLOCK_SIZE, 0, stream>>>(          \
+    marching_observer_global<ObservableType::NAME><<<dim3(grid_size, frame_number, 1), BLOCK_SIZE, 0, stream>>>(  \
         mobs_ret, coord_frame, weight_frame, dims, spacing, frame_number, atomnr, cutoff);         \
     break;
     OBSERVABLE_TYPE_LIST(OBSERVABLE_LAUNCH_CASE)
@@ -452,7 +457,7 @@ static void launch_marching_observer(const ObservableType type_obs, const unsign
 /**
  * @brief GPU entry point for the marching observer algorithm on a frame slice.
  *
- * For each frame, launches marching_observer_global so that every grid point
+ * Launches marching_observer_global across frames so that every grid point
  * computes an observable (e.g. density, count, eccentricity) from the atoms
  * within cutoff. The per-frame grids are stored, then reduced across frames
  * with gridwise_aggregation_global. Uses the global DeviceContext when active.
@@ -507,30 +512,14 @@ void marching_observer_host(float *mobs_dynamics, const float *coord, const floa
 
   CUDA_CHECK(cudaMemsetAsync(mobs_traj, 0, frame_number * observer_number * sizeof(float), stream));
   CUDA_CHECK(cudaMemsetAsync(tmp_mobs_gpu, 0, observer_number * sizeof(float), stream));
-  CUDA_CHECK(cudaMemcpyAsync(coords_device, coord,
-                             frame_number * atom_per_frame * 3 * sizeof(float),
-                             cudaMemcpyHostToDevice, stream));
-  CUDA_CHECK(cudaMemcpyAsync(weights_device, weights, frame_number * atom_per_frame * sizeof(float),
-                             cudaMemcpyHostToDevice, stream));
-  CUDA_CHECK(cudaMemcpyAsync(dims_device, dims, 3 * sizeof(int), cudaMemcpyHostToDevice, stream));
+  copy_h2d_async(ctx, coords_device, coord, frame_number * atom_per_frame * 3 * sizeof(float),
+                 BufferSlot::COORDS, stream);
+  copy_h2d_async(ctx, weights_device, weights, frame_number * atom_per_frame * sizeof(float),
+                 BufferSlot::WEIGHTS, stream);
+  copy_h2d_async(ctx, dims_device, dims, 3 * sizeof(int), BufferSlot::DIMS, stream);
 
-  // NOTE: The coordinate should be uniformed meaning each frame have the same number of atoms
-  for (int frame_idx = 0; frame_idx < frame_number; ++frame_idx) {
-    // Perform the observation of all the grid points (observers) in the frame i
-    launch_marching_observer(type_obs, grid_size, tmp_mobs_gpu,
-                             coords_device + frame_idx * atom_per_frame * 3,
-                             weights_device + frame_idx * atom_per_frame, dims_device, spacing,
-                             frame_number, atom_per_frame, cutoff, stream);
-
-    // After calculating the frame i, copy the result to the frame-wise array
-    CUDA_CHECK(cudaMemcpyAsync(mobs_traj + frame_idx * observer_number, tmp_mobs_gpu,
-                               observer_number * sizeof(float), cudaMemcpyDeviceToDevice, stream));
-
-    // Skip the frames if their index exceeds the maximum number of frames allowed due to the
-    // GPU-based aggregation
-    if (frame_idx + 1 >= MAX_FRAME_NUMBER)
-      continue;
-  }
+  launch_marching_observer(type_obs, grid_size, mobs_traj, coords_device, weights_device,
+                           dims_device, spacing, frame_number, atom_per_frame, cutoff, stream);
 
   // Perform frame-wise aggregation on the voxelized trajectory
   unsigned int _frame_number = frame_number > MAX_FRAME_NUMBER ? MAX_FRAME_NUMBER : frame_number;
@@ -547,7 +536,8 @@ void marching_observer_host(float *mobs_dynamics, const float *coord, const floa
                              cudaMemcpyDeviceToHost, stream));
 
   if (use_ctx) {
-    ctx->synchronize();
+    if (!ctx->pending())
+      ctx->synchronize();
   } else {
     CUDA_CHECK(cudaDeviceSynchronize());
     CUDA_CHECK(cudaFree(mobs_traj));
@@ -597,11 +587,11 @@ void observe_frame_host(float *results, const float *coord_frame, const float *w
 
   CUDA_CHECK(
       cudaMemsetAsync(results_gpu, 0.0f, frame_nr * observer_number * sizeof(float), stream));
-  CUDA_CHECK(cudaMemcpyAsync(dims_gpu, dims, 3 * sizeof(int), cudaMemcpyHostToDevice, stream));
-  CUDA_CHECK(cudaMemcpyAsync(coord_frame_gpu, coord_frame, frame_nr * atomnr * 3 * sizeof(float),
-                             cudaMemcpyHostToDevice, stream));
-  CUDA_CHECK(cudaMemcpyAsync(weight_frame_gpu, weight_frame, frame_nr * atomnr * sizeof(float),
-                             cudaMemcpyHostToDevice, stream));
+  copy_h2d_async(ctx, dims_gpu, dims, 3 * sizeof(int), BufferSlot::DIMS, stream);
+  copy_h2d_async(ctx, coord_frame_gpu, coord_frame, frame_nr * atomnr * 3 * sizeof(float),
+                 BufferSlot::COORDS, stream);
+  copy_h2d_async(ctx, weight_frame_gpu, weight_frame, frame_nr * atomnr * sizeof(float),
+                 BufferSlot::WEIGHTS, stream);
 
   launch_marching_observer(type_obs, grid_size, results_gpu, coord_frame_gpu, weight_frame_gpu,
                            dims_gpu, spacing, frame_nr, atomnr, cutoff, stream);
@@ -610,7 +600,8 @@ void observe_frame_host(float *results, const float *coord_frame, const float *w
                              cudaMemcpyDeviceToHost, stream));
 
   if (use_ctx) {
-    ctx->synchronize();
+    if (!ctx->pending())
+      ctx->synchronize();
   } else {
     CUDA_CHECK(cudaDeviceSynchronize());
     CUDA_CHECK(cudaFree(results_gpu));

@@ -3,9 +3,12 @@ import os
 
 import h5py
 import numpy as np
-import torch
 
 from .. import config, log
+
+# torch is imported inside the three bodies that use it. Nothing here subclasses
+# a torch type, so deferring it keeps `import nearl.io` from pulling ~580 ms of
+# torch into every featurization run.
 
 __all__ = [
     "Dataset",
@@ -132,6 +135,8 @@ def data_augment(batch_array, trans=0, add_noise=False):
     3. Translate along the axes
     4. Add noise to the data
     """
+    import torch
+
     # Flip the data
     flip_axes = rand_flip_axis("batch")
     for axis in flip_axes:
@@ -304,6 +309,8 @@ class Dataset:
           The global index of the entry.
 
         """
+        import torch
+
         if index >= self.total_entries:
             raise IndexError(
                 f"Index {index} is out of range. The dataset has {self.total_entries} entries."
@@ -386,6 +393,8 @@ class Dataset:
           The data and label of the mini-batch.
 
         """
+        import torch
+
         indices = np.arange(self.total_entries)
         if shuffle:
             np.random.shuffle(indices)

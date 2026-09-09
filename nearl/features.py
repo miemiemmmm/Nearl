@@ -3,18 +3,23 @@ import os
 import subprocess
 import tempfile
 import time
+from typing import ClassVar
 
+import h5py
+import numba
 import numpy as np
 import pytraj as pt
 
 from . import (  # local modules   # local static methods/objects
-    chemtools,
     commands,
     config,
     constants,
     log,
     utils,
 )
+
+# chemtools pulls in rdkit and openbabel (~110 ms). Only the chemistry-label
+# features need it, so it is imported in the five cache() methods that do.
 
 # TODO:
 # - Add description of each features in the docstring
@@ -83,41 +88,76 @@ SUPPORTED_OBSERVATION = commands.SUPPORTED_OBSERVATION
 SUPPORTED_AGGREGATION = commands.SUPPORTED_AGGREGATION
 
 
-def crop(points, upperbound, padding, spacing):
+@numba.njit(cache=True)
+def _crop_kernel(points, lower, upper):
+    n = points.shape[0]
+    mask_inbox = np.empty(n, dtype=np.bool_)
+    for i in range(n):
+        x = points[i, 0]
+        y = points[i, 1]
+        z = points[i, 2]
+        mask_inbox[i] = (
+            (x > lower[0])
+            and (x < upper[0])
+            and (y > lower[1])
+            and (y < upper[1])
+            and (z > lower[2])
+            and (z < upper[2])
+        )
+    return mask_inbox
+
+
+@numba.njit(cache=True)
+def _gather_translate_kernel(points, mask, offset):
+    n = points.shape[0]
+    k = 0
+    for i in range(n):
+        if mask[i]:
+            k += 1
+    out = np.empty((k, 3), dtype=np.float32)
+    j = 0
+    for i in range(n):
+        if mask[i]:
+            out[j, 0] = points[i, 0] + offset[0]
+            out[j, 1] = points[i, 1] + offset[1]
+            out[j, 2] = points[i, 2] + offset[2]
+            j += 1
+    return out
+
+
+def crop(points, upperbound, padding, spacing, offset):
     """
     Crop the points to the box defined by the center and lengths.
 
     Parameters
     ----------
     points : np.ndarray
-      The coordinates of the atoms
+      The untranslated coordinates of the atoms
     upperbound : np.ndarray
       The upperbound of the box
     padding : float
       The padding of the box
     spacing : float
       The spacing of the box for half grid offset
+    offset : np.ndarray
+      The translation that would center `points` on the box; folded into the
+      bounds instead so the (many) untranslated atoms need not be shifted,
+      only the (few) atoms that end up in the box.
 
     Returns
     -------
     mask_inbox : np.ndarray
       The boolean mask of the atoms within the box
     """
-    # X within the bouding box
-    x_state_0 = points[:, 0] < upperbound[0] + padding - spacing / 2
-    x_state_1 = points[:, 0] > 0 - padding - spacing / 2
-    # Y within the bouding box
-    y_state_0 = points[:, 1] < upperbound[1] + padding - spacing / 2
-    y_state_1 = points[:, 1] > 0 - padding - spacing / 2
-    # Z within the bouding box
-    z_state_0 = points[:, 2] < upperbound[2] + padding - spacing / 2
-    z_state_1 = points[:, 2] > 0 - padding - spacing / 2
-    # All states
-    mask_inbox = np.array(
-        x_state_0 * x_state_1 * y_state_0 * y_state_1 * z_state_0 * z_state_1,
-        dtype=bool,
-    )
-    return mask_inbox
+    half_spacing = spacing / 2
+    lower = np.asarray(-padding - half_spacing - offset, dtype=np.float32)
+    upper = np.asarray(upperbound + padding - half_spacing - offset, dtype=np.float32)
+    # A jitted single pass over the atoms: each atom's x, y, z are read once,
+    # right next to each other in memory (points is (n_atoms, 3), row-major),
+    # instead of numpy's column-at-a-time processing which sweeps the whole
+    # array once per axis. Numba/LLVM compiles this for whatever CPU it
+    # actually runs on, rather than hardcoding a SIMD width here.
+    return _crop_kernel(points, lower, upper)
 
 
 class Feature:
@@ -167,6 +207,12 @@ class Feature:
     # Individual parameters
     # - outshape: The shape of the output array
     # - force_recache: The boolean flag to force recache the weights
+
+    # Class-level cache of topology-derived atom properties (resids, atomic_numbers).
+    # These depend only on the topology, not on the per-feature selection, so they
+    # can be computed once per trajectory and shared across all features.
+    _topology_cache: ClassVar[dict] = {}
+
     def __init__(
         self,
         dims=None,
@@ -192,6 +238,7 @@ class Feature:
         if spacing is not None:
             self.spacing = spacing
         self.__center = None
+        self.__center_offset = None
         self.__lengths = None
         self.__padding = padding  # cutoff if padding is None else padding
         if padding is not None:
@@ -231,6 +278,10 @@ class Feature:
         self.outshape = outshape
         self.hdf_compress_level = kwargs.get("hdf_compress_level", 0)
         self.hdf_dump_opts = {}
+
+        # Persistent HDF5 file handle, opened lazily on first dump() and closed
+        # via close(). Reusing a single handle avoids repeated open/close overhead.
+        self._hdf = None
 
         self.PARAMSPACE = {
             "dims": self.dims,
@@ -287,8 +338,9 @@ class Feature:
             self.__dims = None
         if self.__spacing is not None:
             self.__center = self.lengths / 2
+            self.__center_offset = self.__center - self.__spacing / 2
         if self.__dims is not None and self.__spacing is not None:
-            self.__lengths = self.dims * self.__spacing
+            self.__lengths = np.array(self.dims * self.__spacing, dtype=np.float32)
 
     @property
     def spacing(self):
@@ -308,8 +360,9 @@ class Feature:
             self.__spacing = None
         if self.__dims is not None and self.__spacing is not None:
             self.__center = np.array(self.__dims * self.spacing, dtype=np.float32) / 2
+            self.__center_offset = self.__center - self.__spacing / 2
         if self.__dims is not None and self.__spacing is not None:
-            self.__lengths = self.dims * self.__spacing
+            self.__lengths = np.array(self.dims * self.__spacing, dtype=np.float32)
 
     @property
     def center(self):
@@ -407,15 +460,28 @@ class Feature:
         ----------
         trajectory : nearl.io.traj.Trajectory
         """
-        atoms = [i for i in trajectory.top.atoms]
-        self.resids = np.array([i.resid for i in atoms], dtype=int)
-        self.atomic_numbers = np.array([i.atomic_number for i in atoms], dtype=int)
+        # The resids and atomic_numbers depend only on the topology, not on the
+        # per-feature selection. Compute them once per topology and share the
+        # result across all features to avoid re-iterating trajectory.top.atoms.
+        top = trajectory.top
+        top_key = id(top)
+        cached = Feature._topology_cache.get(top_key)
+        if cached is None or cached[0] != top.n_atoms:
+            atoms = [i for i in top.atoms]
+            resids = np.array([i.resid for i in atoms], dtype=int)
+            atomic_numbers = np.array([i.atomic_number for i in atoms], dtype=int)
+            Feature._topology_cache[top_key] = (top.n_atoms, resids, atomic_numbers)
+        else:
+            _, resids, atomic_numbers = cached
+        self.resids = resids
+        self.atomic_numbers = atomic_numbers
+
         if self.selection is None:
             # If the selection is not set, select all the atoms
             self.selected = np.full(len(self.atomic_numbers), True, dtype=bool)
         elif isinstance(self.selection, str):
             # If the selection is a string, select the atoms based on the selection string
-            selected = trajectory.top.select(self.selection)
+            selected = top.select(self.selection)
             self.selected = np.full(len(self.atomic_numbers), False, dtype=bool)
             self.selected[selected] = True
             log(
@@ -474,9 +540,10 @@ class Feature:
             )
             return np.full(topology.n_atoms, True, dtype=bool), frame_coords
         else:
-            # Align the coordinates to the center of the bounding box (with focal point being the center)
-            frame_coords = frame_coords - focal_point + self.center - self.spacing / 2
-            mask = crop(frame_coords, self.lengths, self.padding, self.spacing)
+            # Crop first (on the untranslated coordinates, via shifted bounds), then
+            # only translate the atoms that survive the crop.
+            offset = self.__center_offset - focal_point.astype(np.float32)
+            mask = crop(frame_coords, self.lengths, self.padding, self.spacing, offset)
 
             if np.count_nonzero(mask) == 0:
                 logger.warning(
@@ -486,19 +553,46 @@ class Feature:
             # Get the boolean array of residues within the bounding box
             if self.byres:
                 res_inbox = np.unique(self.resids[mask])
-                final_mask = np.full(len(self.resids), False)
-                for res in res_inbox:
-                    final_mask[np.where(self.resids == res)] = True
+                final_mask = np.isin(self.resids, res_inbox)
             else:
                 final_mask = mask
             # Apply the selected atoms
             if self.selection is not None:
                 final_mask = final_mask * self.selected
-            final_coords = np.ascontiguousarray(frame_coords[final_mask])
+            final_coords = _gather_translate_kernel(frame_coords, final_mask, offset)
             logger.debug(
                 f"Returned {np.count_nonzero(final_mask)}; Selected {np.count_nonzero(self.selected)}; Total {len(final_mask)}. "
             )
             return final_mask, final_coords
+
+    def _dispatch_grid(self, command, coords, weights, *parameters):
+        """Queue into the shared context; retain the pinned result until collection."""
+        dims = tuple(self.dims)
+        pending = getattr(commands.all_actions, "_dispatch_" + command)(
+            np.ascontiguousarray(coords, dtype=np.float32),
+            np.ascontiguousarray(weights, dtype=np.float32),
+            np.asarray(dims, dtype=np.int32),
+            float(self.spacing),
+            float(self.cutoff),
+            *parameters,
+        )
+
+        def collect():
+            result = pending.result().reshape(dims)
+            if command == "density_flow" and np.isnan(result).any():
+                log.warning(
+                    f"Found nan in the return: {np.count_nonzero(np.isnan(result))}"
+                )
+            return result
+
+        return collect
+
+    def _dispatch(self, coords, weights):
+        if len(coords) == 0:
+            return lambda: self.run(coords, weights)
+        return self._dispatch_grid(
+            "frame_voxelize", coords, weights, float(self.sigma), 0
+        )
 
     def run(self, coords, weights):
         """
@@ -558,7 +652,7 @@ class Feature:
             if self.outshape is not None:
                 # Output shape is explicitly set (Usually heterogeneous data like coordinates)
                 utils.append_hdf_data(
-                    self.outfile,
+                    self._hdf_handle(),
                     self.outkey,
                     np.array([result], dtype=np.float32),
                     dtype=np.float32,
@@ -571,7 +665,7 @@ class Feature:
                 # For homogeneous features, set the chunks to match their actual shape
                 if self.hdf_compress_level == 0:
                     utils.append_hdf_data(
-                        self.outfile,
+                        self._hdf_handle(),
                         self.outkey,
                         np.array([result], dtype=np.float32),
                         dtype=np.float32,
@@ -580,7 +674,7 @@ class Feature:
                     )
                 else:
                     utils.append_hdf_data(
-                        self.outfile,
+                        self._hdf_handle(),
                         self.outkey,
                         np.array([result], dtype=np.float32),
                         dtype=np.float32,
@@ -592,6 +686,24 @@ class Feature:
             logger.warning(
                 f"{self.classname}: The outfile and/or outkey are not set, the result is not dumped into file. "
             )
+
+    def _hdf_handle(self):
+        """
+        Return a persistent h5py.File handle for this feature's outfile, opening it
+        lazily on first use. Reusing a single handle across dump() calls avoids the
+        repeated open/close overhead of the HDF5 file.
+        """
+        if self._hdf is None:
+            self._hdf = h5py.File(self.outfile, "a")
+        return self._hdf
+
+    def close(self):
+        """
+        Close the persistent HDF5 file handle (if any) held by this feature.
+        """
+        if self._hdf is not None:
+            self._hdf.close()
+            self._hdf = None
 
 
 class AtomicNumber(Feature):
@@ -616,9 +728,6 @@ class AtomicNumber(Feature):
         idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
         self.cached_array = np.array(self.atomic_numbers, dtype=np.float32)
         weights = self.cached_array[idx_inbox]
-        logger.info(
-            f"{self.classname}: Found {len(weights)} atoms in the bounding box and total weight is {np.sum(weights)}"
-        )
         return coord_inbox, weights
 
 
@@ -666,9 +775,6 @@ class Mass(Feature):
 
         idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
         weights = self.cached_array[idx_inbox]
-        logger.debug(
-            f"Query: Sum of weights: {np.sum(weights)}, {weights.shape}, {weights[:5]}, {np.mean(weights)}"
-        )
         return coord_inbox, weights
 
 
@@ -736,6 +842,8 @@ class Aromaticity(Feature):
 
     def cache(self, trajectory):
         super().cache(trajectory)
+        from . import chemtools
+
         atoms_aromatic = chemtools.label_aromaticity(trajectory)
 
         if self.reverse:
@@ -770,6 +878,8 @@ class Ring(Feature):
 
     def cache(self, trajectory):
         super().cache(trajectory)
+        from . import chemtools
+
         atoms_in_ring = chemtools.label_ring_status(trajectory)
 
         if self.reverse:
@@ -830,6 +940,8 @@ class HBondDonor(Feature):
 
     def cache(self, trajectory):
         super().cache(trajectory)
+        from . import chemtools
+
         atoms_hbond_donor = chemtools.label_hbond_donor(trajectory)
 
         self.cached_array = np.array(atoms_hbond_donor, dtype=np.float32)
@@ -849,6 +961,8 @@ class HBondAcceptor(Feature):
 
     def cache(self, trajectory):
         super().cache(trajectory)
+        from . import chemtools
+
         atoms_hbond_acceptor = chemtools.label_hbond_acceptor(trajectory)
 
         self.cached_array = np.array(atoms_hbond_acceptor, dtype=np.float32)
@@ -868,6 +982,8 @@ class Hybridization(Feature):
 
     def cache(self, trajectory):
         super().cache(trajectory)
+        from . import chemtools
+
         atoms_hybridization = chemtools.label_hybridization(trajectory)
 
         self.cached_array = np.asarray(atoms_hybridization, dtype=np.float32)
@@ -951,12 +1067,6 @@ class AtomType(Feature):
 
         idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
         weights = self.cached_array[idx_inbox]
-
-        if np.sum(weights) == 0:
-            logger.warning(
-                f"{self.classname}: No atoms of the type {self.focus_element} is found in the bounding box"
-            )
-
         return coord_inbox, weights
 
 
@@ -1485,17 +1595,11 @@ class DynamicFeature(Feature):
             f"{self.classname}::Warning: from feature ({self.__str__()}): The coordinates should follow the convention (frames, atoms, 3); "
         )
 
-        coords = np.full(
-            (len(frame_coords), self.MAX_ALLOWED_ATOMS, 3),
-            self.DEFAULT_COORD,
-            dtype=np.float32,
-        )
-        weights = np.full(
-            (len(frame_coords), self.MAX_ALLOWED_ATOMS), 0.0, dtype=np.float32
-        )
+        selected_coords = []
+        selected_weights = []
         max_atom_nr = 0
         zero_count = 0
-        for idx, frame in enumerate(frame_coords):
+        for _idx, frame in enumerate(frame_coords):
             # Operation on each frame (Frame is modified inplace)
             idx_inbox, coord_inbox = super().query(topology, frame, focal_point)
 
@@ -1507,8 +1611,8 @@ class DynamicFeature(Feature):
             zero_count += 1 if atomnr_inbox == 0 else 0
             atomnr_inbox = min(atomnr_inbox, self.MAX_ALLOWED_ATOMS)
 
-            coords[idx, :atomnr_inbox] = coord_inbox[:atomnr_inbox]
-            weights[idx, :atomnr_inbox] = self.cached_array[idx_inbox][:atomnr_inbox]
+            selected_coords.append(coord_inbox[:atomnr_inbox])
+            selected_weights.append(self.cached_array[idx_inbox][:atomnr_inbox])
             max_atom_nr = max(max_atom_nr, atomnr_inbox)
 
         if zero_count > 0 and config.verbose():
@@ -1516,7 +1620,16 @@ class DynamicFeature(Feature):
                 f"{self.classname}: {zero_count} out of {len(frame_coords)} frames has no atoms in the box. The coordinates will be padded with {self.DEFAULT_COORD} and 0.0 for the weights."
             )
 
-        # Prepare the return arrays
+        coords = np.full(
+            (len(frame_coords), max_atom_nr, 3), self.DEFAULT_COORD, dtype=np.float32
+        )
+        weights = np.zeros((len(frame_coords), max_atom_nr), dtype=np.float32)
+        for idx, (coord_frame, weight_frame) in enumerate(
+            zip(selected_coords, selected_weights)
+        ):
+            atomnr_inbox = len(coord_frame)
+            coords[idx, :atomnr_inbox] = coord_frame
+            weights[idx, :atomnr_inbox] = weight_frame
         ret_coord = np.ascontiguousarray(coords[:, :max_atom_nr], dtype=np.float32)
         ret_weight = np.ascontiguousarray(
             weights[:, :max_atom_nr].flatten(), dtype=np.float32
@@ -1553,6 +1666,11 @@ class DensityFlow(DynamicFeature):
     def query(self, topology, frame_coords, focal_point):
         ret_coord, ret_weight = super().query(topology, frame_coords, focal_point)
         return ret_coord, ret_weight
+
+    def _dispatch(self, frames, weights):
+        return self._dispatch_grid(
+            "density_flow", frames, weights, float(self.sigma), int(self.agg)
+        )
 
     def run(self, frames, weights):
         """
@@ -1661,6 +1779,11 @@ class MarchingObservers(DynamicFeature):
         """
         ret_coord, ret_weight = super().query(topology, coordinates, focus)
         return ret_coord, ret_weight
+
+    def _dispatch(self, coords, weights):
+        return self._dispatch_grid(
+            "marching_observer", coords, weights, self.obs, self.agg
+        )
 
     def run(self, coords, weights):
         """

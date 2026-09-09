@@ -1,10 +1,19 @@
+import contextlib
 import json
 import logging
+import threading
 import time
 
 import numpy as np
 
 from . import config, constants, log, utils
+from .pipeline import (
+    _ERROR,
+    _SENTINEL,
+    AsyncWriter,
+    PipelineCancelled,
+    PrefetchBuffer,
+)
 
 __all__ = [
     "Featurizer",
@@ -26,6 +35,42 @@ def wrapper_runner(func, args):
 
     """
     return func(*args)
+
+
+def _run_prepared_tasks(featurizer, tasks, feature_map):
+    """Prepare one input ahead while the previous CUDA action is in flight."""
+    from .features import DensityFlow, Feature, MarchingObservers
+
+    results = []
+    pending = None
+    try:
+        for (feature, query_args), metadata in zip(tasks, feature_map):
+            featurizer.frame_slice = featurizer.FRAMESLICES[metadata[1]]
+            async_feature = type(feature).run in (
+                Feature.run,
+                DensityFlow.run,
+                MarchingObservers.run,
+            )
+            # A custom feature may itself use CUDA during query().
+            if pending is not None and not async_feature:
+                collect, pending = pending, None
+                results.append(collect())
+            queried = feature.query(*query_args)
+            if pending is not None:
+                collect, pending = pending, None
+                results.append(collect())
+            # Preserve custom run() implementations rather than bypassing them.
+            if async_feature:
+                pending = feature._dispatch(*queried)
+            else:
+                results.append(feature.run(*queried))
+        if pending is not None:
+            collect, pending = pending, None
+            results.append(collect())
+    finally:
+        if pending is not None:
+            pending()  # Drain CUDA if preparation of the next input raises.
+    return results
 
 
 class Featurizer:
@@ -173,6 +218,12 @@ class Featurizer:
         # Component III: Trajectory space
         self.TRAJLOADER = None
         self.TRAJECTORYNUMBER = 0
+
+        # Pipelining knobs: capacity of the CPU->GPU prefetch buffer and the
+        # async HDF5 writer queue. Larger values allow the CPU producer to run
+        # further ahead of the GPU consumer, at the cost of more memory.
+        self._prefetch_capacity = int(parms.get("prefetch_capacity", 2))
+        self._writer_capacity = int(parms.get("writer_capacity", 16))
 
         self.classname = self.__class__.__name__
         if config.verbose():
@@ -479,88 +530,173 @@ class Featurizer:
     def run(self):
         """
         Run the featurization for each iteration over trajectory, frame-slice, focal-point, and feature.
+
+        The pipeline is overlapped with background threads:
+
+        * A **CPU producer** thread runs all the CPU preprocessing (trajectory
+          loading, focal-point parsing, weight caching and coordinate cropping)
+          and deposits the resulting GPU tasks onto a :class:`PrefetchBuffer`.
+        * The **main process** consumes the GPU tasks from the buffer and
+          launches the CUDA kernels (``Feature.run``).
+        * An :class:`AsyncWriter` thread drains the results and writes them to
+          HDF5 (``Feature.dump``) asynchronously.
+
+        This mirrors a ``torch.utils.data.DataLoader`` prefetch buffer: the CPU
+        preprocessing for task ``N + 1`` overlaps with the GPU compute of task
+        ``N``, and the HDF5 writes overlap with the next kernel launch.
+
+        The overlap depends on the CUDA extension releasing the GIL around each
+        kernel launch (``py::gil_scoped_release`` in ``src/actions_py.cpp``);
+        while it is held no background thread can run and this degenerates to
+        the serial schedule.
+
+        In exchange, that release makes the extension re-entrant, which the
+        global device context is not. Only this loop may launch kernels: the
+        producer confines itself to ``cache``/``query`` and the writer to
+        ``dump``, none of which enter the extension. Adding a second consumer
+        thread, or a feature whose ``cache`` calls a kernel, would race on the
+        shared device buffers.
         """
-        for tid in range(self.TRAJECTORYNUMBER):
-            # Setup the trajectory and its related parameters such as slicing of the trajectory
-            self.traj = self.TRAJLOADER[tid]
-            msg = f"Processing the trajectory {tid + 1} ({self.traj.identity}) with {self.SLICENUMBER} frame slices"
-            log(f"{self.classname}: {msg:=^80}")
-            st = time.perf_counter()
+        buffer = PrefetchBuffer(capacity=self._prefetch_capacity)
+        writer = AsyncWriter(self._dump_result, capacity=self._writer_capacity)
 
-            if self.FOCALPOINTS_PROTOTYPE is not None:
-                # NOTE: Re-parse the focal points for each trajectory
-                # Expected output shape is (self.SLICENUMBER, self.FOCALNUMBER, 3) array
-                focus_state = self.parse_focus()
-                if focus_state == 0:
-                    log.warning(
-                        f"{self.classname}: Skipping the trajectory {self.traj.identity}(index {tid + 1}) because focal points parsing is failed. "
-                    )
-                    continue
-                if config.verbose() or config.debug():
-                    log(
-                        f"{self.classname}: Parsing of focal points on trajectory ({tid + 1}/{self.traj.identity}) yeield the shape: {self.FOCALPOINTS.shape}. "
-                    )
+        producer = threading.Thread(
+            target=self._produce_tasks,
+            args=(buffer,),
+            name="nearl-cpu-producer",
+            daemon=True,
+        )
+        producer.start()
 
-            # Cache the weights for each atoms in the trajectory (run once for each trajectory)
+        try:
+            while True:
+                item = buffer.get()
+                if item is _SENTINEL:
+                    break
+                if item[0] is _ERROR:
+                    raise item[1]
+                feature, queried = item
+                # Launch the GPU kernel on the main process
+                result = feature.run(*queried)
+                # Hand the result to the background writer (async HDF5 dump)
+                writer.submit(feature, result)
+        finally:
+            # Anything raised above (a kernel error, a missing extension) leaves
+            # the producer parked in buffer.put() on a full buffer. Cancel it
+            # first: joining a stranded producer would hang the process instead
+            # of surfacing the exception.
+            buffer.cancel()
+            producer.join()
+            writer.close()
+            # Close any persistent HDF5 file handles held by the features
             for feat in self.FEATURESPACE:
-                if config.verbose():
-                    log(
-                        f"{self.classname}: Caching the weights of feature {feat.classname} for the trajectory {tid + 1}"
-                    )
-                feat.cache(self.traj)
+                feat.close()
 
-            tasks = []
-            feature_map = []
-            # Pool the actions for each trajectory
-            for bid in range(self.SLICENUMBER):
-                self.frame_slice = self.FRAMESLICES[bid]
-                frames = self.traj.xyz[self.FRAMESLICES[bid]]
-                if self.FOCALNUMBER > 0:
-                    # After determineing each focus point, run the featurizer for each focus point
-                    for pid in range(self.FOCALNUMBER):
-                        focal_point = self.FOCALPOINTS[bid, pid]
-                        # Crop the trajectory and send the coordinates/trajectory to the featurizer
-                        for fidx in range(self.FEATURENUMBER):
-                            # NOTE: Isolate the effect on the calculation of the next feature
-                            queried = self.FEATURESPACE[fidx].query(
-                                self.top, frames, focal_point
-                            )
-                            tasks.append([self.FEATURESPACE[fidx].run, queried])
-                            feature_map.append((tid, bid, fidx))
-                else:
-                    # Without registeration of focal points: focal-point independent features such as label-generation
-                    for fidx in range(self.FEATURENUMBER):
-                        # Explicitly transfer the topology and frames to get the queried coordinates for the featurizer
-                        queried = self.FEATURESPACE[fidx].query(
-                            self.top, frames, [0, 0, 0]
-                        )
-                        tasks.append([self.FEATURESPACE[fidx].run, queried])
-                        feature_map.append((tid, bid, fidx))
-
-            log(
-                f"{self.classname}: Trajectory {tid + 1} yields {len(tasks)} frame-slices (tasks) for the featurization. "
-            )
-
-            # Remove the dependency on the multiprocessing due to high overhead
-            results = [wrapper_runner(*task) for task in tasks]
-            log(
-                f"{self.classname}: Tasks are finished, dumping the results to the feature space..."
-            )
-
-            if config.verbose() or config.debug():
-                log(f"{self.classname}: Dumping the results to the feature space...")
-
-            # Dump to file for each feature
-            for feat_meta, result in zip(feature_map, results):
-                tid, bid, fidx = feat_meta
-                self.FEATURESPACE[fidx].dump(result)
-
-            msg = f"Finished the trajectory {tid + 1} / {self.TRAJECTORYNUMBER} with {len(tasks)} tasks in {time.perf_counter() - st:.6f} seconds"
-            msg = f"{msg:=^80}"
-            if tid < self.SLICENUMBER - 1:
-                msg += "\n"
-            log(f"{self.classname}: {msg}")
         log(f"{self.classname}: All trajectories and tasks are finished. \n")
+
+    def _produce_tasks(self, buffer):
+        """
+        Background CPU producer: run all CPU preprocessing and feed GPU tasks to
+        the buffer.
+
+        This method runs on a single background thread. It owns the mutable
+        featurizer state (``self.traj``, ``self.FOCALPOINTS``, ``self.FRAMESLICES``
+        and the per-feature caches) while the main process only consumes the
+        queried data from the buffer and runs the GPU kernels, so there is no
+        data race.
+
+        Parameters
+        ----------
+        buffer : :class:`nearl.pipeline.PrefetchBuffer`
+          The buffer onto which ``(feature, queried)`` GPU tasks are deposited.
+        """
+        try:
+            for tid in range(self.TRAJECTORYNUMBER):
+                # Setup the trajectory and its related parameters such as slicing of the trajectory
+                self.traj = self.TRAJLOADER[tid]
+                msg = f"Processing the trajectory {tid + 1} ({self.traj.identity}) with {self.SLICENUMBER} frame slices"
+                log(f"{self.classname}: {msg:=^80}")
+                st = time.perf_counter()
+
+                if self.FOCALPOINTS_PROTOTYPE is not None:
+                    # NOTE: Re-parse the focal points for each trajectory
+                    # Expected output shape is (self.SLICENUMBER, self.FOCALNUMBER, 3) array
+                    focus_state = self.parse_focus()
+                    if focus_state == 0:
+                        log.warning(
+                            f"{self.classname}: Skipping the trajectory {self.traj.identity}(index {tid + 1}) because focal points parsing is failed. "
+                        )
+                        continue
+                    if config.verbose() or config.debug():
+                        log(
+                            f"{self.classname}: Parsing of focal points on trajectory ({tid + 1}/{self.traj.identity}) yeield the shape: {self.FOCALPOINTS.shape}. "
+                        )
+
+                # Cache the weights for each atoms in the trajectory (run once for each trajectory)
+                for feat in self.FEATURESPACE:
+                    if config.verbose():
+                        log(
+                            f"{self.classname}: Caching the weights of feature {feat.classname} for the trajectory {tid + 1}"
+                        )
+                    feat.cache(self.traj)
+
+                task_count = 0
+                # Pool the actions for each trajectory
+                for bid in range(self.SLICENUMBER):
+                    self.frame_slice = self.FRAMESLICES[bid]
+                    frames = self.traj.xyz[self.FRAMESLICES[bid]]
+                    if self.FOCALNUMBER > 0:
+                        # After determineing each focus point, run the featurizer for each focus point
+                        for pid in range(self.FOCALNUMBER):
+                            focal_point = self.FOCALPOINTS[bid, pid]
+                            # Crop the trajectory and send the coordinates/trajectory to the featurizer
+                            for fidx in range(self.FEATURENUMBER):
+                                # NOTE: Isolate the effect on the calculation of the next feature
+                                queried = self.FEATURESPACE[fidx].query(
+                                    self.top, frames, focal_point
+                                )
+                                buffer.put((self.FEATURESPACE[fidx], queried))
+                                task_count += 1
+                    else:
+                        # Without registeration of focal points: focal-point independent features such as label-generation
+                        for fidx in range(self.FEATURENUMBER):
+                            # Explicitly transfer the topology and frames to get the queried coordinates for the featurizer
+                            queried = self.FEATURESPACE[fidx].query(
+                                self.top, frames, [0, 0, 0]
+                            )
+                            buffer.put((self.FEATURESPACE[fidx], queried))
+                            task_count += 1
+
+                log(
+                    f"{self.classname}: Trajectory {tid + 1} yields {task_count} frame-slices (tasks) for the featurization. "
+                )
+                msg = f"Finished the trajectory {tid + 1} / {self.TRAJECTORYNUMBER} with {task_count} tasks in {time.perf_counter() - st:.6f} seconds"
+                msg = f"{msg:=^80}"
+                if tid < self.SLICENUMBER - 1:
+                    msg += "\n"
+                log(f"{self.classname}: {msg}")
+        except PipelineCancelled:
+            # The consumer stopped early and cancelled us; it is already
+            # raising its own exception, so there is nothing to report.
+            pass
+        except Exception as exc:  # pragma: no cover - surfaced on the main thread
+            with contextlib.suppress(PipelineCancelled):
+                buffer.put((_ERROR, exc))
+        finally:
+            buffer.close()
+
+    def _dump_result(self, feature, result):
+        """
+        Callback for the :class:`AsyncWriter`: dump a single result to HDF5.
+
+        Parameters
+        ----------
+        feature : :class:`nearl.features.Feature`
+          The feature that produced the result.
+        result : np.ndarray
+          The result array to dump.
+        """
+        feature.dump(result)
 
     def loop_by_residue(self, restype, tag_limit=0):
         """
@@ -601,10 +737,12 @@ class Featurizer:
                             sliced_coord = frames[:, s_, :]
                             focal_point = np.mean(sliced_coord[0], axis=0)
                             for fidx in range(self.FEATURENUMBER):
-                                queried = self.FEATURESPACE[fidx].query(
-                                    sliced_top, sliced_coord.copy(), focal_point
+                                query_args = (
+                                    sliced_top,
+                                    sliced_coord.copy(),
+                                    focal_point,
                                 )
-                                tasks.append([self.FEATURESPACE[fidx].run, queried])
+                                tasks.append([self.FEATURESPACE[fidx], query_args])
                                 feature_map.append((tid, bid, fidx, label))
 
                 elif restype == "dual":
@@ -629,16 +767,18 @@ class Featurizer:
                                 sliced_coord = frames[:, s_, :]
                                 focal_point = np.mean(sliced_coord[0], axis=0)
                                 for fidx in range(self.FEATURENUMBER):
-                                    queried = self.FEATURESPACE[fidx].query(
-                                        sliced_top, sliced_coord.copy(), focal_point
+                                    query_args = (
+                                        sliced_top,
+                                        sliced_coord.copy(),
+                                        focal_point,
                                     )
-                                    tasks.append([self.FEATURESPACE[fidx].run, queried])
+                                    tasks.append([self.FEATURESPACE[fidx], query_args])
                                     feature_map.append((tid, bid, fidx, label))
 
             log(
                 f"{self.classname}: Task set containing {len(tasks)} tasks are created for the trajectory {tid + 1}; "
             )
-            results = [wrapper_runner(*task) for task in tasks]
+            results = _run_prepared_tasks(self, tasks, feature_map)
 
             log(
                 f"{self.classname}: Tasks are finished, dumping the results to the feature space..."

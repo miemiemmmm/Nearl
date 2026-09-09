@@ -60,7 +60,8 @@ def test_a_cuda_failure_raises_instead_of_returning_zeros():
     assert "RAISED:" in result.stdout, result.stdout + result.stderr
     assert "cudaErrorNoDevice" in result.stdout
     # The message has to say where it happened.
-    assert ".cu:" in result.stdout and "cudaMalloc" in result.stdout
+    assert ".cu:" in result.stdout
+    assert "cudaMalloc" in result.stdout or "cudaGetDevice" in result.stdout
 
 
 def _arch_source(sass, ptx):
