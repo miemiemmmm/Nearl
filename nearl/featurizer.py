@@ -569,13 +569,19 @@ class Featurizer:
           schedule this is the featurizer itself.
         """
         # Parse the focus points to the correct format
+        # For the "json" format FOCALPOINTS_PROTOTYPE is a JSON *file path*
+        # (a string), so len() would be the path length, not the focal count.
+        # The json branch always writes a single focal point per slice.
+        focal_number = (
+            1 if self.FOCALPOINTS_TYPE == "json" else len(self.FOCALPOINTS_PROTOTYPE)
+        )
         worker.FOCALPOINTS = np.full(
-            (worker.SLICENUMBER, len(self.FOCALPOINTS_PROTOTYPE), 3),
+            (worker.SLICENUMBER, focal_number, 3),
             99999,
             dtype=np.float32,
         )
         logger.debug(f"Shape of the focal points prototype: {worker.FOCALPOINTS.shape}")
-        worker.FOCALNUMBER = len(self.FOCALPOINTS_PROTOTYPE)
+        worker.FOCALNUMBER = focal_number
         if self.FOCALPOINTS_TYPE == "mask":
             # Get the center of geometry for the frames with self.interval
             for midx, mask in enumerate(self.FOCALPOINTS_PROTOTYPE):
@@ -673,7 +679,8 @@ class Featurizer:
         shared device buffers.
         """
         # Reset the GPU busy-time accumulator so ``gpu_busy_time``
-        features.Feature.gpu_busy_seconds = 0.0
+        if self._gpu_busy_capture:
+            features.Feature.gpu_busy_seconds = 0.0
 
         buffer = PrefetchBuffer(capacity=self._prefetch_capacity)
         writer = AsyncWriter(self._dump_result, capacity=self._writer_capacity)
