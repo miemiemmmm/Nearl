@@ -164,17 +164,41 @@ case "$NEARL_FILE" in
 esac
 
 # ---------------------------------------------------------------------------
+# 3b) Detect driver capabilities.
+#
+# The benchmark driver (scripts/benchmark_dataset.py) gained two features in
+# PR #24: the --producer_threads CLI arg and the GPU_BUSY_SECONDS output line.
+# Older refs (v0.1.0, PR14/17/20/21) predate one or both. Probe the driver in
+# the code being benchmarked and adapt:
+#   - only pass --producer_threads if the driver accepts it
+#   - only require gpu_busy if the driver emits GPU_BUSY_SECONDS
+# Older refs are single-producer (pre-PR24), so when the driver lacks
+# --producer_threads we record producer_threads=1 in the CSV for a fair
+# comparison against the producer-worker refs.
+# ---------------------------------------------------------------------------
+DRIVER="$CLONE_DIR/scripts/benchmark_dataset.py"
+if grep -q -- '--producer_threads' "$DRIVER"; then
+    DRIVER_HAS_PRODUCER_THREADS=1
+else
+    DRIVER_HAS_PRODUCER_THREADS=0
+fi
+if grep -q 'GPU_BUSY_SECONDS' "$DRIVER"; then
+    DRIVER_HAS_GPU_BUSY=1
+else
+    DRIVER_HAS_GPU_BUSY=0
+fi
+if [ "$DRIVER_HAS_PRODUCER_THREADS" -eq 1 ]; then
+    CSV_PRODUCER_THREADS="$PRODUCER_THREADS"
+else
+    CSV_PRODUCER_THREADS=1
+fi
+
+# ---------------------------------------------------------------------------
 # 4) Append to the CSV (create header only if the file does not exist yet, so
 #    repeated invocations APPEND).
 #
 # The header check-and-write is protected by an flock because the slurm wrapper
-# (scripts/slurm/benchmark_sars.slurm) launches one job per ref concurrently,
-# and all of them append to this same CSV. Without the lock, two jobs starting
-# at the same time could both see the file as missing and both write the header,
-# corrupting the CSV. The lock file is a separate "$CSV.lock" (not the CSV
-# itself) so the O_APPEND row writes below stay lock-free and atomic. We use
-# `-s` (non-empty) rather than `-f` (exists) so a zero-byte CSV left behind by a
-# crashed run is re-created with a proper header instead of being appended to.
+# (scripts/slurm/benchmark_sars.slurm) launches one job per ref concurrently.
 # ---------------------------------------------------------------------------
 mkdir -p "$(dirname "$CSV")" "$OUT_DIR"
 (
@@ -211,10 +235,14 @@ run_feature_suite() {
             # accumulated dispatch-to-collection window, i.e. how much of the
             # wall time the GPU was actually busy.
             outfile=$(mktemp)
+            local producer_args=()
+            if [ "$DRIVER_HAS_PRODUCER_THREADS" -eq 1 ]; then
+                producer_args=(--producer_threads "$PRODUCER_THREADS")
+            fi
             CUDA_VISIBLE_DEVICES=$gpu PYTHONPATH="$CLONE_DIR:${PYTHONPATH:-}" python scripts/benchmark_dataset.py \
                 -f "$SARS_TRAJLIST" --trajlist_format "$TRAJLIST_FORMAT" -o "$OUT_DIR/gpu$slot" -t "$feat" \
                 -d "$DIMENSION" -c "$CUTOFF" -s "$SIGMA" -l "$LENGTH" \
-                --producer_threads "$PRODUCER_THREADS" >"$outfile" 2>&1
+                "${producer_args[@]}" >"$outfile" 2>&1
             rc=$?
             wall=$(grep -oE 'BENCHMARK_RUN_SECONDS=[0-9]+\.[0-9]+' "$outfile" | cut -d= -f2 | tail -1)
             gpu_busy=$(grep -oE 'GPU_BUSY_SECONDS=[0-9]+\.[0-9]+' "$outfile" | cut -d= -f2 | tail -1)
@@ -222,7 +250,7 @@ run_feature_suite() {
             # succeeded AND produced parseable timings. Otherwise we would
             # silently write a row of empty/invalid values that corrupts the
             # CSV and any downstream analysis.
-            if [ "$rc" -ne 0 ] || [ -z "$wall" ] || [ -z "$gpu_busy" ]; then
+            if [ "$rc" -ne 0 ] || [ -z "$wall" ] || { [ "$DRIVER_HAS_GPU_BUSY" -eq 1 ] && [ -z "$gpu_busy" ]; }; then
                 echo "  $label / $feat : FAILED (rc=$rc, wall='$wall', gpu_busy='$gpu_busy')" >&2
                 rm -f "$outfile"
                 exit 1
@@ -231,8 +259,12 @@ run_feature_suite() {
             # Append one row with the git hash, label, feature, wall time, GPU
             # busy time, and every benchmark_dataset.py parameter so the CSV is
             # self-describing.
-            echo "$HASH,$label,$feat,$wall,$gpu_busy,$SARS_TRAJLIST,$TRAJLIST_FORMAT,$DATABASE_DIR,$OUT_DIR/gpu$slot,$DIMENSION,$LENGTH,$CUTOFF,$SIGMA,$WINDOWSIZE,$FOCUS_MASK,$H5PREFIX,$BASELINE_MAP,$TASK_NR,$TASK_INDEX,$PRODUCER_THREADS" >> "$CSV"
-            echo "  $label / $feat : ${wall}s (gpu ${gpu_busy}s)"
+            echo "$HASH,$label,$feat,$wall,$gpu_busy,$SARS_TRAJLIST,$TRAJLIST_FORMAT,$DATABASE_DIR,$OUT_DIR/gpu$slot,$DIMENSION,$LENGTH,$CUTOFF,$SIGMA,$WINDOWSIZE,$FOCUS_MASK,$H5PREFIX,$BASELINE_MAP,$TASK_NR,$TASK_INDEX,$CSV_PRODUCER_THREADS" >> "$CSV"
+            if [ "$DRIVER_HAS_GPU_BUSY" -eq 1 ]; then
+                echo "  $label / $feat : ${wall}s (gpu ${gpu_busy}s)"
+            else
+                echo "  $label / $feat : ${wall}s"
+            fi
         ) &
         pids+=("$!")
         slot=$((slot + 1))
