@@ -91,3 +91,8 @@ logs/
 *prof
 .claude/
 
+# Nsight Systems reports kept in .benchmarks/ for inspection; multi-MB binaries.
+*.nsys-rep
+*.sqlite
+*.qdstrm
+.benchmarks/*.csv

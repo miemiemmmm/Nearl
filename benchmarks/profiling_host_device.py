@@ -16,11 +16,15 @@ Usage:
 
 import argparse
 import csv
+import glob
 import os
 import pathlib
 import subprocess
 import sys
+<<<<<<< Updated upstream
 import tempfile
+=======
+>>>>>>> Stashed changes
 import threading
 import time
 import warnings
@@ -35,6 +39,18 @@ import nearl.featurizer
 import nearl.io
 
 CHILD_ENV = "NEARL_PROFILING_CHILD"
+
+# Alongside the pytest-benchmark saves and the kernel-launch plots, so one
+# directory holds the evidence. The report is kept, not cleaned up: it is the
+# artifact you open in the Nsight Systems GUI.
+BENCH_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".benchmarks"
+)
+DEFAULT_NSYS_OUT = os.path.join(BENCH_DIR, "nsys_hostdev")
+# NVTX annotations that name the Python functions on the timeline.
+DEFAULT_ANNOTATIONS = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "nearl_python_trace.json"
+)
 
 
 class PhaseTimer:
@@ -55,6 +71,15 @@ class PhaseTimer:
         self.seconds = defaultdict(float)
         self.calls = defaultdict(int)
         self._lock = threading.Lock()
+<<<<<<< Updated upstream
+=======
+
+    def _record(self, label, seconds):
+        key = (label, threading.current_thread().name)
+        with self._lock:
+            self.seconds[key] += seconds
+            self.calls[key] += 1
+>>>>>>> Stashed changes
 
     def wrap(self, obj, name, label):
         original = getattr(obj, name)
@@ -64,6 +89,7 @@ class PhaseTimer:
             try:
                 return original(*args, **kwargs)
             finally:
+<<<<<<< Updated upstream
                 dt = time.perf_counter() - t0
                 key = (label, threading.current_thread().name)
                 with self._lock:
@@ -72,6 +98,16 @@ class PhaseTimer:
 
         setattr(obj, name, timed)
 
+=======
+                self._record(label, time.perf_counter() - t0)
+
+        setattr(obj, name, timed)
+
+    def add(self, label, seconds):
+        """Record a span measured by hand, for callables we cannot wrap by name."""
+        self._record(label, seconds)
+
+>>>>>>> Stashed changes
     def total(self, label):
         return sum(v for (lbl, _), v in self.seconds.items() if lbl == label)
 
@@ -85,6 +121,39 @@ class PhaseTimer:
             out[thread][label] = (sec, self.calls[(label, thread)])
         return out
 
+<<<<<<< Updated upstream
+=======
+
+def instrument_dispatch(timer):
+    """Time both halves of the asynchronous CUDA path.
+
+    Since the pinned-buffer change, Featurizer.run no longer calls
+    commands.density_flow: it goes through Feature._dispatch_grid, which launches
+    and returns a collector that blocks on the result. Wrapping commands.* alone
+    therefore measures nothing, which is what made the device row read 0.000 s.
+    The launch and the wait have to be timed separately because the point of the
+    async path is that the CPU prepares the next input in between.
+    """
+    feature_cls = nearl.features.Feature
+    original = feature_cls._dispatch_grid
+
+    def timed_dispatch(self, *args, **kwargs):
+        t0 = time.perf_counter()
+        collect = original(self, *args, **kwargs)
+        timer.add("device dispatch", time.perf_counter() - t0)
+
+        def timed_collect():
+            t1 = time.perf_counter()
+            try:
+                return collect()
+            finally:
+                timer.add("device collect", time.perf_counter() - t1)
+
+        return timed_collect
+
+    feature_cls._dispatch_grid = timed_dispatch
+
+>>>>>>> Stashed changes
 
 def parse_args():
     p = argparse.ArgumentParser(description=__doc__)
@@ -94,6 +163,24 @@ def parse_args():
     p.add_argument("--outfile", default="/tmp/prof_dynamic.h5", help="HDF5 output")
     p.add_argument(
         "--no-nsys", action="store_true", help="skip the Nsight Systems pass"
+    )
+    p.add_argument(
+        "--nsys-out",
+        default=DEFAULT_NSYS_OUT,
+        help="stem for the kept .nsys-rep/.sqlite report (default: "
+        ".benchmarks/nsys_hostdev)",
+    )
+    p.add_argument(
+        "--no-python-trace",
+        action="store_true",
+        help="skip the NVTX annotation of Nearl's Python functions, which is "
+        "what names the Python frame beside each CUDA row",
+    )
+    p.add_argument(
+        "--annotations",
+        default=DEFAULT_ANNOTATIONS,
+        help="JSON listing the Python functions to wrap in NVTX ranges "
+        "(default: benchmarks/nearl_python_trace.json)",
     )
     p.add_argument(
         "--cold-start",
@@ -210,8 +297,14 @@ def build_featurizer(args, timer):
     return featurizer
 
 
+<<<<<<< Updated upstream
 # Real work. feature.run is the only one that contains the device call, so the
 # device row is reported nested under it and never added alongside it.
+=======
+# Real work, in pipeline order. feature.run is the only one that contains the
+# synchronous device call, so that row is reported nested under it rather than
+# added beside it.
+>>>>>>> Stashed changes
 WORK_ROWS = (
     "trajectory load",
     "cache",
@@ -220,6 +313,13 @@ WORK_ROWS = (
     "HDF5 dump",
 )
 DEVICE_ROW = "device call"
+<<<<<<< Updated upstream
+=======
+# The asynchronous path, used when a feature goes through Feature._dispatch_grid
+# instead of commands.*. Nothing else times these, so they are work rows in
+# their own right; they stay absent from the report when that path is unused.
+DISPATCH_ROWS = ("device dispatch", "device collect")
+>>>>>>> Stashed changes
 # Waiting, not work: these name the idle time on each thread.
 BLOCKED_ROWS = (
     "blocked: buffer.get",
@@ -263,6 +363,12 @@ def run_workload(args):
     timer = PhaseTimer()
     for fn in ("density_flow", "marching_observer"):
         timer.wrap(commands, fn, DEVICE_ROW)
+<<<<<<< Updated upstream
+=======
+    # The synchronous commands.* entry points above are still used by custom
+    # features; the async path below is what the built-in ones take.
+    instrument_dispatch(timer)
+>>>>>>> Stashed changes
     featurizer = build_featurizer(args, timer)
     instrument_queues(timer)
 
@@ -277,7 +383,13 @@ def run_workload(args):
     featurizer.run()
     total = time.perf_counter() - t0
 
+<<<<<<< Updated upstream
     device_call = timer.total(DEVICE_ROW)
+=======
+    device_call = timer.total(DEVICE_ROW) + sum(
+        timer.total(row) for row in DISPATCH_ROWS
+    )
+>>>>>>> Stashed changes
     print_report(args, timer, total, device_call)
     return total, device_call
 
@@ -301,9 +413,15 @@ def print_report(args, timer, total, device_call):
     print(f"{'THREAD / PHASE':<30}{'seconds':>10}{'calls':>8}{'% wall':>10}")
     print("-" * width)
 
+<<<<<<< Updated upstream
     order = list(WORK_ROWS) + list(BLOCKED_ROWS)
 
     # The thread that launched the kernels first, then the rest by busy time.
+=======
+    order = list(WORK_ROWS) + list(DISPATCH_ROWS) + list(BLOCKED_ROWS)
+
+    # The thread that issued the kernels first, then the rest by busy time.
+>>>>>>> Stashed changes
     def rank(item):
         _thread, rows = item
         return (DEVICE_ROW not in rows, -sum(sec for sec, _ in rows.values()))
@@ -329,7 +447,11 @@ def print_report(args, timer, total, device_call):
             f"{100 * idle / total:>9.1f}%"
         )
 
+<<<<<<< Updated upstream
     work = sum(timer.total(row) for row in WORK_ROWS)
+=======
+    work = sum(timer.total(row) for row in WORK_ROWS + DISPATCH_ROWS)
+>>>>>>> Stashed changes
     host = work - device_call
     print("-" * width)
     print(f"{WALL_LABEL:<30}{total:>10.3f}{'':>8}{100.0:>9.1f}%")
@@ -361,97 +483,157 @@ def csv_total_ns(path):
 
 
 def nsys_pass(args):
-    """Re-run this script under nsys and report the device side."""
-    with tempfile.TemporaryDirectory() as workdir:
-        report = os.path.join(workdir, "nearl_hostdev")
-        env = dict(os.environ, **{CHILD_ENV: "1"})
-        child = subprocess.run(
-            [
-                "nsys",
-                "profile",
-                "-t",
-                "cuda",
-                "-o",
-                report,
-                "--force-overwrite",
-                "true",
-                sys.executable,
-                os.path.abspath(__file__),
-                *sys.argv[1:],
-            ],
-            env=env,
-            capture_output=True,
-            text=True,
-        )
-        host_out = child.stdout
-        # nsys writes a carriage-return progress bar onto the child's stdout.
-        for line in host_out.replace("\r", "\n").splitlines():
-            if line.startswith(("[1/1]", "Collecting data", "Generating", "Generated")):
-                continue
-            if line.startswith("\t") or not line.strip():
-                continue
-            print(line)
-        if child.returncode != 0:
-            print(child.stderr[-2000:], file=sys.stderr)
-            return
+    """Re-run this script under nsys and report the device side.
 
-        rep = f"{report}.nsys-rep"
-        tables = subprocess.run(
-            [
-                "nsys",
-                "stats",
-                "--report",
-                "cuda_gpu_kern_sum",
-                "--report",
-                "cuda_gpu_mem_time_sum",
-                "--report",
-                "cuda_api_sum",
-                "--format",
-                "table",
-                rep,
-            ],
-            capture_output=True,
-            text=True,
-        ).stdout
-        print("\n================= DEVICE (Nsight Systems) =================")
-        for line in tables.splitlines():
-            if (
-                line.startswith(("Processing", "NOTICE", "Generating SQLite"))
-                or not line.strip()
-            ):
-                continue
-            if line.lstrip().startswith(("It is assumed", "Consider using")):
-                continue
-            print(line)
+    The report is written to --nsys-out and left there. Tracing osrt and nvtx
+    alongside cuda, plus Python backtrace sampling, is what makes the timeline
+    show which Python frame issued each CUDA row.
+    """
+    report = os.path.abspath(args.nsys_out)
+    os.makedirs(os.path.dirname(report), exist_ok=True)
+    trace = "cuda,nvtx,osrt"
+    command = [
+        "nsys",
+        "profile",
+        "-t",
+        trace,
+        "-o",
+        report,
+        "--force-overwrite",
+        "true",
+    ]
+    if not args.no_python_trace:
+        # --python-sampling is the obvious flag and does nothing here: on nsys
+        # 2025.6.3 it produced no Python backtraces at all, silently, and the
+        # callchains resolve only to native frames like _PyEval_EvalFrameDefault.
+        # NVTX annotation is exact and, unlike sampling, joins to the CUDA rows.
+        if os.path.isfile(args.annotations):
+            command += ["--python-functions-trace", args.annotations]
+        else:
+            print(
+                f"annotations not found at {args.annotations}; the timeline will "
+                "carry no Python names",
+                file=sys.stderr,
+            )
+    command += [sys.executable, os.path.abspath(__file__), *sys.argv[1:]]
 
-        # --force-export: the table pass above already wrote a .sqlite, and nsys
-        # refuses to reuse one that is older than the .nsys-rep.
-        exported = subprocess.run(
-            [
-                "nsys",
-                "stats",
-                "--report",
-                "cuda_gpu_kern_sum",
-                "--report",
-                "cuda_gpu_mem_time_sum",
-                "--format",
-                "csv",
-                "--force-export=true",
-                "--output",
-                report,
-                rep,
-            ],
-            capture_output=True,
-            text=True,
-        )
-        kernel_ns = csv_total_ns(f"{report}_cuda_gpu_kern_sum.csv")
-        memory_ns = csv_total_ns(f"{report}_cuda_gpu_mem_time_sum.csv")
-        if kernel_ns is None or memory_ns is None:
-            print(f"\nnsys csv export rc={exported.returncode}", file=sys.stderr)
-            print(exported.stdout[-600:], file=sys.stderr)
-            print(exported.stderr[-600:], file=sys.stderr)
-            print(f"files: {sorted(os.listdir(workdir))}", file=sys.stderr)
-        summarize(host_out, kernel_ns, memory_ns)
+    env = dict(os.environ, **{CHILD_ENV: "1"})
+    child = subprocess.run(
+        command,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    host_out = child.stdout
+    # nsys writes a carriage-return progress bar onto the child's stdout.
+    for line in host_out.replace("\r", "\n").splitlines():
+        if line.startswith(("[1/1]", "Collecting data", "Generating", "Generated")):
+            continue
+        if line.startswith("\t") or not line.strip():
+            continue
+        print(line)
+    if child.returncode != 0:
+        print(child.stderr[-2000:], file=sys.stderr)
+        return
+
+    rep = f"{report}.nsys-rep"
+    tables = subprocess.run(
+        [
+            "nsys",
+            "stats",
+            "--report",
+            "cuda_gpu_kern_sum",
+            "--report",
+            "cuda_gpu_mem_time_sum",
+            "--report",
+            "cuda_api_sum",
+            "--report",
+            "nvtx_sum",
+            "--report",
+            "nvtx_kern_sum",
+            "--format",
+            "table",
+            rep,
+        ],
+        capture_output=True,
+        text=True,
+    ).stdout
+    print("\n================= DEVICE (Nsight Systems) =================")
+    for line in tables.splitlines():
+        if (
+            line.startswith(("Processing", "NOTICE", "Generating SQLite"))
+            or not line.strip()
+        ):
+            continue
+        if line.lstrip().startswith(("It is assumed", "Consider using")):
+            continue
+        print(line)
+
+    # --force-export: the table pass above already wrote a .sqlite, and nsys
+    # refuses to reuse one that is older than the .nsys-rep.
+    exported = subprocess.run(
+        [
+            "nsys",
+            "stats",
+            "--report",
+            "cuda_gpu_kern_sum",
+            "--report",
+            "cuda_gpu_mem_time_sum",
+            "--format",
+            "csv",
+            "--force-export=true",
+            "--output",
+            report,
+            rep,
+        ],
+        capture_output=True,
+        text=True,
+    )
+    kernel_ns = csv_total_ns(f"{report}_cuda_gpu_kern_sum.csv")
+    memory_ns = csv_total_ns(f"{report}_cuda_gpu_mem_time_sum.csv")
+    if kernel_ns is None or memory_ns is None:
+        print(f"\nnsys csv export rc={exported.returncode}", file=sys.stderr)
+        print(exported.stdout[-600:], file=sys.stderr)
+        print(exported.stderr[-600:], file=sys.stderr)
+        print(f"report: {rep}", file=sys.stderr)
+    summarize(host_out, kernel_ns, memory_ns)
+    report_artifacts(report, rep)
+
+
+def report_artifacts(stem, rep):
+    """Name the files that were kept, and how to open the timeline."""
+    produced = sorted(
+        os.path.basename(p) for p in glob.glob(f"{stem}*") if os.path.isfile(p)
+    )
+    print("\n" + "=" * 62)
+    print("KEPT ARTIFACTS")
+    print("-" * 62)
+    print(f"directory : {os.path.dirname(rep)}")
+    for name in produced:
+        size = os.path.getsize(os.path.join(os.path.dirname(rep), name))
+        print(f"  {name:<44}{size / 1e6:>8.2f} MB")
+    print("-" * 62)
+    print("Open the Python + CUDA timeline with either of:")
+    print(f"  nsys-ui {rep}")
+    print(f"  nsys stats --report cuda_gpu_trace {rep}   # text, per launch")
+    print("In the GUI the Python rows sit under the process tree next to the")
+    print("CUDA HW rows, so a kernel lines up with the Python frame that")
+    print("issued it. Re-running overwrites this stem; pass --nsys-out to keep")
+    print("more than one.")
+    print("=" * 62)
+
+
+def _labelled_value(text, label):
+    """First number on the line starting with `label`, or None."""
+    for line in text.splitlines():
+        if not line.strip().startswith(label):
+            continue
+        for token in line.replace("%", " ").split():
+            try:
+                return float(token)
+            except ValueError:
+                continue
+    return None
 
 
 def _labelled_value(text, label):

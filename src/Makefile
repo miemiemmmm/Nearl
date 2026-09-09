@@ -22,7 +22,7 @@ CUDA_RUNTIME=-I$(CUDA_HOME)/include/ -L$(CUDA_HOME)/lib64/ -lcudart
 
 
 gpuutils: gpuutils.cu gpuutils.cuh
-		$(NVCC) $(NVCCFLAGS) -c gpuutils.cu -o gpuutils.o 
+		$(NVCC) $(NVCCFLAGS) $(CUDA_RUNTIME) -c gpuutils.cu -o gpuutils.o
 
 marching_observers: marching_observers.cu  marching_observers.cuh gpuutils
 		$(NVCC) -dc $(NVCCFLAGS) $(CUDA_RUNTIME) -o marching_observers.o  marching_observers.cu
