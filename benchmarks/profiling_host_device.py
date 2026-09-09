@@ -21,10 +21,6 @@ import os
 import pathlib
 import subprocess
 import sys
-<<<<<<< Updated upstream
-import tempfile
-=======
->>>>>>> Stashed changes
 import threading
 import time
 import warnings
@@ -71,15 +67,12 @@ class PhaseTimer:
         self.seconds = defaultdict(float)
         self.calls = defaultdict(int)
         self._lock = threading.Lock()
-<<<<<<< Updated upstream
-=======
 
     def _record(self, label, seconds):
         key = (label, threading.current_thread().name)
         with self._lock:
             self.seconds[key] += seconds
             self.calls[key] += 1
->>>>>>> Stashed changes
 
     def wrap(self, obj, name, label):
         original = getattr(obj, name)
@@ -89,16 +82,6 @@ class PhaseTimer:
             try:
                 return original(*args, **kwargs)
             finally:
-<<<<<<< Updated upstream
-                dt = time.perf_counter() - t0
-                key = (label, threading.current_thread().name)
-                with self._lock:
-                    self.seconds[key] += dt
-                    self.calls[key] += 1
-
-        setattr(obj, name, timed)
-
-=======
                 self._record(label, time.perf_counter() - t0)
 
         setattr(obj, name, timed)
@@ -107,7 +90,6 @@ class PhaseTimer:
         """Record a span measured by hand, for callables we cannot wrap by name."""
         self._record(label, seconds)
 
->>>>>>> Stashed changes
     def total(self, label):
         return sum(v for (lbl, _), v in self.seconds.items() if lbl == label)
 
@@ -121,8 +103,6 @@ class PhaseTimer:
             out[thread][label] = (sec, self.calls[(label, thread)])
         return out
 
-<<<<<<< Updated upstream
-=======
 
 def instrument_dispatch(timer):
     """Time both halves of the asynchronous CUDA path.
@@ -153,7 +133,6 @@ def instrument_dispatch(timer):
 
     feature_cls._dispatch_grid = timed_dispatch
 
->>>>>>> Stashed changes
 
 def parse_args():
     p = argparse.ArgumentParser(description=__doc__)
@@ -297,14 +276,9 @@ def build_featurizer(args, timer):
     return featurizer
 
 
-<<<<<<< Updated upstream
-# Real work. feature.run is the only one that contains the device call, so the
-# device row is reported nested under it and never added alongside it.
-=======
 # Real work, in pipeline order. feature.run is the only one that contains the
 # synchronous device call, so that row is reported nested under it rather than
 # added beside it.
->>>>>>> Stashed changes
 WORK_ROWS = (
     "trajectory load",
     "cache",
@@ -313,13 +287,10 @@ WORK_ROWS = (
     "HDF5 dump",
 )
 DEVICE_ROW = "device call"
-<<<<<<< Updated upstream
-=======
 # The asynchronous path, used when a feature goes through Feature._dispatch_grid
 # instead of commands.*. Nothing else times these, so they are work rows in
 # their own right; they stay absent from the report when that path is unused.
 DISPATCH_ROWS = ("device dispatch", "device collect")
->>>>>>> Stashed changes
 # Waiting, not work: these name the idle time on each thread.
 BLOCKED_ROWS = (
     "blocked: buffer.get",
@@ -363,12 +334,9 @@ def run_workload(args):
     timer = PhaseTimer()
     for fn in ("density_flow", "marching_observer"):
         timer.wrap(commands, fn, DEVICE_ROW)
-<<<<<<< Updated upstream
-=======
     # The synchronous commands.* entry points above are still used by custom
     # features; the async path below is what the built-in ones take.
     instrument_dispatch(timer)
->>>>>>> Stashed changes
     featurizer = build_featurizer(args, timer)
     instrument_queues(timer)
 
@@ -383,13 +351,9 @@ def run_workload(args):
     featurizer.run()
     total = time.perf_counter() - t0
 
-<<<<<<< Updated upstream
-    device_call = timer.total(DEVICE_ROW)
-=======
     device_call = timer.total(DEVICE_ROW) + sum(
         timer.total(row) for row in DISPATCH_ROWS
     )
->>>>>>> Stashed changes
     print_report(args, timer, total, device_call)
     return total, device_call
 
@@ -413,15 +377,9 @@ def print_report(args, timer, total, device_call):
     print(f"{'THREAD / PHASE':<30}{'seconds':>10}{'calls':>8}{'% wall':>10}")
     print("-" * width)
 
-<<<<<<< Updated upstream
-    order = list(WORK_ROWS) + list(BLOCKED_ROWS)
-
-    # The thread that launched the kernels first, then the rest by busy time.
-=======
     order = list(WORK_ROWS) + list(DISPATCH_ROWS) + list(BLOCKED_ROWS)
 
     # The thread that issued the kernels first, then the rest by busy time.
->>>>>>> Stashed changes
     def rank(item):
         _thread, rows = item
         return (DEVICE_ROW not in rows, -sum(sec for sec, _ in rows.values()))
@@ -447,11 +405,7 @@ def print_report(args, timer, total, device_call):
             f"{100 * idle / total:>9.1f}%"
         )
 
-<<<<<<< Updated upstream
-    work = sum(timer.total(row) for row in WORK_ROWS)
-=======
     work = sum(timer.total(row) for row in WORK_ROWS + DISPATCH_ROWS)
->>>>>>> Stashed changes
     host = work - device_call
     print("-" * width)
     print(f"{WALL_LABEL:<30}{total:>10.3f}{'':>8}{100.0:>9.1f}%")
@@ -621,19 +575,6 @@ def report_artifacts(stem, rep):
     print("issued it. Re-running overwrites this stem; pass --nsys-out to keep")
     print("more than one.")
     print("=" * 62)
-
-
-def _labelled_value(text, label):
-    """First number on the line starting with `label`, or None."""
-    for line in text.splitlines():
-        if not line.strip().startswith(label):
-            continue
-        for token in line.replace("%", " ").split():
-            try:
-                return float(token)
-            except ValueError:
-                continue
-    return None
 
 
 def _labelled_value(text, label):

@@ -1,0 +1,183 @@
+[
+    {
+        "_comment": [
+            "NVTX annotations for nsys --python-functions-trace, so the timeline",
+            "names the Python function that issued each CUDA row.",
+            "",
+            "Needs the nvtx package in the target interpreter. Module names must",
+            "include parent packages, and methods are written Class.method.",
+            "",
+            "Read the result with, in increasing specificity:",
+            "  nsys stats --report nvtx_sum       <rep>   time per range",
+            "  nsys stats --report nvtx_kern_sum  <rep>   kernel time per range",
+            "  nsys stats --report nvtx_gpu_proj_trace <rep>   each GPU op to its range",
+            "",
+            "Prefer this over --python-sampling: on nsys 2025.6.3 that flag",
+            "produced no Python backtraces at all here, silently."
+        ],
+        "module": "nearl.featurizer",
+        "domain": "nearl",
+        "category": "pipeline",
+        "color": "0x2a78d6",
+        "functions": [
+            "Featurizer.run",
+            "Featurizer.parse_focus",
+            "_run_prepared_tasks"
+        ]
+    },
+    {
+        "_comment": [
+            "CPU preprocessing: the weight cache and the coordinate crop.",
+            "",
+            "These nest, and both halves are listed on purpose.",
+            "  cache:  DynamicFeature.cache = Feature.cache (shared topology scan)",
+            "          + cache_properties. Annotating only Feature.cache showed about a",
+            "          third of the real cost.",
+            "  query:  DensityFlow/MarchingObservers.query are thin shims that call",
+            "          super().query, so the work sits in DynamicFeature.query."
+        ],
+        "module": "nearl.features",
+        "domain": "nearl",
+        "category": "host",
+        "color": "0x1baf7a",
+        "functions": [
+            "DynamicFeature.cache",
+            "Feature.cache",
+            "DynamicFeature.query",
+            "Feature.query",
+            "Feature.dump",
+            {
+                "function": "DensityFlow.query",
+                "color": "0x1baf7a"
+            },
+            {
+                "function": "MarchingObservers.query",
+                "color": "0x1baf7a"
+            }
+        ]
+    },
+    {
+        "_comment": [
+            "The CUDA boundary. _dispatch_grid launches and returns a collector,",
+            "so its range is the launch only -- the wait shows up wherever the",
+            "collector is called, inside _run_prepared_tasks."
+        ],
+        "module": "nearl.features",
+        "domain": "nearl",
+        "category": "device",
+        "color": "0xeb6834",
+        "functions": [
+            "Feature._dispatch_grid",
+            "Feature._dispatch",
+            "Feature.run",
+            "DensityFlow.run",
+            "MarchingObservers.run"
+        ]
+    },
+    {
+        "_comment": "Synchronous entry points, used by custom features.",
+        "module": "nearl.commands",
+        "domain": "nearl",
+        "category": "device",
+        "color": "0xeb6834",
+        "functions": [
+            "frame_voxelize",
+            "density_flow",
+            "marching_observer"
+        ]
+    },
+    {
+        "_comment": "Trajectory IO, the other big host cost.",
+        "module": "nearl.io.trajloader",
+        "domain": "nearl",
+        "category": "io",
+        "color": "0x8a8880",
+        "functions": [
+            "TrajectoryLoader.__getitem__"
+        ]
+    },
+    {
+        "_comment": [
+            "pytraj. Only module-level plain-Python functions can be wrapped.",
+            "Do NOT list pytraj.Trajectory or pytraj.Topology: those are classes,",
+            "and replacing them with a function wrapper breaks isinstance and",
+            "nearl.io.traj.Trajectory's subclassing of them.",
+            "",
+            "Topology.select is unreachable this way -- it is a",
+            "cython_function_or_method on an immutable extension type, so setattr",
+            "is refused. Its cost shows up inside Feature.cache and",
+            "Featurizer.parse_focus, which do bracket it."
+        ],
+        "module": "pytraj",
+        "domain": "pytraj",
+        "category": "io",
+        "color": "0xC2477F",
+        "functions": [
+            "load",
+            "iterload",
+            "load_topology",
+            "write_traj",
+            "save",
+            "superpose",
+            "rmsd_nofit"
+        ]
+    },
+    {
+        "_comment": "Where the pt.load actually happens on the pipeline path.",
+        "module": "nearl.io.traj",
+        "domain": "nearl",
+        "category": "io",
+        "color": "0x8a8880",
+        "functions": [
+            "Trajectory.__init__",
+            "Trajectory.copy"
+        ]
+    },
+    {
+        "_comment": [
+            "Setup path, to account for the gap between the first pytraj.load and",
+            "Featurizer.run. The profiler's own build_featurizer cannot be annotated:",
+            "it runs as __main__, and nsys resolves modules by importable name."
+        ],
+        "module": "nearl.featurizer",
+        "domain": "setup",
+        "category": "setup",
+        "color": "0xC2477F",
+        "functions": [
+            "Featurizer.__init__",
+            "Featurizer.register_features",
+            "Featurizer.register_feature",
+            "Featurizer.register_trajloader",
+            "Featurizer.register_focus"
+        ]
+    },
+    {
+        "module": "nearl.features",
+        "domain": "setup",
+        "category": "setup",
+        "color": "0xC2477F",
+        "functions": [
+            "Feature.__init__",
+            "DensityFlow.__init__",
+            "MarchingObservers.__init__"
+        ]
+    },
+    {
+        "module": "nearl",
+        "domain": "setup",
+        "category": "setup",
+        "color": "0xC2477F",
+        "functions": [
+            "get_example_data"
+        ]
+    },
+    {
+        "module": "nearl.commands",
+        "domain": "setup",
+        "category": "setup",
+        "color": "0xC2477F",
+        "functions": [
+            "init_context"
+        ]
+    }
+]
