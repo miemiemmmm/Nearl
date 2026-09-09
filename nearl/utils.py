@@ -8,10 +8,12 @@ from itertools import groupby
 import h5py
 import numpy as np
 import pytraj as pt
-import torch
-from scipy.spatial import distance_matrix
 
 from . import config, constants, log
+
+# torch and scipy are imported where they are used. Both are heavy -- torch
+# alone is ~580 ms -- and nothing on the featurization path needs either, so a
+# module-scope import taxed every run, test session and worker process.
 
 
 def get_hash(theinput="", mode="md5"):
@@ -106,6 +108,8 @@ def compute_pcdt(traj, mask1, mask2, use_mean=False, ref=None, return_info=False
     pdist_info : dict (optional, if return_info=True)
       The information of the atom pairs
     """
+    from scipy.spatial import distance_matrix
+
     if ref is not None and isinstance(
         ref, (int, float, np.int32, np.int64, np.float32, np.float64)
     ):
@@ -508,6 +512,8 @@ def get_pdb_seq(pdbcode):
 
 
 def conflict_factor(pdbfile, ligname, cutoff=5):
+    from scipy.spatial import distance_matrix
+
     traj = pt.load(pdbfile, top=pdbfile)
     traj.top.set_reference(traj[0])
     pocket_atoms = traj.top.select(f":{ligname}<:{cutoff}")
@@ -562,8 +568,10 @@ def append_hdf_data(hdffile, key, data, dtype, maxshape, **kwargs):
 
     Parameters
     ----------
-    hdffile : str
-      The path to the HDF5 file
+    hdffile : str or h5py.File
+      The path to the HDF5 file, or an already-open h5py.File handle. When a handle
+      is passed, it is reused directly (no open/close), which avoids the repeated
+      open/close overhead when appending many times to the same file.
     key : str
       The key to the dataset
     data : array_like
@@ -576,7 +584,9 @@ def append_hdf_data(hdffile, key, data, dtype, maxshape, **kwargs):
       Additional keyword arguments for creating the dataset (If the dataset does not exist yet)
 
     """
-    with h5py.File(hdffile, "a") as hdf:
+    borrowed = isinstance(hdffile, h5py.File)
+    hdf = hdffile if borrowed else h5py.File(hdffile, "a")
+    try:
         if key in hdf:
             dset = hdf[key]
             current_shape = dset.shape
@@ -589,6 +599,9 @@ def append_hdf_data(hdffile, key, data, dtype, maxshape, **kwargs):
                 key, data.shape, dtype=dtype, maxshape=maxshape, **kwargs
             )
             dset[:] = data
+    finally:
+        if not borrowed:
+            hdf.close()
 
 
 def update_hdf_data(hdffile, dataset_name: str, data: np.ndarray, hdf_slice, **kwargs):
@@ -913,6 +926,8 @@ def test_model(
     process_nr=24,
     test_robust=False,
 ):
+    import torch
+
     tested_sample_nr = 0
     predictions = []
     targets = []

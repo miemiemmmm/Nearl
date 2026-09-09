@@ -505,6 +505,7 @@ void marching_observer_host(float *mobs_dynamics, const float *coord, const floa
   }
 
   CUDA_CHECK(cudaMemsetAsync(mobs_traj, 0, frame_number * observer_number * sizeof(float), stream));
+  CUDA_CHECK(cudaMemsetAsync(tmp_mobs_gpu, 0, observer_number * sizeof(float), stream));
   copy_h2d_async(ctx, coords_device, coord, frame_number * atom_per_frame * 3 * sizeof(float),
                  BufferSlot::COORDS, stream);
   copy_h2d_async(ctx, weights_device, weights, frame_number * atom_per_frame * sizeof(float),

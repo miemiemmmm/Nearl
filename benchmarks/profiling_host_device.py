@@ -71,13 +71,60 @@ def parse_args():
         action="store_true",
         help="skip the warm-up, so CUDA context creation is timed too",
     )
+    p.add_argument(
+        "--multi",
+        type=int,
+        default=1,
+        help="number of distinct trajectories to process (default 1). "
+        "Extra trajectories are rotated copies of the example trajectory, "
+        "so the CPU/GPU overlap benefit can be measured.",
+    )
     return p.parse_args()
 
 
+def build_multi_trajset(datadir, n):
+    """Return a list of ``(nc, pdb)`` tuples with ``n`` distinct trajectories.
+
+    The first entry is the stock example trajectory; each additional entry is a
+    copy rotated by a different angle around the z axis. Rotating keeps the
+    topology identical (so the per-topology cache still hits) while making the
+    coordinates distinct, which is exactly the multi-trajectory workload the
+    CPU/GPU pipeline is meant to overlap.
+    """
+    import numpy as np
+    import pytraj as pt
+
+    example = nearl.get_example_data(datadir)
+    nc, pdb = example["MINI_TRAJSET"][0]
+    base = pt.load(nc, pdb)
+    trajs = [(nc, pdb)]
+    if n <= 1:
+        return trajs
+
+    outdir = os.path.join(datadir, "example_data", "example_traj")
+    os.makedirs(outdir, exist_ok=True)
+    for i in range(1, n):
+        ang = np.deg2rad(360.0 * i / n)
+        c, s = np.cos(ang), np.sin(ang)
+        rot = np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]], dtype=np.float32)
+        out = os.path.join(outdir, f"example_rot_{i}.nc")
+        if not os.path.exists(out):
+            newtraj = pt.Trajectory()
+            newtraj.top = base.top
+            for f in range(base.n_frames):
+                fr = base[f].copy()
+                fr.xyz = fr.xyz @ rot.T
+                newtraj.append(fr)
+            pt.write_traj(out, newtraj, overwrite=True)
+        trajs.append((out, pdb))
+    return trajs
+
+
 def build_featurizer(args, timer):
-    loader = nearl.io.TrajectoryLoader(
-        nearl.get_example_data(args.datadir)["MINI_TRAJSET"]
-    )
+    trajs = build_multi_trajset(args.datadir, args.multi)
+    loader = nearl.io.TrajectoryLoader(trajs)
+    # run() loads trajectories on the CPU producer thread via __getitem__,
+    # so time that call to expose the trajectory-load cost.
     timer.wrap(nearl.io.TrajectoryLoader, "__getitem__", "trajectory load")
 
     featurizer = nearl.featurizer.Featurizer(
@@ -118,7 +165,13 @@ def build_featurizer(args, timer):
     return featurizer
 
 
-HOST_ROWS = ("cache", "trajectory load", "query + crop", "feature.run", "HDF5 dump")
+HOST_ROWS = (
+    "cache",
+    "trajectory load",
+    "query + crop",
+    "feature.run",
+    "HDF5 dump",
+)
 
 
 def warm_up():
@@ -155,6 +208,7 @@ def run_workload(args):
     print("\n" + "=" * 62)
     print(
         f"dims={args.dims}  time_window={args.window}  "
+        f"trajectories={args.multi}  "
         f"features=DensityFlow,MarchingObservers  weight=mass"
     )
     print("=" * 62)
