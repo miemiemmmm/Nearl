@@ -687,7 +687,8 @@ class Featurizer:
 
         if self._producer_threads <= 1:
             # Single-producer schedule (original behavior): one thread owns the
-            # featurizer's own mutable state.
+            # featurizer's own mutable state and closes the buffer itself once
+            # it has enqueued every task, so no coordinator thread is needed.
             producers = [
                 threading.Thread(
                     target=self._produce_tasks,
@@ -696,6 +697,7 @@ class Featurizer:
                     daemon=True,
                 )
             ]
+            coordinator = None
         else:
             # Multi-producer schedule: split the trajectories into disjoint
             # chunks and give each chunk its own worker thread with a private
@@ -718,20 +720,22 @@ class Featurizer:
                     )
                 )
 
-        # Coordinator: join every producer, then signal the consumer with a
-        # single sentinel once all of them have finished (or been cancelled).
-        # Only one sentinel may be enqueued, otherwise the consumer would stop
-        # as soon as the first producer finished and drop the remaining tasks.
-        coordinator = threading.Thread(
-            target=self._coordinate_producers,
-            args=(buffer, producers),
-            name="nearl-cpu-producer-coordinator",
-            daemon=True,
-        )
+            # Coordinator: join every producer, then signal the consumer with a
+            # single sentinel once all of them have finished (or been cancelled).
+            # Only one sentinel may be enqueued, otherwise the consumer would
+            # stop as soon as the first producer finished and drop the
+            # remaining tasks.
+            coordinator = threading.Thread(
+                target=self._coordinate_producers,
+                args=(buffer, producers),
+                name="nearl-cpu-producer-coordinator",
+                daemon=True,
+            )
 
         for producer in producers:
             producer.start()
-        coordinator.start()
+        if coordinator is not None:
+            coordinator.start()
 
         try:
             while True:
@@ -740,25 +744,37 @@ class Featurizer:
                     break
                 if item[0] is _ERROR:
                     raise item[1]
-                # Each item is a sample bundle: the ``(feature, queried)``
-                # GPU tasks of every feature for one (frame-slice,
-                # focal-point) sample, in feature order. Bundling keeps the
-                # output datasets row-aligned: the writer appends in
-                # consumption order, so all datasets see the same sample
-                # sequence even when several producers interleave bundles on
-                # the buffer.
-                for feature, queried in item:
+                if self._producer_threads <= 1:
+                    # Single-producer schedule: each item is a single
+                    # ``(feature, queried)`` GPU task.
+                    feature, queried = item
                     # Launch the GPU kernel on the main process
                     result = feature.run(*queried)
                     # Hand the result to the background writer (async HDF5 dump)
                     writer.submit(feature, result)
+                else:
+                    # Multi-producer schedule: each item is a sample bundle:
+                    # the ``(feature, queried)`` GPU tasks of every feature for
+                    # one (frame-slice, focal-point) sample, in feature order.
+                    # Bundling keeps the output datasets row-aligned: the
+                    # writer appends in consumption order, so all datasets see
+                    # the same sample sequence even when several producers
+                    # interleave bundles on the buffer.
+                    for feature, queried in item:
+                        # Launch the GPU kernel on the main process
+                        result = feature.run(*queried)
+                        # Hand the result to the background writer (async HDF5 dump)
+                        writer.submit(feature, result)
         finally:
             # Anything raised above (a kernel error, a missing extension) leaves
             # the producers parked in buffer.put() on a full buffer. Cancel it
             # first: joining a stranded producer would hang the process instead
             # of surfacing the exception.
             buffer.cancel()
-            coordinator.join()
+            for producer in producers:
+                producer.join()
+            if coordinator is not None:
+                coordinator.join()
             writer.close()
             # Close any persistent HDF5 file handles held by the features
             for feat in self.FEATURESPACE:
@@ -845,9 +861,10 @@ class Featurizer:
         Parameters
         ----------
         buffer : :class:`nearl.pipeline.PrefetchBuffer`
-          The buffer onto which sample bundles (lists of ``(feature,
-          queried)`` GPU tasks, one per feature for a single sample) are
-          deposited.
+          The buffer onto which ``(feature, queried)`` GPU tasks are
+          deposited, one per feature per sample. The buffer is closed (a
+          single end-of-stream sentinel is enqueued) once every task has been
+          produced.
         """
         try:
             for tid in range(self.TRAJECTORYNUMBER):
@@ -889,30 +906,22 @@ class Featurizer:
                         for pid in range(self.FOCALNUMBER):
                             focal_point = self.FOCALPOINTS[bid, pid]
                             # Crop the trajectory and send the coordinates/trajectory to the featurizer
-                            # NOTE: All features of one sample are enqueued as a
-                            # single bundle so every output dataset receives
-                            # rows in the same sample order.
-                            bundle = []
                             for fidx in range(self.FEATURENUMBER):
                                 # NOTE: Isolate the effect on the calculation of the next feature
                                 queried = self.FEATURESPACE[fidx].query(
                                     self.top, frames, focal_point
                                 )
-                                bundle.append((self.FEATURESPACE[fidx], queried))
-                            buffer.put(bundle)
-                            task_count += len(bundle)
+                                buffer.put((self.FEATURESPACE[fidx], queried))
+                                task_count += 1
                     else:
                         # Without registeration of focal points: focal-point independent features such as label-generation
-                        # NOTE: Bundled for the same reason as above.
-                        bundle = []
                         for fidx in range(self.FEATURENUMBER):
                             # Explicitly transfer the topology and frames to get the queried coordinates for the featurizer
                             queried = self.FEATURESPACE[fidx].query(
                                 self.top, frames, [0, 0, 0]
                             )
-                            bundle.append((self.FEATURESPACE[fidx], queried))
-                        buffer.put(bundle)
-                        task_count += len(bundle)
+                            buffer.put((self.FEATURESPACE[fidx], queried))
+                            task_count += 1
 
                 log(
                     f"{self.classname}: Trajectory {tid + 1} yields {task_count} frame-slices (tasks) for the featurization. "
@@ -929,8 +938,11 @@ class Featurizer:
         except Exception as exc:  # pragma: no cover - surfaced on the main thread
             with contextlib.suppress(PipelineCancelled):
                 buffer.put((_ERROR, exc))
-        # NOTE: no buffer.close() here. The coordinator enqueues the single
-        # end-of-stream sentinel after joining every producer.
+        finally:
+            # Signal end-of-stream: enqueue the single sentinel that wakes the
+            # consumer. In the single-producer schedule there is no coordinator
+            # to do this, so the producer closes the buffer itself.
+            buffer.close()
 
     def _produce_worker(self, worker, buffer, traj_indices):
         """
