@@ -174,13 +174,9 @@ fi
 
 # The CSV stores the git hash and the human-readable label in SEPARATE columns
 # (hash, label) so the notebook can combine them into a "ref" key for plotting.
-# In WORKING mode HASH is empty, so the hash column is blank and the ref is
-# just the label.
-if [ -n "$HASH" ]; then
-    GIT_REF="$HASH $LABEL"
-else
-    GIT_REF="$LABEL"
-fi
+# The hash is emitted separately in the hash column; the label column keeps
+# only the human-readable label.
+GIT_REF="$LABEL"
 
 # ---------------------------------------------------------------------------
 # 5) Run the 6-feature suite in parallel, one process per local GPU.
@@ -240,6 +236,6 @@ run_feature_suite() {
     fi
 }
 
-run_feature_suite "$GIT_REF"
+run_feature_suite "$GIT_REF" || exit 1
 
 echo "DONE. Appended $GIT_REF to $CSV"

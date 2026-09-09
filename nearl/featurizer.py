@@ -678,9 +678,9 @@ class Featurizer:
         thread, or a feature whose ``cache`` calls a kernel, would race on the
         shared device buffers.
         """
-        # Reset the GPU busy-time accumulator so ``gpu_busy_time``
-        if self._gpu_busy_capture:
-            features.Feature.gpu_busy_seconds = 0.0
+        # Reset the GPU busy-time accumulator so ``gpu_busy_time`` reports the
+        # last run.
+        features.Feature.gpu_busy_seconds = 0.0
 
         buffer = PrefetchBuffer(capacity=self._prefetch_capacity)
         writer = AsyncWriter(self._dump_result, capacity=self._writer_capacity)
