@@ -75,6 +75,7 @@ public:
    * slot's current capacity is smaller than @p min_bytes, the slot is reallocated.
    */
   void *get_buffer(size_t min_bytes, size_t slot);
+  size_t buffer_capacity(size_t slot) const;
 
   float *get_buffer_f(size_t min_count, size_t slot) {
     return static_cast<float *>(get_buffer(min_count * sizeof(float), slot));
@@ -94,6 +95,8 @@ public:
   void cancel_call() noexcept;
   bool pending() const { return pending_; }
   void *stage_input(const void *source, size_t bytes, size_t slot);
+  void *get_host_buffer(size_t min_bytes, size_t slot);
+  size_t host_buffer_capacity(size_t slot) const;
 
 private:
   struct Buffer {
@@ -433,13 +436,17 @@ __device__ void com_device(const T *coord, const T *mass, T *com, const int poin
 
 
 // To calculate the distance based gaussian map.
+//
+// The arithmetic is float regardless of T, so the computation stays in single
+// precision. This is the innermost function of frame_interp_global.
 template <typename T>
 __device__ float gaussian_map_device(const T distance, const T mu, const T sigma) {
   if (sigma == 0) {
     return 0;
   } else {
-    return exp(-0.5 * ((distance - mu) / sigma) * ((distance - mu) / sigma)) /
-           (sigma * sqrtf(2 * M_PI));
+    const float sigma_f = static_cast<float>(sigma);
+    const float z = (static_cast<float>(distance) - static_cast<float>(mu)) / sigma_f;
+    return expf(-0.5f * z * z) / (sigma_f * SQRT_2_PI);
   }
 }
 

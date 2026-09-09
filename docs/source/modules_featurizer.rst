@@ -13,10 +13,9 @@ next task, so the shared buffers cannot be overwritten while in use. This applie
 to ordinary voxel features, density flow, and marching observers. Features with
 custom ``run()`` implementations keep their existing synchronous behavior.
 
-The shared ``DeviceContext`` retains device buffers and pinned input staging
-buffers on its CUDA stream. Each output array owns a separate pinned allocation;
-the GPU copies directly into that array before collection waits for completion.
-Keeping an array or one of its views alive also keeps its pinned memory alive.
+The shared ``DeviceContext`` retains device buffers, pinned input staging buffers,
+and one pinned output buffer on its CUDA stream. Collection copies the completed
+output into ordinary NumPy memory, so result arrays do not retain CUDA-pinned memory.
 
 .. automodule:: nearl.featurizer
    :members:

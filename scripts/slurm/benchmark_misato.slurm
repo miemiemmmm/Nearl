@@ -51,7 +51,7 @@ export PYTHONUNBUFFERED=1
 
 # TODO examine with dimension, length, and cutoff 
 
-python3 /MieT5/Nearl/scripts/benchmark_misatofeat.py \
+python3 /MieT5/Nearl/scripts/benchmark_dataset.py \
   --pdbcodes    ${pdblist} \
   --dimension   32 \
   --length      24 \
@@ -67,4 +67,4 @@ python3 /MieT5/Nearl/scripts/benchmark_misatofeat.py \
 realpath ${outdir}/*h5 > ${outdir}/$(echo ${prefix} | cut -c1-2).txt
 
 
-# python3 /MieT5/Nearl/scripts/benchmark_misatofeat.py -f /MieT5/Nearl/data/casf2016_test.txt -o /tmp/ -t 1 -d 32 -m /Matter/misato_database/ -c 2.5 -s 1.5 
+# python3 /MieT5/Nearl/scripts/benchmark_dataset.py -f /MieT5/Nearl/data/casf2016_test.txt -o /tmp/ -t 1 -d 32 -m /Matter/misato_database/ -c 2.5 -s 1.5

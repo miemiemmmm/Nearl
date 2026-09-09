@@ -422,9 +422,14 @@ __global__ void marching_observer_global(float *mobs_ret, const float *coord_fra
                                          const int atomnr, const float cutoff,
                                          const int type_observable) {
   unsigned int index = blockIdx.x * blockDim.x + threadIdx.x;
+  unsigned int frame_idx = blockIdx.y;
   unsigned int grid_size = dims[0] * dims[1] * dims[2];
-  if (index >= grid_size)
+  if (index >= grid_size || frame_idx >= static_cast<unsigned int>(frame_number))
     return;
+
+  const float *frame_coords = coord_frame + frame_idx * atomnr * 3;
+  const float *frame_weights = weight_frame + frame_idx * atomnr;
+  float *frame_output = mobs_ret + frame_idx * grid_size;
 
   // Get the coordinate of the grid point (Observer) in real space
   float coord[3] = {static_cast<float>(index / (dims[0] * dims[1])) * spacing,
@@ -434,10 +439,11 @@ __global__ void marching_observer_global(float *mobs_ret, const float *coord_fra
   // Calculate the observable of grid point at index in the given frame
   if ((type_observable == 1) || (type_observable == 2)) {
     // Hard-coded for the direct count-based observables
-    mobs_ret[index] = make_observation_device(coord, coord_frame, atomnr, cutoff, type_observable);
+    frame_output[index] =
+        make_observation_device(coord, frame_coords, atomnr, cutoff, type_observable);
   } else {
-    mobs_ret[index] =
-        make_observation_device(coord, coord_frame, weight_frame, atomnr, cutoff, type_observable);
+    frame_output[index] = make_observation_device(coord, frame_coords, frame_weights, atomnr,
+                                                  cutoff, type_observable);
   }
 }
 
@@ -445,7 +451,7 @@ __global__ void marching_observer_global(float *mobs_ret, const float *coord_fra
 /**
  * @brief GPU entry point for the marching observer algorithm on a frame slice.
  *
- * For each frame, launches marching_observer_global so that every grid point
+ * Launches marching_observer_global across frames so that every grid point
  * computes an observable (e.g. density, count, eccentricity) from the atoms
  * within cutoff. The per-frame grids are stored, then reduced across frames
  * with gridwise_aggregation_global. Uses the global DeviceContext when active.
@@ -506,24 +512,11 @@ void marching_observer_host(float *mobs_dynamics, const float *coord, const floa
                  BufferSlot::WEIGHTS, stream);
   copy_h2d_async(ctx, dims_device, dims, 3 * sizeof(int), BufferSlot::DIMS, stream);
 
-  // NOTE: The coordinate should be uniformed meaning each frame have the same number of atoms
-  for (int frame_idx = 0; frame_idx < frame_number; ++frame_idx) {
-    // Perform the observation of all the grid points (observers) in the frame i
-    marching_observer_global<<<grid_size, BLOCK_SIZE, 0, stream>>>(
-        tmp_mobs_gpu, coords_device + frame_idx * atom_per_frame * 3,
-        weights_device + frame_idx * atom_per_frame, dims_device, spacing, frame_number,
-        atom_per_frame, cutoff, type_obs);
-    CUDA_CHECK_KERNEL();
-
-    // After calculating the frame i, copy the result to the frame-wise array
-    CUDA_CHECK(cudaMemcpyAsync(mobs_traj + frame_idx * observer_number, tmp_mobs_gpu,
-                               observer_number * sizeof(float), cudaMemcpyDeviceToDevice, stream));
-
-    // Skip the frames if their index exceeds the maximum number of frames allowed due to the
-    // GPU-based aggregation
-    if (frame_idx + 1 >= MAX_FRAME_NUMBER)
-      continue;
-  }
+  // Process every frame in one launch; blockIdx.y selects the frame.
+  marching_observer_global<<<dim3(grid_size, frame_number, 1), BLOCK_SIZE, 0, stream>>>(
+      mobs_traj, coords_device, weights_device, dims_device, spacing, frame_number, atom_per_frame,
+      cutoff, type_obs);
+  CUDA_CHECK_KERNEL();
 
   // Perform frame-wise aggregation on the voxelized trajectory
   unsigned int _frame_number = frame_number > MAX_FRAME_NUMBER ? MAX_FRAME_NUMBER : frame_number;
@@ -597,7 +590,7 @@ void observe_frame_host(float *results, const float *coord_frame, const float *w
   copy_h2d_async(ctx, weight_frame_gpu, weight_frame, frame_nr * atomnr * sizeof(float),
                  BufferSlot::WEIGHTS, stream);
 
-  marching_observer_global<<<grid_size, BLOCK_SIZE, 0, stream>>>(
+  marching_observer_global<<<dim3(grid_size, frame_nr, 1), BLOCK_SIZE, 0, stream>>>(
       results_gpu, coord_frame_gpu, weight_frame_gpu, dims_gpu, spacing, frame_nr, atomnr, cutoff,
       type_obs);
   CUDA_CHECK_KERNEL();

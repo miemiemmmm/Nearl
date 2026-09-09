@@ -24,6 +24,7 @@
 #include <memory>
 #include <algorithm>
 #include <utility>
+#include <cstring>
 
 #include "pybind11/pybind11.h"
 #include "pybind11/numpy.h"
@@ -42,7 +43,7 @@ namespace {
 using FloatInput = py::array_t<float, py::array::c_style | py::array::forcecast>;
 using IntInput = py::array_t<int, py::array::c_style | py::array::forcecast>;
 
-// NumPy owns pinned output; this handle keeps the shared context busy until collection.
+// The context owns one reusable pinned output buffer; collection copies it into NumPy memory.
 class CommandExecution {
 public:
   CommandExecution(size_t count, bool reduce = false) : reduce_(reduce) {
@@ -50,13 +51,9 @@ public:
     ctx_ = get_global_device_context();
     if (ctx_->pending())
       throw std::runtime_error("Collect the previous CUDA result before dispatch");
-    float *data = nullptr;
-    CUDA_CHECK(cudaMallocHost(&data, std::max(count, size_t(1)) * sizeof(float)));
-    auto release = [](float *ptr) { cudaFreeHost(ptr); };
-    std::unique_ptr<float, decltype(release)> allocation(data, release);
-    py::capsule memory(data, [](void *ptr) { cudaFreeHost(ptr); });
-    allocation.release();
-    output_ = py::array_t<float>({static_cast<py::ssize_t>(count)}, {sizeof(float)}, data, memory);
+    output_data_ = static_cast<float *>(ctx_->get_host_buffer(
+        std::max(count, size_t(1)) * sizeof(float), static_cast<size_t>(BufferSlot::SCRATCH)));
+    output_count_ = count;
     ctx_->begin_call();
     active_ = true;
   }
@@ -68,27 +65,41 @@ public:
   // Transfer the pending call so the moved-from destructor cannot drain it.
   CommandExecution(CommandExecution &&other) noexcept
       : ctx_(std::exchange(other.ctx_, nullptr)), active_(std::exchange(other.active_, false)),
-        reduce_(other.reduce_), output_(std::move(other.output_)), value_(std::move(other.value_)) {
-  }
+        reduce_(other.reduce_), output_data_(std::exchange(other.output_data_, nullptr)),
+        output_count_(other.output_count_), value_(std::move(other.value_)) {}
 
   ~CommandExecution() {
     if (active_)
       ctx_->cancel_call();
   }
-  float *data() { return output_.mutable_data(); }
+  float *data() { return output_data_; }
   py::object result() {
     if (active_) {
-      ctx_->end_call();
+      {
+        // Release the GIL across the wait, not just across the launch. Since the
+        // dispatch became asynchronous the *_host calls return immediately, so
+        // the release inside them spans almost nothing while the real kernel
+        // time is spent here in end_call() -> synchronize(). Holding the GIL
+        // through it freezes the featurizer's CPU producer for every kernel and
+        // costs exactly the overlap the pipeline exists to win.
+        py::gil_scoped_release release;
+        ctx_->end_call();
+      }
       active_ = false;
     }
     if (!value_) {
       if (reduce_) {
         float sum = 0;
-        for (py::ssize_t i = 0; i < output_.size(); ++i)
-          sum += output_.data()[i];
+        for (size_t i = 0; i < output_count_; ++i)
+          sum += output_data_[i];
         value_ = py::float_(sum);
       } else {
-        value_ = output_;
+        py::array_t<float> output(static_cast<py::ssize_t>(output_count_));
+        // Copy out before reusing the context's pinned buffer; NumPy must own
+        // independent storage because the next command overwrites that buffer.
+        if (output_count_)
+          std::memcpy(output.mutable_data(), output_data_, output_count_ * sizeof(float));
+        value_ = std::move(output);
       }
     }
     return value_;
@@ -98,7 +109,8 @@ private:
   DeviceContext *ctx_ = nullptr;
   bool active_ = false;
   bool reduce_;
-  py::array_t<float> output_;
+  float *output_data_ = nullptr;
+  size_t output_count_ = 0;
   py::object value_;
 };
 
@@ -357,6 +369,36 @@ void do_finalize_context() { finalize_global_device_context(); }
 
 bool do_context_valid() { return global_device_context_valid(); }
 
+size_t do_buffer_capacity(const std::string &name) {
+  auto *ctx = get_global_device_context();
+  if (!ctx || !ctx->valid())
+    return 0;
+  if (name == "coords")
+    return ctx->buffer_capacity(static_cast<size_t>(BufferSlot::COORDS));
+  if (name == "weights")
+    return ctx->buffer_capacity(static_cast<size_t>(BufferSlot::WEIGHTS));
+  if (name == "output")
+    return ctx->buffer_capacity(static_cast<size_t>(BufferSlot::OUTPUT_GRID));
+  if (name == "trajectory")
+    return ctx->buffer_capacity(static_cast<size_t>(BufferSlot::TRAJ_DYNAMICS));
+  throw py::value_error("Unknown device buffer: " + name);
+}
+
+size_t do_host_buffer_capacity(const std::string &name) {
+  auto *ctx = get_global_device_context();
+  if (!ctx || !ctx->valid())
+    return 0;
+  if (name == "coords")
+    return ctx->host_buffer_capacity(static_cast<size_t>(BufferSlot::COORDS));
+  if (name == "weights")
+    return ctx->host_buffer_capacity(static_cast<size_t>(BufferSlot::WEIGHTS));
+  if (name == "dims")
+    return ctx->host_buffer_capacity(static_cast<size_t>(BufferSlot::DIMS));
+  if (name == "output")
+    return ctx->host_buffer_capacity(static_cast<size_t>(BufferSlot::SCRATCH));
+  throw py::value_error("Unknown pinned host buffer: " + name);
+}
+
 
 PYBIND11_MODULE(all_actions, m) {
   py::class_<CommandExecution>(m, "_CommandExecution").def("result", &CommandExecution::result);
@@ -387,4 +429,8 @@ PYBIND11_MODULE(all_actions, m) {
         "Destroy the persistent DeviceContext and release cached GPU memory.");
   m.def("context_valid", &do_context_valid,
         "Return True if the persistent DeviceContext is active.");
+  m.def("_buffer_capacity", &do_buffer_capacity, py::arg("name"),
+        "Return the current capacity of a named reusable device buffer.");
+  m.def("_host_buffer_capacity", &do_host_buffer_capacity, py::arg("name"),
+        "Return the current capacity of a named reusable pinned host buffer.");
 }

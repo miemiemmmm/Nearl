@@ -7,7 +7,8 @@ CUDA results and lifetime
 Voxelization, frame observation, density flow, marching observers, aggregation,
 and summation initialize the shared context on first use and stage inputs in
 reusable pinned memory. Public calls still return completed arrays or scalars.
-Array results own their pinned storage and remain valid after context finalization.
+Results are copied into ordinary NumPy arrays during collection; the context reuses one pinned
+output buffer for asynchronous device-to-host transfers.
 
 The extension also provides internal ``_dispatch_<action>`` entry points for all
 six actions. These return a handle whose ``result()`` waits for completion. Only

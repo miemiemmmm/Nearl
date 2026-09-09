@@ -43,25 +43,38 @@ __global__ void coordi_interp_global(const float *coord, float *interpolated, co
 /**
  * @brief Per-frame Gaussian density voxelization using one CUDA block per atom.
  *
- * Each block owns one atom. Threads first sum the unweighted Gaussian density
+ * Each block owns one atom of one frame (blockIdx.x selects the atom,
+ * blockIdx.y the frame). Threads first sum the unweighted Gaussian density
  * over a cutoff-bounded sub-grid (shared-memory reduction), then scatter the
  * atom's weighted, normalized contribution into the full output grid via
  * atomicAdd. The normalization guarantees that the integral over the grid for
  * each atom equals the atom's weight.
+ *
+ * Both passes visit only the axis-aligned integer bounding box of the atom's
+ * cutoff ball rather than striding the whole grid, and keep the `dist_sq <
+ * cutoff_sq` test inside, so the set of contributing points is unchanged.
+ *
+ * The two passes deliberately run over *different* extents. The normalizer
+ * covers the buffered grid, which reaches buff_dim points outside the output
+ * grid on every face; the scatter covers only [0, dims). An atom near a face is
+ * therefore normalized over its whole ball but deposits only the in-grid part of
+ * its weight, which is why sum(grid) == sum(weights) holds for interior atoms
+ * and not for edge ones. Clip the two boxes separately to preserve that.
  */
 __global__ void frame_interp_global(const float *coords_frame, const float *weights_frame,
                                     float *interpolated_frame, const int *dims, const float spacing,
                                     const float cutoff, const float sigma, const int atom_nr) {
   // Each block is responsible for one atom
   const int atom_idx = blockIdx.x;
+  const int frame_idx = blockIdx.y;
   const int buff_dim = (cutoff + spacing) / spacing;
   const int buff_dims[3] = {dims[0] + buff_dim + buff_dim, dims[1] + buff_dim + buff_dim,
                             dims[2] + buff_dim + buff_dim};
-  const int gridpoint_buff_nr = buff_dims[0] * buff_dims[1] * buff_dims[2];
   const int gridpoint_nr = dims[0] * dims[1] * dims[2];
-  const float *coord = coords_frame + atom_idx * 3;
+  const float *coord = coords_frame + (frame_idx * atom_nr + atom_idx) * 3;
   const float cutoff_sq = cutoff * cutoff;
-  const float weight = weights_frame[atom_idx];
+  const float weight = weights_frame[frame_idx * atom_nr + atom_idx];
+  float *frame_output = interpolated_frame + frame_idx * gridpoint_nr;
 
   if (coord[0] == DEFAULT_COORD_PLACEHOLDER && coord[1] == DEFAULT_COORD_PLACEHOLDER &&
       coord[2] == DEFAULT_COORD_PLACEHOLDER) {
@@ -74,24 +87,41 @@ __global__ void frame_interp_global(const float *coords_frame, const float *weig
   const int tid = threadIdx.x;
   const int num_threads = blockDim.x;
 
+  // Index range of the atom's cutoff ball along each axis, before clipping.
+  // A grid point at integer index i sits at i * spacing, so the ball spans
+  // [(c - cutoff) / spacing, (c + cutoff) / spacing].
+  const int ball_lo[3] = {static_cast<int>(ceilf((coord[0] - cutoff) / spacing)),
+                          static_cast<int>(ceilf((coord[1] - cutoff) / spacing)),
+                          static_cast<int>(ceilf((coord[2] - cutoff) / spacing))};
+  const int ball_hi[3] = {static_cast<int>(floorf((coord[0] + cutoff) / spacing)),
+                          static_cast<int>(floorf((coord[1] + cutoff) / spacing)),
+                          static_cast<int>(floorf((coord[2] + cutoff) / spacing))};
+
   float local_sum = 0.0f;
   int x, y, z;
   float grid_x, grid_y, grid_z, dist_sq;
 
-  // For each block, compute the partial sum
-  // for (int gid = tid; gid < gridpoint_nr; gid += num_threads){
-  //   x = gid / dims[0] / dims[1];
-  //   y = gid / dims[0] % dims[1];
-  //   z = gid % dims[0];
+  // Normalizer pass, over the buffered grid: axis i runs over
+  // [-buff_dim, buff_dims[i] - buff_dim). NOTE the axis-to-extent pairing below
+  // (coord[0] with buff_dims[2], coord[2] with buff_dims[0]) mirrors the index
+  // decoding this kernel has always used; it only matters for non-cubic grids,
+  // which Nearl does not produce today.
+  const int nlo_x = max(ball_lo[0], -buff_dim);
+  const int nhi_x = min(ball_hi[0], buff_dims[2] - buff_dim - 1);
+  const int nlo_y = max(ball_lo[1], -buff_dim);
+  const int nhi_y = min(ball_hi[1], buff_dims[1] - buff_dim - 1);
+  const int nlo_z = max(ball_lo[2], -buff_dim);
+  const int nhi_z = min(ball_hi[2], buff_dims[0] - buff_dim - 1);
 
-  for (int gid = tid; gid < gridpoint_buff_nr; gid += num_threads) {
-    x = gid / buff_dims[0] / buff_dims[1];
-    y = gid / buff_dims[0] % buff_dims[1];
-    z = gid % buff_dims[0];
+  const int n_nx = nhi_x - nlo_x + 1;
+  const int n_ny = nhi_y - nlo_y + 1;
+  const int n_nz = nhi_z - nlo_z + 1;
+  const int norm_box_nr = (n_nx > 0 && n_ny > 0 && n_nz > 0) ? n_nx * n_ny * n_nz : 0;
 
-    x -= buff_dim;
-    y -= buff_dim;
-    z -= buff_dim;
+  for (int bid = tid; bid < norm_box_nr; bid += num_threads) {
+    x = nlo_x + bid / (n_ny * n_nz);
+    y = nlo_y + (bid / n_nz) % n_ny;
+    z = nlo_z + bid % n_nz;
 
     grid_x = x * spacing;
     grid_y = y * spacing;
@@ -118,10 +148,26 @@ __global__ void frame_interp_global(const float *coords_frame, const float *weig
     return;
 
   const float inv_sum = weight / total_sum;
-  for (int gid = tid; gid < gridpoint_nr; gid += num_threads) {
-    x = gid / dims[0] / dims[1];
-    y = gid / dims[0] % dims[1];
-    z = gid % dims[0];
+
+  // Scatter pass, over the output grid only: the ball clipped to [0, dims).
+  // gid = x * dims[0] * dims[1] + y * dims[0] + z inverts the decoding the
+  // kernel used before, so a point keeps the array slot it always had.
+  const int slo_x = max(ball_lo[0], 0);
+  const int shi_x = min(ball_hi[0], dims[2] - 1);
+  const int slo_y = max(ball_lo[1], 0);
+  const int shi_y = min(ball_hi[1], dims[1] - 1);
+  const int slo_z = max(ball_lo[2], 0);
+  const int shi_z = min(ball_hi[2], dims[0] - 1);
+
+  const int s_nx = shi_x - slo_x + 1;
+  const int s_ny = shi_y - slo_y + 1;
+  const int s_nz = shi_z - slo_z + 1;
+  const int scatter_box_nr = (s_nx > 0 && s_ny > 0 && s_nz > 0) ? s_nx * s_ny * s_nz : 0;
+
+  for (int bid = tid; bid < scatter_box_nr; bid += num_threads) {
+    x = slo_x + bid / (s_ny * s_nz);
+    y = slo_y + (bid / s_nz) % s_ny;
+    z = slo_z + bid % s_nz;
 
     grid_x = x * spacing;
     grid_y = y * spacing;
@@ -131,9 +177,8 @@ __global__ void frame_interp_global(const float *coords_frame, const float *weig
               (coord[1] - grid_y) * (coord[1] - grid_y) + (coord[2] - grid_z) * (coord[2] - grid_z);
 
     if (dist_sq < cutoff_sq) {
-      // interpolated_frame[gid] += gaussian_map_device(sqrt(dist_sq), 0.0f, sigma) * inv_sum;
-      atomicAdd(interpolated_frame + gid,
-                gaussian_map_device(sqrt(dist_sq), 0.0f, sigma) * inv_sum);
+      const int gid = x * dims[0] * dims[1] + y * dims[0] + z;
+      atomicAdd(frame_output + gid, gaussian_map_device(sqrt(dist_sq), 0.0f, sigma) * inv_sum);
     }
   }
 }
@@ -424,17 +469,12 @@ void trajectory_voxelization_host(float *voxelize_dynamics, const float *coord, 
   CUDA_CHECK(
       cudaMemsetAsync(voxelize_dynamics_gpu, 0, frame_nr * gridpoint_nr * sizeof(float), stream));
 
-  for (int frame_idx = 0; frame_idx < frame_nr && atom_nr > 0; ++frame_idx) {
-    // Perform the observation of all the grid points (observers) in the frame i
-    frame_interp_global<<<atom_nr, BLOCK_SIZE, BLOCK_SIZE * sizeof(float), stream>>>(
-        coord_gpu + frame_idx * atom_nr * 3, weight_gpu + frame_idx * atom_nr,
-        voxelize_dynamics_gpu + frame_idx * gridpoint_nr, dims_gpu, spacing, cutoff, sigma,
-        atom_nr);
-    CUDA_CHECK_KERNEL();
-    if (frame_idx + 1 >= MAX_FRAME_NUMBER) {
-      continue;
-    }
-  }
+  // Process every frame in one launch; blockIdx.y selects the frame.
+  if (atom_nr > 0)
+    frame_interp_global<<<dim3(atom_nr, frame_nr, 1), BLOCK_SIZE, BLOCK_SIZE * sizeof(float),
+                          stream>>>(coord_gpu, weight_gpu, voxelize_dynamics_gpu, dims_gpu, spacing,
+                                    cutoff, sigma, atom_nr);
+  CUDA_CHECK_KERNEL();
 
   // Aggregate the frames and copy the result to the host
   const int _frame_nr = frame_nr > MAX_FRAME_NUMBER ? MAX_FRAME_NUMBER : frame_nr;
