@@ -415,6 +415,8 @@ void do_voxelize_into(uint64_t output_ptr, py::array_t<float> arr_coords,
   int atom_nr = buf_coords.shape[0];
   float *output = reinterpret_cast<float *>(output_ptr);
 
+  // Release the GIL across the device work, as the numpy-return path does.
+  py::gil_scoped_release release;
   voxelize_host_into(output, static_cast<float *>(buf_coords.ptr),
                      static_cast<float *>(buf_weights.ptr), dims, spacing, atom_nr, cutoff, sigma);
 }
@@ -442,6 +444,8 @@ void do_traj_voxelize_into(uint64_t output_ptr, py::array_t<float> arr_traj,
   }
 
   float *output = reinterpret_cast<float *>(output_ptr);
+  // Release the GIL across the device work, as the numpy-return path does.
+  py::gil_scoped_release release;
   trajectory_voxelization_host_into(output, static_cast<float *>(buf_traj.ptr),
                                     static_cast<float *>(buf_weights.ptr), dims, spacing, frame_nr,
                                     atom_nr, cutoff, sigma, type_agg);
@@ -488,6 +492,8 @@ void do_marching_observers_into(uint64_t output_ptr, py::array_t<float> arr_coor
   }
 
   float *output = reinterpret_cast<float *>(output_ptr);
+  // Release the GIL across the device work, as the numpy-return path does.
+  py::gil_scoped_release release;
   marching_observer_host_into(output, static_cast<float *>(buf_coord.ptr),
                               static_cast<float *>(buf_weights.ptr), dims, spacing, frame_nr,
                               atom_nr, cutoff, type_obs, type_agg);
@@ -505,6 +511,8 @@ void do_frame_observation_into(uint64_t output_ptr, py::array_t<float> coord_arr
   const int atom_nr = buf_coords.shape[0];
 
   float *output = reinterpret_cast<float *>(output_ptr);
+  // Release the GIL across the device work, as the numpy-return path does.
+  py::gil_scoped_release release;
   observe_frame_host_into(output, static_cast<float *>(buf_coords.ptr),
                           static_cast<float *>(buf_weights.ptr), dims, spacing, atom_nr, cutoff,
                           type_obs);

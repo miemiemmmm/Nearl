@@ -150,3 +150,84 @@ def test_a_kernel_launch_releases_the_gil():
         f"the working directory first. Otherwise, wrap the *_host call in "
         f"py::gil_scoped_release (src/actions_py.cpp)."
     )
+
+
+@requires_extension
+def test_the_dlpack_path_releases_the_gil():
+    """
+    The ``*_dlpack`` commands reach CUDA through a different binding.
+
+    ``bind_action`` wraps the numpy-returning entry points in CommandExecution,
+    and the release that matters for those lives in ``CommandExecution::result``.
+    The ``*_into`` functions behind the dlpack wrappers are bound with a plain
+    ``m.def`` and synchronize inside the call, so they need their own release and
+    do not inherit one. They shipped without it, and nothing noticed: the grids
+    are correct either way.
+
+    Only the frame-slice commands are measured. The single-frame ones run in tens
+    of microseconds, which is too short to separate from the controls.
+    """
+    import numpy as np
+
+    torch = pytest.importorskip("torch")
+    from nearl import all_actions, commands
+
+    frames, atoms = 40, 1500
+    coords = (np.random.rand(frames, atoms, 3) * 16.0).astype(np.float32)
+    weights = np.random.rand(frames * atoms).astype(np.float32)
+    grid = np.array([48] * 3, dtype=int)
+
+    calls = {
+        "density_flow_dlpack": lambda: commands.density_flow_dlpack(
+            coords, weights, grid, 0.5, 3.5, 1.5, 1
+        ),
+        "marching_observer_dlpack": lambda: commands.marching_observer_dlpack(
+            coords, weights, grid, 0.5, 3.5, 13, 1
+        ),
+    }
+
+    try:
+        for call in calls.values():
+            call()
+    except Exception as exc:  # no usable device on this runner
+        pytest.skip(f"no CUDA device available: {exc}")
+    torch.cuda.synchronize()
+
+    t0 = time.perf_counter()
+    calls["density_flow_dlpack"]()
+    target = time.perf_counter() - t0
+
+    holds = _sized_to(
+        lambda n: lambda s="a" * n: s.count("b"), target, 1_000_000, 900_000_000
+    )
+    releases = _sized_to(
+        lambda n: lambda a=np.random.rand(n, n): a @ a, target, 200, 3000
+    )
+
+    original = sys.getswitchinterval()
+    sys.setswitchinterval(1e-6)
+    try:
+        with Spinner() as spinner:
+            free = spinner.rate(lambda: time.sleep(target), 0.4)
+            held_rate = spinner.rate(holds, 0.4)
+            released_rate = spinner.rate(releases, 0.4)
+            measured = {n: spinner.rate(c, 0.4) for n, c in calls.items()}
+    finally:
+        sys.setswitchinterval(original)
+
+    held = 100 * held_rate / free
+    released = 100 * released_rate / free
+    rates = {n: 100 * r / free for n, r in measured.items()}
+    report = (
+        f"never-releases control {held:.1f}%, releases control {released:.1f}%, "
+        + ", ".join(f"{n} {v:.1f}%" for n, v in rates.items())
+    )
+
+    assert released - held > 20, f"controls failed to separate -- {report}"
+    for name, value in rates.items():
+        assert value > held + 0.5 * (released - held), (
+            f"{name} holds the GIL for the whole call. The *_into binding for it "
+            f"needs py::gil_scoped_release around the *_host_into call "
+            f"(src/actions_py.cpp).\n{report}\n"
+            f"Extension under test: {all_actions.__file__}"
+        )
