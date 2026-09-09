@@ -137,14 +137,14 @@ def parser():
     parser.add_argument(
         "--producer_threads",
         type=int,
-        default=1,
+        default=2,
         help=(
             "Number of background CPU producer threads. Each thread owns a "
             "private clone of the feature set and processes a disjoint subset "
             "of the trajectories, so the CPU preprocessing (trajectory loading, "
             "focal parsing, weight caching, coordinate cropping) runs in "
             "parallel across trajectories. The GPU consumer stays "
-            "single-threaded. Defaults to 1 (single-producer schedule)."
+            "single-threaded. Defaults to 2 producer threads."
         ),
     )
     args = parser.parse_args()
@@ -287,7 +287,7 @@ if __name__ == "__main__":
         "cutoff": VOX_cutoff,
         "padding": VOX_cutoff,
         "frame_offset": 9,
-        "producer_threads": args.get("producer_threads", 1),
+        "producer_threads": args.get("producer_threads", 2),
     }
 
     if args.get("trajlist_format") == "paired":

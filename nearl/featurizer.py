@@ -287,9 +287,9 @@ class Featurizer:
         # parsing, weight caching, coordinate cropping) runs in parallel across
         # trajectories. The GPU consumer stays single-threaded (the CUDA
         # extension shares one global device context), so this only helps when
-        # the CPU preprocessing is the bottleneck. Defaults to 1 (the original
-        # single-producer schedule) for backward compatibility.
-        self._producer_threads = int(parms.get("producer_threads", 1))
+        # the CPU preprocessing is the bottleneck. Defaults to 2 producer
+        # threads.
+        self._producer_threads = int(parms.get("producer_threads", 2))
 
         # Whether to accumulate GPU busy time during run(). Disable to skip the
         # per-dispatch timing overhead when the figure is not needed.

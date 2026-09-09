@@ -66,7 +66,7 @@ H5PREFIX="Output"          # --h5prefix
 BASELINE_MAP="data/PDBBind_general_v2020.csv"  # --baseline_map
 TASK_NR=1                  # --task_nr
 TASK_INDEX=0               # --task_index
-PRODUCER_THREADS=1         # --producer_threads
+PRODUCER_THREADS="${PRODUCER_THREADS:-2}"   # --producer_threads (env-overridable)
 
 if [ "$#" -ne 2 ]; then
     echo "Usage: $0 <hash-or-tag> <label>" >&2
@@ -169,11 +169,13 @@ esac
 # ---------------------------------------------------------------------------
 mkdir -p "$(dirname "$CSV")" "$OUT_DIR"
 if [ ! -f "$CSV" ]; then
-    echo "git_ref,feature_type,wall_time_s,gpu_busy_s,trajlist,trajlist_format,database_dir,output_dir,dimension,length,cutoff,sigma,windowsize,focus_mask,h5prefix,baseline_map,task_nr,task_index,producer_threads" > "$CSV"
+    echo "hash,label,feature_type,wall_time_s,gpu_busy_s,trajlist,trajlist_format,database_dir,output_dir,dimension,length,cutoff,sigma,windowsize,focus_mask,h5prefix,baseline_map,task_nr,task_index,producer_threads" > "$CSV"
 fi
 
-# git_ref column = "<hash> <label>" so the notebook legend can show f'{hash} {label}'.
-# In WORKING mode HASH is empty, so git_ref is just "<label>".
+# The CSV stores the git hash and the human-readable label in SEPARATE columns
+# (hash, label) so the notebook can combine them into a "ref" key for plotting.
+# In WORKING mode HASH is empty, so the hash column is blank and the ref is
+# just the label.
 if [ -n "$HASH" ]; then
     GIT_REF="$HASH $LABEL"
 else
@@ -203,14 +205,15 @@ run_feature_suite() {
             outfile=$(mktemp)
             CUDA_VISIBLE_DEVICES=$gpu PYTHONPATH="$CLONE_DIR:${PYTHONPATH:-}" python scripts/benchmark_dataset.py \
                 -f "$SARS_TRAJLIST" --trajlist_format "$TRAJLIST_FORMAT" -o "$OUT_DIR/gpu$slot" -t "$feat" \
-                -d "$DIMENSION" -c "$CUTOFF" -s "$SIGMA" -l "$LENGTH" >"$outfile" 2>/dev/null
+                -d "$DIMENSION" -c "$CUTOFF" -s "$SIGMA" -l "$LENGTH" \
+                --producer_threads "$PRODUCER_THREADS" >"$outfile" 2>/dev/null
             wall=$(grep -oE 'BENCHMARK_RUN_SECONDS=[0-9]+\.[0-9]+' "$outfile" | cut -d= -f2 | tail -1)
             gpu_busy=$(grep -oE 'GPU_BUSY_SECONDS=[0-9]+\.[0-9]+' "$outfile" | cut -d= -f2 | tail -1)
             rm -f "$outfile"
-            # Append one row with the git_ref, feature, wall time, GPU busy
-            # time, and every benchmark_dataset.py parameter so the CSV is
+            # Append one row with the git hash, label, feature, wall time, GPU
+            # busy time, and every benchmark_dataset.py parameter so the CSV is
             # self-describing.
-            echo "$label,$feat,$wall,$gpu_busy,$SARS_TRAJLIST,$TRAJLIST_FORMAT,$DATABASE_DIR,$OUT_DIR/gpu$slot,$DIMENSION,$LENGTH,$CUTOFF,$SIGMA,$WINDOWSIZE,$FOCUS_MASK,$H5PREFIX,$BASELINE_MAP,$TASK_NR,$TASK_INDEX,$PRODUCER_THREADS" >> "$CSV"
+            echo "$HASH,$label,$feat,$wall,$gpu_busy,$SARS_TRAJLIST,$TRAJLIST_FORMAT,$DATABASE_DIR,$OUT_DIR/gpu$slot,$DIMENSION,$LENGTH,$CUTOFF,$SIGMA,$WINDOWSIZE,$FOCUS_MASK,$H5PREFIX,$BASELINE_MAP,$TASK_NR,$TASK_INDEX,$PRODUCER_THREADS" >> "$CSV"
             echo "  $label / $feat : ${wall}s (gpu ${gpu_busy}s)"
         ) &
         pids+=("$!")
