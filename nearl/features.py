@@ -6,6 +6,7 @@ import time
 from typing import ClassVar
 
 import h5py
+import numba
 import numpy as np
 import pytraj as pt
 
@@ -110,41 +111,76 @@ SUPPORTED_OBSERVATION = {
 }
 
 
-def crop(points, upperbound, padding, spacing):
+@numba.njit(cache=True)
+def _crop_kernel(points, lower, upper):
+    n = points.shape[0]
+    mask_inbox = np.empty(n, dtype=np.bool_)
+    for i in range(n):
+        x = points[i, 0]
+        y = points[i, 1]
+        z = points[i, 2]
+        mask_inbox[i] = (
+            (x > lower[0])
+            and (x < upper[0])
+            and (y > lower[1])
+            and (y < upper[1])
+            and (z > lower[2])
+            and (z < upper[2])
+        )
+    return mask_inbox
+
+
+@numba.njit(cache=True)
+def _gather_translate_kernel(points, mask, offset):
+    n = points.shape[0]
+    k = 0
+    for i in range(n):
+        if mask[i]:
+            k += 1
+    out = np.empty((k, 3), dtype=np.float32)
+    j = 0
+    for i in range(n):
+        if mask[i]:
+            out[j, 0] = points[i, 0] + offset[0]
+            out[j, 1] = points[i, 1] + offset[1]
+            out[j, 2] = points[i, 2] + offset[2]
+            j += 1
+    return out
+
+
+def crop(points, upperbound, padding, spacing, offset):
     """
     Crop the points to the box defined by the center and lengths.
 
     Parameters
     ----------
     points : np.ndarray
-      The coordinates of the atoms
+      The untranslated coordinates of the atoms
     upperbound : np.ndarray
       The upperbound of the box
     padding : float
       The padding of the box
     spacing : float
       The spacing of the box for half grid offset
+    offset : np.ndarray
+      The translation that would center `points` on the box; folded into the
+      bounds instead so the (many) untranslated atoms need not be shifted,
+      only the (few) atoms that end up in the box.
 
     Returns
     -------
     mask_inbox : np.ndarray
       The boolean mask of the atoms within the box
     """
-    # X within the bounding box
-    x_state_0 = points[:, 0] < upperbound[0] + padding - spacing / 2
-    x_state_1 = points[:, 0] > 0 - padding - spacing / 2
-    # Y within the bounding box
-    y_state_0 = points[:, 1] < upperbound[1] + padding - spacing / 2
-    y_state_1 = points[:, 1] > 0 - padding - spacing / 2
-    # Z within the bounding box
-    z_state_0 = points[:, 2] < upperbound[2] + padding - spacing / 2
-    z_state_1 = points[:, 2] > 0 - padding - spacing / 2
-    # All states
-    mask_inbox = np.array(
-        x_state_0 * x_state_1 * y_state_0 * y_state_1 * z_state_0 * z_state_1,
-        dtype=bool,
-    )
-    return mask_inbox
+    half_spacing = spacing / 2
+    lower = np.asarray(-padding - half_spacing - offset, dtype=np.float32)
+    upper = np.asarray(upperbound + padding - half_spacing - offset, dtype=np.float32)
+    # A jitted single pass over the atoms: each atom's x, y, z are read once,
+    # right next to each other in memory (points is (n_atoms, 3), row-major),
+    # instead of numpy's column-at-a-time processing which sweeps the whole
+    # array once per axis. Numba/LLVM compiles this for whatever CPU it
+    # actually runs on, rather than hardcoding a SIMD width here.
+    return _crop_kernel(points, lower, upper)
 
 
 class Feature:
@@ -229,6 +265,7 @@ class Feature:
         if spacing is not None:
             self.spacing = spacing
         self.__center = None
+        self.__center_offset = None
         self.__lengths = None
         self.__padding = padding  # cutoff if padding is None else padding
         if padding is not None:
@@ -328,8 +365,9 @@ class Feature:
             self.__dims = None
         if self.__spacing is not None:
             self.__center = self.lengths / 2
+            self.__center_offset = self.__center - self.__spacing / 2
         if self.__dims is not None and self.__spacing is not None:
-            self.__lengths = self.dims * self.__spacing
+            self.__lengths = np.array(self.dims * self.__spacing, dtype=np.float32)
 
     @property
     def spacing(self):
@@ -349,8 +387,9 @@ class Feature:
             self.__spacing = None
         if self.__dims is not None and self.__spacing is not None:
             self.__center = np.array(self.__dims * self.spacing, dtype=np.float32) / 2
+            self.__center_offset = self.__center - self.__spacing / 2
         if self.__dims is not None and self.__spacing is not None:
-            self.__lengths = self.dims * self.__spacing
+            self.__lengths = np.array(self.dims * self.__spacing, dtype=np.float32)
 
     @property
     def center(self):
@@ -528,9 +567,10 @@ class Feature:
             )
             return np.full(topology.n_atoms, True, dtype=bool), frame_coords
         else:
-            # Align the coordinates to the center of the bounding box (with focal point being the center)
-            frame_coords = frame_coords - focal_point + self.center - self.spacing / 2
-            mask = crop(frame_coords, self.lengths, self.padding, self.spacing)
+            # Crop first (on the untranslated coordinates, via shifted bounds), then
+            # only translate the atoms that survive the crop.
+            offset = self.__center_offset - focal_point.astype(np.float32)
+            mask = crop(frame_coords, self.lengths, self.padding, self.spacing, offset)
 
             if np.count_nonzero(mask) == 0:
                 logger.warning(
@@ -540,15 +580,13 @@ class Feature:
             # Get the boolean array of residues within the bounding box
             if self.byres:
                 res_inbox = np.unique(self.resids[mask])
-                final_mask = np.full(len(self.resids), False)
-                for res in res_inbox:
-                    final_mask[np.where(self.resids == res)] = True
+                final_mask = np.isin(self.resids, res_inbox)
             else:
                 final_mask = mask
             # Apply the selected atoms
             if self.selection is not None:
                 final_mask = final_mask * self.selected
-            final_coords = np.ascontiguousarray(frame_coords[final_mask])
+            final_coords = _gather_translate_kernel(frame_coords, final_mask, offset)
             logger.debug(
                 f"Returned {np.count_nonzero(final_mask)}; Selected {np.count_nonzero(self.selected)}; Total {len(final_mask)}. "
             )
@@ -738,9 +776,6 @@ class AtomicNumber(Feature):
         idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
         self.cached_array = np.array(self.atomic_numbers, dtype=np.float32)
         weights = self.cached_array[idx_inbox]
-        logger.info(
-            f"{self.classname}: Found {len(weights)} atoms in the bounding box and total weight is {np.sum(weights)}"
-        )
         return coord_inbox, weights
 
 
@@ -788,9 +823,6 @@ class Mass(Feature):
 
         idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
         weights = self.cached_array[idx_inbox]
-        logger.debug(
-            f"Query: Sum of weights: {np.sum(weights)}, {weights.shape}, {weights[:5]}, {np.mean(weights)}"
-        )
         return coord_inbox, weights
 
 
@@ -1083,12 +1115,6 @@ class AtomType(Feature):
 
         idx_inbox, coord_inbox = super().query(topology, frame_coords, focal_point)
         weights = self.cached_array[idx_inbox]
-
-        if np.sum(weights) == 0:
-            logger.warning(
-                f"{self.classname}: No atoms of the type {self.focus_element} is found in the bounding box"
-            )
-
         return coord_inbox, weights
 
 
@@ -1617,81 +1643,41 @@ class DynamicFeature(Feature):
             f"{self.classname}::Warning: from feature ({self.__str__()}): The coordinates should follow the convention (frames, atoms, 3); "
         )
 
-        n_frames = len(frame_coords)
-        n_atoms = frame_coords.shape[1]
+        selected_coords = []
+        selected_weights = []
+        max_atom_nr = 0
+        zero_count = 0
+        for _idx, frame in enumerate(frame_coords):
+            # Operation on each frame (Frame is modified inplace)
+            idx_inbox, coord_inbox = super().query(topology, frame, focal_point)
 
-        # Handle inhomogeneous topology / forced recache (same as the base query)
-        if (len(self.resids) != topology.n_atoms) or self.force_recache:
-            logger.info(f"{self}: Dealing with inhomogeneous topology")
-            self.cache(pt.Trajectory(xyz=frame_coords, top=topology))
+            atomnr_inbox = np.count_nonzero(idx_inbox)
+            if atomnr_inbox > self.MAX_ALLOWED_ATOMS:
+                logger.warning(
+                    f"{self.classname}: The maximum allowed atom slice is {self.MAX_ALLOWED_ATOMS} but the maximum atom number is {atomnr_inbox}"
+                )
+            zero_count += 1 if atomnr_inbox == 0 else 0
+            atomnr_inbox = min(atomnr_inbox, self.MAX_ALLOWED_ATOMS)
 
-        coords = np.full(
-            (n_frames, self.MAX_ALLOWED_ATOMS, 3),
-            self.DEFAULT_COORD,
-            dtype=np.float32,
-        )
-        weights = np.full((n_frames, self.MAX_ALLOWED_ATOMS), 0.0, dtype=np.float32)
-
-        if self.center is None or self.lengths is None or self.padding is None:
-            logger.warning(
-                f"{self} Skipping the coordinates cropping due to the missing center, lengths or padding information"
-            )
-            max_atom_nr = min(n_atoms, self.MAX_ALLOWED_ATOMS)
-            coords[:, :max_atom_nr] = frame_coords[:, :max_atom_nr]
-            weights[:, :max_atom_nr] = self.cached_array[:max_atom_nr]
-            ret_coord = np.ascontiguousarray(coords[:, :max_atom_nr], dtype=np.float32)
-            ret_weight = np.ascontiguousarray(
-                weights[:, :max_atom_nr].flatten(), dtype=np.float32
-            )
-            return ret_coord, ret_weight
-
-        # Vectorized translation over all frames at once
-        translated = frame_coords - focal_point + self.center - self.spacing / 2
-
-        # Vectorized crop over all frames (reshape to (F*A, 3) and back)
-        mask = crop(
-            translated.reshape(-1, 3), self.lengths, self.padding, self.spacing
-        ).reshape(n_frames, n_atoms)
-
-        # Apply the (frame-independent) selection mask
-        if self.selection is not None:
-            mask = mask & self.selected
-
-        # byres handling: expand the crop mask to whole residues (per frame)
-        if self.byres:
-            resids = self.resids
-            final_masks = np.empty_like(mask)
-            for f in range(n_frames):
-                res_inbox = np.unique(resids[mask[f]])
-                fm = np.zeros(len(resids), dtype=bool)
-                for res in res_inbox:
-                    fm[np.where(resids == res)] = True
-                final_masks[f] = fm
-            mask = final_masks
-
-        # Count the atoms in the box for each frame
-        atomnr_inbox = np.count_nonzero(mask, axis=1)
-        if np.any(atomnr_inbox > self.MAX_ALLOWED_ATOMS):
-            logger.warning(
-                f"{self.classname}: The maximum allowed atom slice is {self.MAX_ALLOWED_ATOMS} but the maximum atom number is {atomnr_inbox.max()}"
-            )
-        zero_count = int(np.count_nonzero(atomnr_inbox == 0))
-        atomnr_inbox = np.minimum(atomnr_inbox, self.MAX_ALLOWED_ATOMS)
-        max_atom_nr = int(atomnr_inbox.max()) if n_frames > 0 else 0
+            selected_coords.append(coord_inbox[:atomnr_inbox])
+            selected_weights.append(self.cached_array[idx_inbox][:atomnr_inbox])
+            max_atom_nr = max(max_atom_nr, atomnr_inbox)
 
         if zero_count > 0 and config.verbose():
             logger.warning(
-                f"{self.classname}: {zero_count} out of {n_frames} frames has no atoms in the box. The coordinates will be padded with {self.DEFAULT_COORD} and 0.0 for the weights."
+                f"{self.classname}: {zero_count} out of {len(frame_coords)} frames has no atoms in the box. The coordinates will be padded with {self.DEFAULT_COORD} and 0.0 for the weights."
             )
 
-        # Gather the translated coordinates and weights for each frame
-        for f in range(n_frames):
-            n = atomnr_inbox[f]
-            if n > 0:
-                coords[f, :n] = translated[f][mask[f]][:n]
-                weights[f, :n] = self.cached_array[mask[f]][:n]
-
-        # Prepare the return arrays
+        coords = np.full(
+            (len(frame_coords), max_atom_nr, 3), self.DEFAULT_COORD, dtype=np.float32
+        )
+        weights = np.zeros((len(frame_coords), max_atom_nr), dtype=np.float32)
+        for idx, (coord_frame, weight_frame) in enumerate(
+            zip(selected_coords, selected_weights)
+        ):
+            atomnr_inbox = len(coord_frame)
+            coords[idx, :atomnr_inbox] = coord_frame
+            weights[idx, :atomnr_inbox] = weight_frame
         ret_coord = np.ascontiguousarray(coords[:, :max_atom_nr], dtype=np.float32)
         ret_weight = np.ascontiguousarray(
             weights[:, :max_atom_nr].flatten(), dtype=np.float32
