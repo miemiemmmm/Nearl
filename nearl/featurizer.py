@@ -280,7 +280,7 @@ class Featurizer:
 
         # Background CPU producer threads; each owns a private feature-set clone
         # and processes a disjoint subset of trajectories.
-        self._producer_threads = int(parms.get("producer_threads", 2))
+        self._producer_threads = int(parms.get("producer_threads", 1))
 
         # Accumulate GPU busy time during run(); disable to skip the per-dispatch timing overhead.
         self._gpu_busy_capture = bool(
