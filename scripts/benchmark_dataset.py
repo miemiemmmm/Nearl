@@ -344,4 +344,5 @@ if __name__ == "__main__":
     feat.run()
     _t1 = time.perf_counter()
     print(f"BENCHMARK_RUN_SECONDS={(_t1 - _t0):.6f}")
-    print(f"GPU_BUSY_SECONDS={feat.gpu_busy_time:.6f}")
+    if hasattr(feat, "gpu_busy_time"):
+        print(f"GPU_BUSY_SECONDS={feat.gpu_busy_time:.6f}")
