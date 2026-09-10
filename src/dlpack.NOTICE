@@ -1,0 +1,10 @@
+dlpack.h is vendored, byte-identical, from the DLPack project.
+
+  Upstream: https://github.com/dmlc/dlpack
+  Version:  1.3  (DLPACK_MAJOR_VERSION 1, DLPACK_MINOR_VERSION 3)
+  License:  Apache License 2.0
+  md5:      ef3a0ad830314b5f700922bb72fddaaf
+
+It is vendored rather than taken from a build-time dependency so that
+nearl.all_actions builds wherever nvcc does. The file is unmodified; verify
+with md5sum before replacing it.

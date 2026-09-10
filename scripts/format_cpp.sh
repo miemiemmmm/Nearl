@@ -3,8 +3,7 @@
 # Usage: ./format_cpp.sh [update|check]
 # Default: check
 #
-# NOTE: src/ has not been reformatted yet, so `check` currently reports every
-# file. Run `update` once to adopt the style before wiring this into CI.
+# src/dlpack.h is vendored and deliberately excluded; see VENDORED_PRUNE below.
 
 set -u
 
@@ -34,9 +33,14 @@ if [[ "${CLANG_FORMAT_MAJOR}" != "${REQUIRED_CLANG_FORMAT_MAJOR}" ]]; then
     exit 2
 fi
 
+# Vendored third-party headers stay byte-identical to upstream so they can be
+# checked against the checksum recorded beside them and updated by replacement.
+VENDORED_PRUNE=(-path "${REPO_ROOT}/src/dlpack.h")
+
 mapfile -d '' CPP_FILES < <(
     find "${REPO_ROOT}" \
         \( -name ".git" -o -name "build" -o -name "dist" \) -prune -o \
+        \( "${VENDORED_PRUNE[@]}" \) -prune -o \
         -type f \( -name "*.cu" -o -name "*.cuh" -o -name "*.cpp" -o -name "*.h" \) -print0
 )
 
