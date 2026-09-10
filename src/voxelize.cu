@@ -528,8 +528,8 @@ void voxelize_host_into(float *output, const float *coord, const float *weight, 
     CUDA_CHECK(cudaMalloc(&dims_gpu, 3 * sizeof(int)));
   }
 
-  CUDA_CHECK(
-      cudaMemcpyAsync(coord_gpu, coord, atom_nr * 3 * sizeof(float), cudaMemcpyHostToDevice, stream));
+  CUDA_CHECK(cudaMemcpyAsync(coord_gpu, coord, atom_nr * 3 * sizeof(float), cudaMemcpyHostToDevice,
+                             stream));
   CUDA_CHECK(
       cudaMemcpyAsync(weight_gpu, weight, atom_nr * sizeof(float), cudaMemcpyHostToDevice, stream));
   CUDA_CHECK(cudaMemcpyAsync(dims_gpu, dims, 3 * sizeof(int), cudaMemcpyHostToDevice, stream));
@@ -558,9 +558,9 @@ void voxelize_host_into(float *output, const float *coord, const float *weight, 
  * `output`. Input buffers are taken from the DeviceContext when active.
  */
 void trajectory_voxelization_host_into(float *output, const float *coord, const float *weight,
-                                        const int *dims, const float spacing, const int frame_nr,
-                                        const int atom_nr, const float cutoff, const float sigma,
-                                        const int type_agg) {
+                                       const int *dims, const float spacing, const int frame_nr,
+                                       const int atom_nr, const float cutoff, const float sigma,
+                                       const int type_agg) {
   const unsigned int gridpoint_nr = dims[0] * dims[1] * dims[2];
   const unsigned int grid_size = (gridpoint_nr + BLOCK_SIZE - 1) / BLOCK_SIZE;
 
@@ -578,9 +578,8 @@ void trajectory_voxelization_host_into(float *output, const float *coord, const 
                                   static_cast<size_t>(BufferSlot::COORDS));
     weight_gpu = ctx->get_buffer_f(static_cast<size_t>(frame_nr) * atom_nr,
                                    static_cast<size_t>(BufferSlot::WEIGHTS));
-    voxelize_dynamics_gpu =
-        ctx->get_buffer_f(static_cast<size_t>(frame_nr) * gridpoint_nr,
-                          static_cast<size_t>(BufferSlot::TRAJ_DYNAMICS));
+    voxelize_dynamics_gpu = ctx->get_buffer_f(static_cast<size_t>(frame_nr) * gridpoint_nr,
+                                              static_cast<size_t>(BufferSlot::TRAJ_DYNAMICS));
     dims_gpu = ctx->get_buffer_i(3, static_cast<size_t>(BufferSlot::DIMS));
   } else {
     CUDA_CHECK(cudaMalloc(&coord_gpu, frame_nr * atom_nr * 3 * sizeof(float)));
@@ -594,8 +593,8 @@ void trajectory_voxelization_host_into(float *output, const float *coord, const 
   CUDA_CHECK(cudaMemcpyAsync(weight_gpu, weight, frame_nr * atom_nr * sizeof(float),
                              cudaMemcpyHostToDevice, stream));
   CUDA_CHECK(cudaMemcpyAsync(dims_gpu, dims, 3 * sizeof(int), cudaMemcpyHostToDevice, stream));
-  CUDA_CHECK(cudaMemsetAsync(voxelize_dynamics_gpu, 0, frame_nr * gridpoint_nr * sizeof(float),
-                             stream));
+  CUDA_CHECK(
+      cudaMemsetAsync(voxelize_dynamics_gpu, 0, frame_nr * gridpoint_nr * sizeof(float), stream));
 
   for (int frame_idx = 0; frame_idx < frame_nr; ++frame_idx) {
     // Perform the observation of all the grid points (observers) in the frame i
@@ -607,9 +606,8 @@ void trajectory_voxelization_host_into(float *output, const float *coord, const 
   }
 
   const int _frame_nr = frame_nr > MAX_FRAME_NUMBER ? MAX_FRAME_NUMBER : frame_nr;
-  gridwise_aggregation_global<<<grid_size, BLOCK_SIZE, 0, stream>>>(voxelize_dynamics_gpu, output,
-                                                                    _frame_nr, gridpoint_nr,
-                                                                    type_agg);
+  gridwise_aggregation_global<<<grid_size, BLOCK_SIZE, 0, stream>>>(
+      voxelize_dynamics_gpu, output, _frame_nr, gridpoint_nr, type_agg);
   CUDA_CHECK_KERNEL();
 
   if (use_ctx) {
