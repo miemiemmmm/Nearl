@@ -10,6 +10,7 @@ import numpy as np
 import pytraj as pt
 
 from . import config, constants, log
+from .profiling import annotate
 
 # torch and scipy are imported where they are used. Both are heavy -- torch
 # alone is ~580 ms -- and nothing on the featurization path needs either, so a
@@ -562,6 +563,7 @@ def conflict_factor(pdbfile, ligname, cutoff=5):
     return factor
 
 
+@annotate("append_hdf_data", category="dump")
 def append_hdf_data(hdffile, key, data, dtype, maxshape, **kwargs):
     """
     Append data to an existing HDF5 file

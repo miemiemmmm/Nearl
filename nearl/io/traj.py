@@ -6,6 +6,7 @@ import numpy as np
 import pytraj as pt
 
 from .. import config, log, utils
+from ..profiling import annotate
 
 __all__ = [
     "MisatoTraj",
@@ -63,6 +64,7 @@ class Trajectory(pt.Trajectory):
 
     """
 
+    @annotate("Trajectory.load", category="io")
     def __init__(self, traj_src=None, pdb_src=None, **kwarg):
         """
         Initialize the trajectory object with the trajectory and topology files
@@ -196,6 +198,7 @@ class Trajectory(pt.Trajectory):
         thecopy._frame_holder = self._frame_holder
         return thecopy
 
+    @annotate("Trajectory.make_index", category="io")
     def make_index(self):
         """
         Prepare the per-atom/per-residue index for the further trajectory processing;
@@ -343,6 +346,7 @@ class MisatoTraj(Trajectory):
 
     """
 
+    @annotate("MisatoTraj.load", category="io")
     def __init__(self, pdbcode, misatodir, **kwarg):
         """
         Initialize the MisatoTraj object with the PDB code and the Misato directory.
