@@ -203,7 +203,8 @@ CommandExecution do_voxelize(FloatInput arr_coords, FloatInput arr_weights, IntI
  */
 CommandExecution do_marching_observers(FloatInput arr_coord, FloatInput arr_weights,
                                        IntInput arr_dims, const float spacing, const float cutoff,
-                                       const int type_obs, const int type_agg) {
+                                       const ObservableType type_obs,
+                                       const AggregationType type_agg) {
   py::buffer_info buf_coord = arr_coord.request();
   py::buffer_info buf_weights = arr_weights.request();
   py::buffer_info buf_dims = arr_dims.request();
@@ -218,22 +219,8 @@ CommandExecution do_marching_observers(FloatInput arr_coord, FloatInput arr_weig
   if (buf_coord.ndim != 3) {
     throw py::value_error("Error: The input array must have 3 dimensions: (frame_nr, atom_nr, 3)");
   }
-  int supported_mode[OBSERVABLE_COUNT] = SUPPORTED_OBSERVABLES;
-  for (int i = 0; i < OBSERVABLE_COUNT; i++) {
-    if (type_obs == supported_mode[i]) {
-      break;
-    } else if (i == OBSERVABLE_COUNT - 1) {
-      throw py::value_error("The observable type is not supported");
-    }
-  }
-  int supported_agg[AGGREGATION_COUNT] = SUPPORTED_AGGREGATIONS;
-  for (int i = 0; i < AGGREGATION_COUNT; i++) {
-    if (type_agg == supported_agg[i]) {
-      break;
-    } else if (i == AGGREGATION_COUNT - 1) {
-      throw py::value_error("The aggregation type is not supported");
-    }
-  }
+  // NOTE: The observable and aggregation types are validated by the ObservableType and
+  // AggregationType dispatch in the CUDA host code
 
   // TODO: Eliminate this constraint in the future
   if (frame_nr > MAX_FRAME_NUMBER) {
@@ -277,7 +264,7 @@ CommandExecution do_marching_observers(FloatInput arr_coord, FloatInput arr_weig
  */
 CommandExecution do_traj_voxelize(FloatInput arr_traj, FloatInput arr_weights, IntInput grid_dims,
                                   const float spacing, const float cutoff, const float sigma,
-                                  const int type_agg) {
+                                  const AggregationType type_agg) {
   py::buffer_info buf_traj = arr_traj.request();
   py::buffer_info buf_weights = arr_weights.request();
   py::buffer_info buf_dims = grid_dims.request();
@@ -287,15 +274,7 @@ CommandExecution do_traj_voxelize(FloatInput arr_traj, FloatInput arr_weights, I
   const int frame_nr = buf_traj.shape[0];
   const int atom_nr = buf_traj.shape[1];
 
-  // Check the validity of the input data before launching the kernel
-  int supported_agg[AGGREGATION_COUNT] = SUPPORTED_AGGREGATIONS;
-  for (int i = 0; i < AGGREGATION_COUNT; i++) {
-    if (type_agg == supported_agg[i]) {
-      break;
-    } else if (i == AGGREGATION_COUNT - 1) {
-      throw py::value_error("The aggregation type is not supported");
-    }
-  }
+  // NOTE: The aggregation type is validated by the AggregationType dispatch in the CUDA host code
 
   // Initialize the return array, and launch the computation kernel
   CommandExecution result(gridpoint_nr);
@@ -309,7 +288,7 @@ CommandExecution do_traj_voxelize(FloatInput arr_traj, FloatInput arr_weights, I
 }
 
 
-CommandExecution do_aggregation(FloatInput arr, const int type_agg) {
+CommandExecution do_aggregation(FloatInput arr, const AggregationType type_agg) {
   py::buffer_info buf_arr = arr.request();
 
   const int frame_nr = buf_arr.shape[0];
@@ -340,7 +319,7 @@ CommandExecution do_summation(FloatInput arr) {
 
 CommandExecution do_frame_observation(FloatInput coord_arr, FloatInput weight_arr,
                                       IntInput dims_arr, const float spacing, const float cutoff,
-                                      const int type_obs) {
+                                      const ObservableType type_obs) {
   py::buffer_info buf_coords = coord_arr.request();
   py::buffer_info buf_weights = weight_arr.request();
   py::buffer_info buf_dims = dims_arr.request();
@@ -401,6 +380,29 @@ size_t do_host_buffer_capacity(const std::string &name) {
 
 
 PYBIND11_MODULE(all_actions, m) {
+  // The observable types are generated from OBSERVABLE_TYPE_LIST in marching_observers.cuh so that
+  // the C++ enumeration stays the only definition of the supported observables.
+  py::enum_<ObservableType> observable_type(m, "ObservableType",
+                                            "The observables of the marching observers algorithm");
+#define OBSERVABLE_TYPE_BINDING(NAME, VALUE, FN) observable_type.value(#NAME, ObservableType::NAME);
+  OBSERVABLE_TYPE_LIST(OBSERVABLE_TYPE_BINDING)
+#undef OBSERVABLE_TYPE_BINDING
+  observable_type.export_values();
+  // Accept the plain integers of the stored configurations as well as the enumerators
+  py::implicitly_convertible<py::int_, ObservableType>();
+
+  // The aggregation types are generated from AGGREGATION_TYPE_LIST in gpuutils.cuh so that the C++
+  // enumeration stays the only definition of the supported aggregations.
+  py::enum_<AggregationType> aggregation_type(
+      m, "AggregationType", "The frame-wise aggregations of the trajectory-level algorithms");
+#define AGGREGATION_TYPE_BINDING(NAME, VALUE, FN)                                                  \
+  aggregation_type.value(#NAME, AggregationType::NAME);
+  AGGREGATION_TYPE_LIST(AGGREGATION_TYPE_BINDING)
+#undef AGGREGATION_TYPE_BINDING
+  aggregation_type.export_values();
+  // Accept the plain integers of the stored configurations as well as the enumerators
+  py::implicitly_convertible<py::int_, AggregationType>();
+
   py::class_<CommandExecution>(m, "_CommandExecution").def("result", &CommandExecution::result);
   bind_action(m, "frame_voxelize", &do_voxelize, py::arg("coords"), py::arg("weights"),
               py::arg("grid_dims"), py::arg("spacing"), py::arg("cutoff"), py::arg("sigma"),

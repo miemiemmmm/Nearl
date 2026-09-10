@@ -222,8 +222,28 @@ __global__ void voxel_addition_global(float *d_parent, float *d_add, const int N
 }
 
 
+////////////////////////////////////////////////////////////////////////////////
+// Compile-time dispatch of the aggregations
+////////////////////////////////////////////////////////////////////////////////
+/**
+ * @brief Maps an AggregationType to the __device__ function implementing it.
+ *
+ * The specializations are generated from AGGREGATION_TYPE_LIST, so the kernel below stays free of
+ * any per-aggregation branching.
+ */
+template <AggregationType Aggregation> struct aggregation_kernel;
+
+#define AGGREGATION_KERNEL_SPECIALIZATION(NAME, VALUE, FN)                                         \
+  template <> struct aggregation_kernel<AggregationType::NAME> {                                   \
+    __device__ static float apply(float *arr, const int N) { return FN(arr, N); }                  \
+  };
+AGGREGATION_TYPE_LIST(AGGREGATION_KERNEL_SPECIALIZATION)
+#undef AGGREGATION_KERNEL_SPECIALIZATION
+
+
+template <AggregationType Aggregation>
 __global__ void gridwise_aggregation_global(float *d_in, float *d_out, const int frame_nr,
-                                            const int gridpoint_nr, const int type_agg) {
+                                            const int gridpoint_nr) {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx >= gridpoint_nr)
     return;
@@ -233,26 +253,32 @@ __global__ void gridwise_aggregation_global(float *d_in, float *d_out, const int
     tmp_array[i] = d_in[i * gridpoint_nr + idx];
   }
 
-  if (type_agg == 1) {
-    d_out[idx] = mean_device<float>(tmp_array, frame_nr);
-  } else if (type_agg == 2) {
-    d_out[idx] = standard_deviation_device<float>(tmp_array, frame_nr);
-  } else if (type_agg == 3) {
-    d_out[idx] = median_device<float>(tmp_array, frame_nr);
-  } else if (type_agg == 4) {
-    d_out[idx] = variance_device<float>(tmp_array, frame_nr);
-  } else if (type_agg == 5) {
-    d_out[idx] = max_device<float>(tmp_array, frame_nr);
-  } else if (type_agg == 6) {
-    d_out[idx] = min_device<float>(tmp_array, frame_nr);
-  } else if (type_agg == 7) {
-    d_out[idx] = information_entropy_histogram_device(tmp_array, frame_nr);
-  } else if (type_agg == 8) {
-    d_out[idx] = slope_device<float>(tmp_array, frame_nr);
-  } else {
-    // Should throw exception in the python-end
-    d_out[idx] = 0;
+  d_out[idx] = aggregation_kernel<Aggregation>::apply(tmp_array, frame_nr);
+}
+
+
+/**
+ * @brief Launch the aggregation kernel instantiated for the requested aggregation.
+ *
+ * This is the only place where the runtime aggregation type is turned into a template argument,
+ * which keeps the kernel itself branch-free.
+ */
+void launch_gridwise_aggregation(const AggregationType type_agg, const unsigned int grid_size,
+                                 float *d_in, float *d_out, const int frame_nr,
+                                 const int gridpoint_nr, cudaStream_t stream) {
+  switch (type_agg) {
+#define AGGREGATION_LAUNCH_CASE(NAME, VALUE, FN)                                                   \
+  case AggregationType::NAME:                                                                      \
+    gridwise_aggregation_global<AggregationType::NAME>                                             \
+        <<<grid_size, BLOCK_SIZE, 0, stream>>>(d_in, d_out, frame_nr, gridpoint_nr);               \
+    break;
+    AGGREGATION_TYPE_LIST(AGGREGATION_LAUNCH_CASE)
+#undef AGGREGATION_LAUNCH_CASE
+  default:
+    throw std::invalid_argument("The aggregation type " +
+                                std::to_string(static_cast<int>(type_agg)) + " is not supported");
   }
+  CUDA_CHECK_KERNEL();
 }
 
 
@@ -265,7 +291,7 @@ __global__ void gridwise_aggregation_global(float *d_in, float *d_out, const int
  * copied back to result_grid.
  */
 void aggregate_host(float *voxel_traj, float *result_grid, const int frame_number,
-                    const int grid_number, const int type_agg) {
+                    const int grid_number, const AggregationType type_agg) {
   unsigned int grid_size = (grid_number + BLOCK_SIZE - 1) / BLOCK_SIZE;
   unsigned int _frame_number = frame_number > MAX_FRAME_NUMBER ? MAX_FRAME_NUMBER : frame_number;
 
@@ -289,9 +315,8 @@ void aggregate_host(float *voxel_traj, float *result_grid, const int frame_numbe
                  BufferSlot::TRAJ_DYNAMICS, stream);
   CUDA_CHECK(cudaMemsetAsync(tmp_grid_gpu, 0, grid_number * sizeof(float), stream));
 
-  gridwise_aggregation_global<<<grid_size, BLOCK_SIZE, 0, stream>>>(
-      voxel_traj_gpu, tmp_grid_gpu, _frame_number, grid_number, type_agg);
-  CUDA_CHECK_KERNEL();
+  launch_gridwise_aggregation(type_agg, grid_size, voxel_traj_gpu, tmp_grid_gpu, _frame_number,
+                              grid_number, stream);
   CUDA_CHECK(cudaMemcpyAsync(result_grid, tmp_grid_gpu, grid_number * sizeof(float),
                              cudaMemcpyDeviceToHost, stream));
   if (use_ctx) {

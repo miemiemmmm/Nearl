@@ -478,18 +478,53 @@ template <typename T> __device__ float square_distance_device(const T *coord1, c
 }
 
 
+/**
+ * @brief The single source of truth for the supported aggregations.
+ *
+ * Every column is consumed somewhere, so a new aggregation is added by appending one line here:
+ *   NAME  : the enumerator of AggregationType, also the name exposed to Python
+ *   VALUE : the numeric value, kept stable for backwards compatibility of stored configurations
+ *   FN    : the __device__ function implementing it, see above. It must have the signature
+ *           (arr, N) and return a float.
+ *
+ * The list generates the enumeration below, the Python bindings in actions_py.cpp and the
+ * runtime-to-template dispatch in gpuutils.cu.
+ */
+#define AGGREGATION_TYPE_LIST(X)                                                                   \
+  X(MEAN, 1, mean_device<float>)                                                                   \
+  X(STANDARD_DEVIATION, 2, standard_deviation_device<float>)                                       \
+  X(MEDIAN, 3, median_device<float>)                                                               \
+  X(VARIANCE, 4, variance_device<float>)                                                           \
+  X(MAX, 5, max_device<float>)                                                                     \
+  X(MIN, 6, min_device<float>)                                                                     \
+  X(INFORMATION_ENTROPY, 7, information_entropy_histogram_device<float>)                           \
+  X(DRIFT, 8, slope_device<float>)
+
+/**
+ * @brief The frame-wise aggregation applied to the per-frame grids.
+ */
+enum class AggregationType : int {
+#define AGGREGATION_TYPE_ENUMERATOR(NAME, VALUE, FN) NAME = VALUE,
+  AGGREGATION_TYPE_LIST(AGGREGATION_TYPE_ENUMERATOR)
+#undef AGGREGATION_TYPE_ENUMERATOR
+};
+
+
 // Global kernels
 extern __global__ void sum_reduction_global(const float *d_in, float *d_out, const int N);
 extern __global__ void normalize_array_global(float *d_in, const float sum, const float weight,
                                               const int N);
 extern __global__ void voxel_addition_global(float *d_in, float *d_out, const int N);
-extern __global__ void gridwise_aggregation_global(float *d_in, float *d_out, const int frame_nr,
-                                                   const int gridpoint_nr, const int type_agg);
 
 
 // Host functions
+// Launches the aggregation kernel instantiated for the requested aggregation, see gpuutils.cu
+extern void launch_gridwise_aggregation(const AggregationType type_agg,
+                                        const unsigned int grid_size, float *d_in, float *d_out,
+                                        const int frame_nr, const int gridpoint_nr,
+                                        cudaStream_t stream);
 extern void aggregate_host(float *voxel_traj, float *tmp_grid, const int frame_number,
-                           const int grid_number, const int type_agg);
+                           const int grid_number, const AggregationType type_agg);
 extern float sum_reduction_host(float *array, const int arr_length);
 
 // DeviceContext helpers (defined in gpuutils.cu)

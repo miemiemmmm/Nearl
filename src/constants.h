@@ -15,40 +15,9 @@
 #define SQRT_2_PI 2.5066282746310002f
 
 
-// Obervable types
-#define OBSERVABLE_COUNT 9
-#define SUPPORTED_OBSERVABLES {1, 2, 3, 11, 12, 13, 14, 15, 16}
+// NOTE: The observable types are defined by OBSERVABLE_TYPE_LIST in marching_observers.cuh
 
-//////////////////////////////////////////////////////////////////////
-// Hard-coded supported observable and aggregation types
-// Direct Count-based Observables
-// existence_device  1
-// direct_count_device  2
-// distinct_count  3
-
-// Weight-based Observables
-// mean_distance_device  11
-// cumulative_weight_device  12
-// density_device  13
-// dispersion_device  14
-// eccentricity_device  15
-// radius_of_gyration_device  16
-//////////////////////////////////////////////////////////////////////
-
-// Aggregation types
-#define AGGREGATION_COUNT 8
-#define SUPPORTED_AGGREGATIONS {1, 2, 3, 4, 5, 6, 7, 8}
+// NOTE: The aggregation types are defined by AGGREGATION_TYPE_LIST in gpuutils.cuh
 #define INFORMATION_ENTROPY_BINS 16
-
-//////////////////////////////////////////////////////////////////////
-// mean  1
-// standard_deviation 2
-// median  3
-// variance 4
-// max 5
-// min 6
-// information_entropy 7
-// drift 8
-//////////////////////////////////////////////////////////////////////
 
 #endif

@@ -4,6 +4,8 @@
 #ifndef VOXELIZE_INCLUDE
 #define VOXELIZE_INCLUDE
 
+#include "gpuutils.cuh" // For AggregationType
+
 void voxelize_host(float *interpolated, const float *coord, const float *weight, const int *dims,
                    const float spacing, const int atom_nr, const float cutoff, const float sigma);
 
@@ -14,6 +16,6 @@ void voxelize_host_cpu(float *interpolated, const float *coord, const float *wei
 void trajectory_voxelization_host(float *voxelize_dynamics, const float *coord, const float *weight,
                                   const int *dims, const float spacing, const int frame_nr,
                                   const int atom_nr, const float cutoff, const float sigma,
-                                  const int type_agg);
+                                  const AggregationType type_agg);
 
 #endif

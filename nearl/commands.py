@@ -24,7 +24,30 @@ except ImportError:
 
     all_actions = _MissingExtension()
 
+# Maps the observation and aggregation names to the enumerators exposed by the CUDA extension. The
+# extension is the only definition of the supported types, see OBSERVABLE_TYPE_LIST in
+# src/marching_observers.cuh and AGGREGATION_TYPE_LIST in src/gpuutils.cuh.
+# The values are the plain integers of the enumerators: the scoped C++ enums are not comparable
+# to int from Python, so exposing the members themselves would silently break `feature.obs == 2`
+# and make the maps unserializable. The extension accepts either form as an argument.
+try:
+    SUPPORTED_OBSERVATION = {
+        name.lower(): int(member)
+        for name, member in all_actions.ObservableType.__members__.items()
+    }
+    SUPPORTED_AGGREGATION = {
+        name.lower(): int(member)
+        for name, member in all_actions.AggregationType.__members__.items()
+    }
+except ImportError:
+    SUPPORTED_OBSERVATION = {}
+    SUPPORTED_AGGREGATION = {}
+
+
 __all__ = [
+    # Observable and aggregation types
+    "SUPPORTED_OBSERVATION",
+    "SUPPORTED_AGGREGATION",
     # Single frame methods
     "frame_observation",
     "frame_voxelize",
@@ -86,7 +109,7 @@ def frame_voxelize(coords, weights, grid_dims, spacing, cutoff, sigma):
     return ret_arr.reshape(grid_dims)
 
 
-def frame_observation(coords, weights, grid_dims, spacing, cutoff, sigma, type_obs):
+def frame_observation(coords, weights, grid_dims, spacing, cutoff, type_obs):
     """
     Perform marching observer on a single frame.
 
@@ -102,10 +125,8 @@ def frame_observation(coords, weights, grid_dims, spacing, cutoff, sigma, type_o
       The spacing of the grid
     cutoff : float
       The cutoff distance
-    sigma : float
-      The sigma value for the Gaussian kernel
-    type_obs : int
-      The type of observer
+    type_obs : all_actions.ObservableType or int
+      The type of observer, see SUPPORTED_OBSERVATION
 
     Returns
     -------
@@ -120,8 +141,6 @@ def frame_observation(coords, weights, grid_dims, spacing, cutoff, sigma, type_o
     grid_dims = np.array(grid_dims, dtype=int)
     spacing = float(spacing)
     cutoff = float(cutoff)
-    sigma = float(sigma)
-    type_obs = int(type_obs)
     ret_arr = all_actions.frame_observation(
         coords, weights, grid_dims, spacing, cutoff, type_obs
     )
@@ -144,10 +163,10 @@ def marching_observer(coords, weights, grid_dims, spacing, cutoff, type_obs, typ
       The spacing of the grid
     cutoff : float
       The cutoff distance
-    type_obs : int
-      The type of observer
-    type_agg : int
-      The type of aggregation function
+    type_obs : all_actions.ObservableType or int
+      The type of observer, see SUPPORTED_OBSERVATION
+    type_agg : all_actions.AggregationType or int
+      The type of aggregation function, see SUPPORTED_AGGREGATION
 
     Returns
     -------
@@ -184,8 +203,8 @@ def density_flow(traj, weights, grid_dims, spacing, cutoff, sigma, type_agg):
       The cutoff distance
     sigma : float
       The sigma value for the Gaussian kernel
-    type_agg : int
-      The type of aggregation function
+    type_agg : all_actions.AggregationType or int
+      The type of aggregation function, see SUPPORTED_AGGREGATION
 
     Returns
     -------
@@ -206,7 +225,6 @@ def density_flow(traj, weights, grid_dims, spacing, cutoff, sigma, type_agg):
     spacing = float(spacing)
     cutoff = float(cutoff)
     sigma = float(sigma)
-    type_agg = int(type_agg)
 
     ret_arr = all_actions.density_flow(
         traj, weights, grid_dims, spacing, cutoff, sigma, type_agg

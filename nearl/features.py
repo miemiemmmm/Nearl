@@ -83,31 +83,9 @@ SUPPORTED_FEATURES = {
 }
 
 
-# Hardcoded maps in the C++ level code
-SUPPORTED_AGGREGATION = {
-    "mean": 1,
-    "standard_deviation": 2,
-    "median": 3,
-    "variance": 4,
-    "max": 5,
-    "min": 6,
-    "information_entropy": 7,
-    "drift": 8,
-}
-
-
-# Hardcoded maps in the C++ level code
-SUPPORTED_OBSERVATION = {
-    "existence": 1,
-    "direct_count": 2,
-    "distinct_count": 3,
-    "mean_distance": 11,
-    "cumulative_weight": 12,
-    "density": 13,
-    "dispersion": 14,
-    "eccentricity": 15,
-    "radius_of_gyration": 16,
-}
+# Derived from the ObservableType and AggregationType enumerations of the CUDA extension
+SUPPORTED_OBSERVATION = commands.SUPPORTED_OBSERVATION
+SUPPORTED_AGGREGATION = commands.SUPPORTED_AGGREGATION
 
 
 @numba.njit(cache=True, nogil=True)
