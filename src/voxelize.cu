@@ -596,14 +596,14 @@ void trajectory_voxelization_host_into(float *output, const float *coord, const 
   CUDA_CHECK(
       cudaMemsetAsync(voxelize_dynamics_gpu, 0, frame_nr * gridpoint_nr * sizeof(float), stream));
 
-  for (int frame_idx = 0; frame_idx < frame_nr; ++frame_idx) {
-    // Perform the observation of all the grid points (observers) in the frame i
-    frame_interp_global<<<atom_nr, BLOCK_SIZE, BLOCK_SIZE * sizeof(float), stream>>>(
-        coord_gpu + frame_idx * atom_nr * 3, weight_gpu + frame_idx * atom_nr,
-        voxelize_dynamics_gpu + frame_idx * gridpoint_nr, dims_gpu, spacing, cutoff, sigma,
-        atom_nr);
-    CUDA_CHECK_KERNEL();
-  }
+  // Process every frame in one launch; blockIdx.y selects the frame. Looping
+  // here instead would issue frame_nr tiny grids that neither fill the device
+  // nor amortise the launch cost.
+  if (atom_nr > 0 && frame_nr > 0)
+    frame_interp_global<<<dim3(atom_nr, frame_nr, 1), BLOCK_SIZE, BLOCK_SIZE * sizeof(float),
+                          stream>>>(coord_gpu, weight_gpu, voxelize_dynamics_gpu, dims_gpu, spacing,
+                                    cutoff, sigma, atom_nr);
+  CUDA_CHECK_KERNEL();
 
   const int _frame_nr = frame_nr > MAX_FRAME_NUMBER ? MAX_FRAME_NUMBER : frame_nr;
   gridwise_aggregation_global<<<grid_size, BLOCK_SIZE, 0, stream>>>(
