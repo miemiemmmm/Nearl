@@ -67,6 +67,7 @@ BASELINE_MAP="data/PDBBind_general_v2020.csv"  # --baseline_map
 TASK_NR=1                  # --task_nr
 TASK_INDEX=0               # --task_index
 PRODUCER_THREADS="${PRODUCER_THREADS:-2}"   # --producer_threads (env-overridable)
+REPEATS="${REPEATS:-1}"                     # number of times to repeat the 6-feature suite
 
 if [ "$#" -ne 2 ]; then
     echo "Usage: $0 <hash-or-tag> <label>" >&2
@@ -280,6 +281,9 @@ run_feature_suite() {
     fi
 }
 
-run_feature_suite "$GIT_REF" || exit 1
+for rep in $(seq 1 "$REPEATS"); do
+    echo "=== Repeat $rep/$REPEATS ==="
+    run_feature_suite "$GIT_REF" || exit 1
+done
 
-echo "DONE. Appended $GIT_REF to $CSV"
+echo "DONE. Appended $REPEATS repeat(s) of $GIT_REF to $CSV"

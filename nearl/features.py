@@ -130,13 +130,13 @@ def crop(points, upperbound, padding, spacing):
     mask_inbox : np.ndarray
       The boolean mask of the atoms within the box
     """
-    # X within the bouding box
+    # X within the bounding box
     x_state_0 = points[:, 0] < upperbound[0] + padding - spacing / 2
     x_state_1 = points[:, 0] > 0 - padding - spacing / 2
-    # Y within the bouding box
+    # Y within the bounding box
     y_state_0 = points[:, 1] < upperbound[1] + padding - spacing / 2
     y_state_1 = points[:, 1] > 0 - padding - spacing / 2
-    # Z within the bouding box
+    # Z within the bounding box
     z_state_0 = points[:, 2] < upperbound[2] + padding - spacing / 2
     z_state_1 = points[:, 2] > 0 - padding - spacing / 2
     # All states
@@ -200,10 +200,7 @@ class Feature:
     # can be computed once per trajectory and shared across all features.
     _topology_cache: ClassVar[dict] = {}
 
-    # GPU busy-time accumulator (class-level, shared across all features).
-    # Kernels launch asynchronously at ``_dispatch`` and sync back to the host at
-    # ``collect()`` (via ``pending.result()`` -> ``cudaStreamSynchronize``). The
-    # dispatch-to-collection window is the time the GPU is busy with this feature.
+    # Accumulated GPU busy time (dispatch-to-collection window), shared across all features.
     gpu_busy_seconds = 0.0
     gpu_busy_capture = True
 
