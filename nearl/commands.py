@@ -337,7 +337,9 @@ def frame_observation_dlpack(coords, weights, grid_dims, spacing, cutoff, type_o
     return output
 
 
-def marching_observer_dlpack(coords, weights, grid_dims, spacing, cutoff, type_obs, type_agg):
+def marching_observer_dlpack(
+    coords, weights, grid_dims, spacing, cutoff, type_obs, type_agg
+):
     """
     Run marching observers on a frame slice and return the aggregated grid as a
     ``torch.Tensor`` on CUDA.
@@ -350,7 +352,14 @@ def marching_observer_dlpack(coords, weights, grid_dims, spacing, cutoff, type_o
 
     output = _alloc_output(grid_dims, device="cuda")
     all_actions.marching_observer_into(
-        output.data_ptr(), coords, weights, grid_dims, spacing, cutoff, type_obs, type_agg
+        output.data_ptr(),
+        coords,
+        weights,
+        grid_dims,
+        spacing,
+        cutoff,
+        type_obs,
+        type_agg,
     )
     return output
 

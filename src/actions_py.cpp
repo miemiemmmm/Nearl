@@ -519,7 +519,6 @@ void do_frame_observation_into(uint64_t output_ptr, py::array_t<float> coord_arr
 }
 
 
-
 PYBIND11_MODULE(all_actions, m) {
   py::class_<CommandExecution>(m, "_CommandExecution").def("result", &CommandExecution::result);
   bind_action(m, "frame_voxelize", &do_voxelize, py::arg("coords"), py::arg("weights"),

@@ -11,6 +11,7 @@ Each case checks that the dlpack path returns a CUDA tensor whose values
 match the numpy-return path and that the tensor is consumable by a CUDA
 model (forward and backward).
 """
+
 import sys
 
 import numpy as np
@@ -35,7 +36,9 @@ def _make_cases():
     np.random.seed(0)
     coords = np.random.normal(size=(atom_nr, 3), loc=5, scale=2).astype(np.float32)
     weights_frame = np.full((atom_nr,), 16.0, dtype=np.float32)
-    traj = np.random.normal(size=(frame_nr, atom_nr, 3), loc=5, scale=2).astype(np.float32)
+    traj = np.random.normal(size=(frame_nr, atom_nr, 3), loc=5, scale=2).astype(
+        np.float32
+    )
     weights_traj = np.full((frame_nr * atom_nr,), 16.0, dtype=np.float32)
     return [
         (
@@ -79,9 +82,9 @@ def _check_case(idx):
     assert output.device.type == "cuda", "dlpack path must produce a CUDA tensor"
     assert output.dtype == torch.float32
     assert tuple(output.shape) == tuple(dims)
-    assert np.allclose(
-        reference, output.cpu().numpy(), rtol=1e-4, atol=1e-4
-    ), f"{name}: dlpack output differs from the numpy-return path"
+    assert np.allclose(reference, output.cpu().numpy(), rtol=1e-4, atol=1e-4), (
+        f"{name}: dlpack output differs from the numpy-return path"
+    )
     assert np.isfinite(output.cpu().numpy()).all()
     output.clone().cpu()
 

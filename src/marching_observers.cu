@@ -555,9 +555,9 @@ void marching_observer_host(float *mobs_dynamics, const float *coord, const floa
  * buffers are taken from the DeviceContext when active.
  */
 void marching_observer_host_into(float *output, const float *coord, const float *weights,
-                                  const int *dims, const float spacing, const int frame_number,
-                                  const int atom_per_frame, const float cutoff, const int type_obs,
-                                  const int type_agg) {
+                                 const int *dims, const float spacing, const int frame_number,
+                                 const int atom_per_frame, const float cutoff, const int type_obs,
+                                 const int type_agg) {
   unsigned int observer_number = dims[0] * dims[1] * dims[2];
   unsigned int grid_size = (observer_number + BLOCK_SIZE - 1) / BLOCK_SIZE;
 
@@ -575,12 +575,10 @@ void marching_observer_host_into(float *output, const float *coord, const float 
     mobs_traj = ctx->get_buffer_f(static_cast<size_t>(frame_number) * observer_number,
                                   static_cast<size_t>(BufferSlot::TRAJ_DYNAMICS));
     tmp_mobs_gpu = ctx->get_buffer_f(observer_number, static_cast<size_t>(BufferSlot::TMP_GRID));
-    coords_device =
-        ctx->get_buffer_f(static_cast<size_t>(frame_number) * atom_per_frame * 3,
-                          static_cast<size_t>(BufferSlot::COORDS));
-    weights_device =
-        ctx->get_buffer_f(static_cast<size_t>(frame_number) * atom_per_frame,
-                          static_cast<size_t>(BufferSlot::WEIGHTS));
+    coords_device = ctx->get_buffer_f(static_cast<size_t>(frame_number) * atom_per_frame * 3,
+                                      static_cast<size_t>(BufferSlot::COORDS));
+    weights_device = ctx->get_buffer_f(static_cast<size_t>(frame_number) * atom_per_frame,
+                                       static_cast<size_t>(BufferSlot::WEIGHTS));
     dims_device = ctx->get_buffer_i(3, static_cast<size_t>(BufferSlot::DIMS));
   } else {
     CUDA_CHECK(cudaMalloc(&mobs_traj, frame_number * observer_number * sizeof(float)));
@@ -592,7 +590,8 @@ void marching_observer_host_into(float *output, const float *coord, const float 
 
   CUDA_CHECK(cudaMemsetAsync(mobs_traj, 0, frame_number * observer_number * sizeof(float), stream));
   CUDA_CHECK(cudaMemsetAsync(tmp_mobs_gpu, 0, observer_number * sizeof(float), stream));
-  CUDA_CHECK(cudaMemcpyAsync(coords_device, coord, frame_number * atom_per_frame * 3 * sizeof(float),
+  CUDA_CHECK(cudaMemcpyAsync(coords_device, coord,
+                             frame_number * atom_per_frame * 3 * sizeof(float),
                              cudaMemcpyHostToDevice, stream));
   CUDA_CHECK(cudaMemcpyAsync(weights_device, weights, frame_number * atom_per_frame * sizeof(float),
                              cudaMemcpyHostToDevice, stream));
@@ -614,8 +613,8 @@ void marching_observer_host_into(float *output, const float *coord, const float 
 
   unsigned int _frame_number = frame_number > MAX_FRAME_NUMBER ? MAX_FRAME_NUMBER : frame_number;
   CUDA_CHECK(cudaMemsetAsync(output, 0, observer_number * sizeof(float), stream));
-  gridwise_aggregation_global<<<grid_size, BLOCK_SIZE, 0, stream>>>(mobs_traj, output, _frame_number,
-                                                                    observer_number, type_agg);
+  gridwise_aggregation_global<<<grid_size, BLOCK_SIZE, 0, stream>>>(
+      mobs_traj, output, _frame_number, observer_number, type_agg);
   CUDA_CHECK_KERNEL();
 
   if (use_ctx) {
@@ -702,8 +701,8 @@ void observe_frame_host(float *results, const float *coord_frame, const float *w
  * into the caller-provided CUDA pointer `output`.
  */
 void observe_frame_host_into(float *output, const float *coord_frame, const float *weight_frame,
-                              const int *dims, const float spacing, const int atomnr,
-                              const float cutoff, const int type_obs) {
+                             const int *dims, const float spacing, const int atomnr,
+                             const float cutoff, const int type_obs) {
   unsigned int observer_number = dims[0] * dims[1] * dims[2];
   unsigned int grid_size = (observer_number + BLOCK_SIZE - 1) / BLOCK_SIZE;
 
@@ -733,10 +732,9 @@ void observe_frame_host_into(float *output, const float *coord_frame, const floa
   CUDA_CHECK(cudaMemcpyAsync(weight_frame_gpu, weight_frame, frame_nr * atomnr * sizeof(float),
                              cudaMemcpyHostToDevice, stream));
 
-  marching_observer_global<<<grid_size, BLOCK_SIZE, 0, stream>>>(output, coord_frame_gpu,
-                                                                  weight_frame_gpu, dims_gpu,
-                                                                  spacing, frame_nr, atomnr, cutoff,
-                                                                  type_obs);
+  marching_observer_global<<<grid_size, BLOCK_SIZE, 0, stream>>>(
+      output, coord_frame_gpu, weight_frame_gpu, dims_gpu, spacing, frame_nr, atomnr, cutoff,
+      type_obs);
   CUDA_CHECK_KERNEL();
 
   if (use_ctx) {
