@@ -597,19 +597,14 @@ void marching_observer_host_into(float *output, const float *coord, const float 
                              cudaMemcpyHostToDevice, stream));
   CUDA_CHECK(cudaMemcpyAsync(dims_device, dims, 3 * sizeof(int), cudaMemcpyHostToDevice, stream));
 
-  for (int frame_idx = 0; frame_idx < frame_number; ++frame_idx) {
-    marching_observer_global<<<grid_size, BLOCK_SIZE, 0, stream>>>(
-        tmp_mobs_gpu, coords_device + frame_idx * atom_per_frame * 3,
-        weights_device + frame_idx * atom_per_frame, dims_device, spacing, frame_number,
+  // One launch for the whole slice; blockIdx.y selects the frame and the kernel
+  // writes straight into its own slot of mobs_traj, so the per-frame staging
+  // buffer and its device-to-device copy are both unnecessary.
+  if (frame_number > 0)
+    marching_observer_global<<<dim3(grid_size, frame_number, 1), BLOCK_SIZE, 0, stream>>>(
+        mobs_traj, coords_device, weights_device, dims_device, spacing, frame_number,
         atom_per_frame, cutoff, type_obs);
-    CUDA_CHECK_KERNEL();
-
-    CUDA_CHECK(cudaMemcpyAsync(mobs_traj + frame_idx * observer_number, tmp_mobs_gpu,
-                               observer_number * sizeof(float), cudaMemcpyDeviceToDevice, stream));
-
-    if (frame_idx + 1 >= MAX_FRAME_NUMBER)
-      continue;
-  }
+  CUDA_CHECK_KERNEL();
 
   unsigned int _frame_number = frame_number > MAX_FRAME_NUMBER ? MAX_FRAME_NUMBER : frame_number;
   CUDA_CHECK(cudaMemsetAsync(output, 0, observer_number * sizeof(float), stream));
