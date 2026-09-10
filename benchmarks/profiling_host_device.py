@@ -266,11 +266,22 @@ def build_featurizer(args, timer):
             ),
         ]
     )
+    wrapped_classes = set()
     for feat in featurizer.FEATURESPACE:
-        timer.wrap(feat, "run", "feature.run")
-        timer.wrap(feat, "query", "query + crop")
-        timer.wrap(feat, "dump", "HDF5 dump")
-        timer.wrap(feat, "cache", "cache")
+        # Wrap the CLASS, not the instance. With producer_threads > 1 the
+        # featurizer hands each worker a copy.copy() of the feature; an
+        # instance attribute would be copied along with its closure, which is
+        # bound to the original, so every worker would dispatch back into one
+        # shared object. Class-level wrappers are inherited by the copies and
+        # bind to whichever feature actually runs.
+        cls = type(feat)
+        if cls in wrapped_classes:
+            continue
+        wrapped_classes.add(cls)
+        timer.wrap(cls, "run", "feature.run")
+        timer.wrap(cls, "query", "query + crop")
+        timer.wrap(cls, "dump", "HDF5 dump")
+        timer.wrap(cls, "cache", "cache")
     featurizer.register_trajloader(loader)
     featurizer.register_focus([":LIG"], "mask")
     return featurizer

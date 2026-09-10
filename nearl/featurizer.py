@@ -754,7 +754,25 @@ class Featurizer:
         slots, which are always reassigned, never mutated in place. The
         class-level ``_topology_cache`` stays shared, read-mostly.
         """
-        return [copy.copy(feat) for feat in self.FEATURESPACE]
+        clones = []
+        for feat in self.FEATURESPACE:
+            clone = copy.copy(feat)
+            # A shallow copy also copies instance attributes that shadow a
+            # method -- the pattern any profiler or monkeypatch uses. Those are
+            # closures bound to the *original*, so the clone would silently
+            # dispatch back to it and every worker would share one feature's
+            # trajectory state. Drop them; the class method is correct here.
+            for name, value in vars(feat).items():
+                if callable(value) and callable(getattr(type(feat), name, None)):
+                    delattr(clone, name)
+                    logger.warning(
+                        f"{self.classname}: dropped the instance-level override of "
+                        f"{type(feat).__name__}.{name} when cloning for a producer "
+                        f"thread; it is bound to the original feature and would "
+                        f"make the workers share state. Patch the class instead."
+                    )
+            clones.append(clone)
+        return clones
 
     def _setup_worker_trajectory(self, worker, traj):
         """
