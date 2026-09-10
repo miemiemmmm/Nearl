@@ -37,8 +37,12 @@ all_actions: voxelize marching_observers
 		$(CC) $(PYFLAGS) -shared -fPIC -o all_actions.so actions_py.cpp marching_observers_link.o gpuutils.o marching_observers.o voxelize_link.so voxelize.o $(CUDA_RUNTIME)
 		# python3 /MieT5/Nearl/src/test_actions.py
 
-test_gpu: testgpu_template.cu 
-		$(NVCC) $(NVCCFLAGS) -o a.out testgpu_template.cu 
+# CUDA-free on purpose: every feature needs these, not just GPU ones.
+host_actions: host_actions.cpp
+		$(CC) $(PYFLAGS) -O3 -std=c++17 -shared -fPIC -o host_actions.so host_actions.cpp
+
+test_gpu: testgpu_template.cu
+		$(NVCC) $(NVCCFLAGS) -o a.out testgpu_template.cu
 
 clean: 
 		rm -f *.o *.so

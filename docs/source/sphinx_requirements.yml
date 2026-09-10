@@ -10,7 +10,6 @@ dependencies:
   # Rest of the dependencies
   - ambertools
   - numpy<2.0.0
-  - numba
   - openbabel
   - h5py
   - scipy

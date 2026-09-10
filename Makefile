@@ -8,12 +8,12 @@ install: clean
 	@version=$$(grep "version" pyproject.toml | sed -n 's/version = "\([0-9.]*\)"/\1/p'); \
 	echo "Installing the package; Version $${version}"; \
 	python -m build; \
-	pip install -v ./dist/nearl-$${version}-py3-none-any.whl --force-reinstall; 
+	pip install -v ./dist/nearl-$${version}-py3-none-any.whl --force-reinstall;
 	$(MAKE) clean
 
 
-reinstall: 
-	pip install --force-reinstall --no-deps ./ 
+reinstall:
+	pip install --force-reinstall --no-deps ./
 
 
 # TODO: Add the installation later 
