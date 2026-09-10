@@ -38,7 +38,7 @@ set -u
 # Resolve paths relative to this script so it can be run from anywhere.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 NEARL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-VENV="$NEARL_DIR/../nearl_env/bin/activate"
+VENV="${BENCH_VENV:-$NEARL_DIR/../nearl_env/bin/activate}"
 REPO_URL="git@github.com:miemiemmmm/Nearl.git"
 SARS_TRAJLIST="/capstor/scratch/cscs/course_00567/data/SARS-CoV-2/trajlist.txt"
 OUT_DIR="/tmp/sars_bench"

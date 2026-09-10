@@ -53,7 +53,8 @@ declare -A HASH_LABEL=(
     [ae932e2e40]="PR17 gpu-slots"
     [c66fd0bfdb]="PR20 gil-fix"
     [c667238400]="PR21 voxelize-kernel"
-    [3db2836aff]="PR24 produce-worker"
+    [8c986d93c2]="PR27 numba-query"
+    [a70b98aa73]="PR24 produce-worker"
     # [WORKING]="current (working tree)"  # WORKING benchmarks the current working tree in place.
     # [<hash-or-tag>]="<label>"
 )
