@@ -531,13 +531,12 @@ make_observation_device(const float *coord, const ObserverCells &cells, const fl
 template <int TypeObs>
 __global__ void
 marching_observer_global(float *mobs_ret, const float *coord_frame, const float *weight_frame,
-                         const int *dims, const float spacing, const int frame_number,
-                         const int atomnr, const float cutoff, const int *cell_start,
-                         const int *sorted_atoms, int3 cell_dims, float3 cell_min, float cell_size,
-                         int cell_count) {
+                         int3 dims, const float spacing, const int frame_number, const int atomnr,
+                         const float cutoff, const int *cell_start, const int *sorted_atoms,
+                         int3 cell_dims, float3 cell_min, float cell_size, int cell_count) {
   unsigned int index = blockIdx.x * blockDim.x + threadIdx.x;
   unsigned int frame_idx = blockIdx.y;
-  unsigned int grid_size = dims[0] * dims[1] * dims[2];
+  unsigned int grid_size = dims.x * dims.y * dims.z;
   if (index >= grid_size || frame_idx >= static_cast<unsigned int>(frame_number))
     return;
 
@@ -554,9 +553,9 @@ marching_observer_global(float *mobs_ret, const float *coord_frame, const float 
   float *frame_output = mobs_ret + static_cast<size_t>(frame_idx) * grid_size;
 
   // Get the coordinate of the grid point (Observer) in real space
-  float coord[3] = {static_cast<float>(index / (dims[0] * dims[1])) * spacing,
-                    static_cast<float>((index / dims[0]) % dims[1]) * spacing,
-                    static_cast<float>(index % dims[0]) * spacing};
+  float coord[3] = {static_cast<float>(index / (dims.x * dims.y)) * spacing,
+                    static_cast<float>((index / dims.x) % dims.y) * spacing,
+                    static_cast<float>(index % dims.x) * spacing};
 
   frame_output[index] = make_observation_device<TypeObs>(coord, cells, weight_frame, cutoff);
 }
@@ -564,41 +563,51 @@ marching_observer_global(float *mobs_ret, const float *coord_frame, const float 
 
 namespace {
 
-// Uploaded coords/weights/dims plus the cell index and raw output grid,
-// shared by marching_observer_host and observe_frame_host.
+// Uploaded coords/weights plus the cell index and raw output grid, shared by
+// marching_observer_host and observe_frame_host. dims is 3 ints known on the
+// host before launch, so it's passed to the kernel as a plain int3 argument
+// instead of being uploaded to its own device buffer.
 struct MarchingObserverBuffers {
   float *output_device;
   float *coords_device;
   float *weights_device;
-  int *dims_device;
   ObserverCellBuffers cell_buffers;
 };
 
 
-MarchingObserverBuffers run_marching_observer_frames(DeviceContext *ctx, cudaStream_t stream,
-                                                     const float *coord, const float *weights,
-                                                     const int *dims, float spacing,
-                                                     int frame_number, int atomnr, float cutoff,
-                                                     int type_obs, unsigned int observer_number,
-                                                     BufferSlot output_slot) {
+MarchingObserverBuffers
+run_marching_observer_frames(DeviceContext *ctx, cudaStream_t stream, const float *coord,
+                             const float *weights, const int *dims, float spacing, int frame_number,
+                             int atomnr, float cutoff, int type_obs, unsigned int observer_number,
+                             BufferSlot output_slot, float *direct_output = nullptr) {
   unsigned int grid_size = (observer_number + BLOCK_SIZE - 1) / BLOCK_SIZE;
   size_t frame_output_count = static_cast<size_t>(frame_number) * observer_number;
   size_t frame_atom_count = static_cast<size_t>(frame_number) * atomnr;
 
   MarchingObserverBuffers bufs;
-  bufs.output_device = ctx->get_buffer_f(frame_output_count, static_cast<size_t>(output_slot));
+  // direct_output lets a caller that already owns a device buffer of the right
+  // size (the *_into entry points) have the kernel write straight into it,
+  // instead of writing into a context scratch buffer that then has to be
+  // copied into the caller's buffer anyway.
+  bufs.output_device =
+      direct_output ? direct_output
+                    : ctx->get_buffer_f(frame_output_count, static_cast<size_t>(output_slot));
   bufs.coords_device =
       ctx->get_buffer_f(frame_atom_count * 3, static_cast<size_t>(BufferSlot::COORDS));
   bufs.weights_device =
       ctx->get_buffer_f(frame_atom_count, static_cast<size_t>(BufferSlot::WEIGHTS));
-  bufs.dims_device = ctx->get_buffer_i(3, static_cast<size_t>(BufferSlot::DIMS));
 
   CUDA_CHECK(cudaMemsetAsync(bufs.output_device, 0, frame_output_count * sizeof(float), stream));
   copy_h2d_async(ctx, bufs.coords_device, coord, frame_atom_count * 3 * sizeof(float),
                  BufferSlot::COORDS, stream);
-  copy_h2d_async(ctx, bufs.weights_device, weights, frame_atom_count * sizeof(float),
-                 BufferSlot::WEIGHTS, stream);
-  copy_h2d_async(ctx, bufs.dims_device, dims, 3 * sizeof(int), BufferSlot::DIMS, stream);
+  // existence_device/direct_count_device (types 1, 2) never read weight_framei --
+  // skip staging and uploading weights for them rather than paying for a
+  // transfer whose result the kernel never touches.
+  if (type_obs != 1 && type_obs != 2) {
+    copy_h2d_async(ctx, bufs.weights_device, weights, frame_atom_count * sizeof(float),
+                   BufferSlot::WEIGHTS, stream);
+  }
+  int3 dims3 = make_int3(dims[0], dims[1], dims[2]);
 
   ObserverCellGrid cell_grid;
   bufs.cell_buffers = build_observer_cell_buffers(ctx, stream, bufs.coords_device, coord,
@@ -608,8 +617,8 @@ MarchingObserverBuffers run_marching_observer_frames(DeviceContext *ctx, cudaStr
   // instantiation to launch here, once, from the runtime type_obs.
 #define LAUNCH_MARCHING_OBSERVER(TYPE)                                                             \
   marching_observer_global<TYPE><<<dim3(grid_size, frame_number, 1), BLOCK_SIZE, 0, stream>>>(     \
-      bufs.output_device, bufs.coords_device, bufs.weights_device, bufs.dims_device, spacing,      \
-      frame_number, atomnr, cutoff, bufs.cell_buffers.cell_start, bufs.cell_buffers.sorted_atoms,  \
+      bufs.output_device, bufs.coords_device, bufs.weights_device, dims3, spacing, frame_number,   \
+      atomnr, cutoff, bufs.cell_buffers.cell_start, bufs.cell_buffers.sorted_atoms,                \
       cell_grid.dims, cell_grid.min, cell_grid.cell_size, cell_grid.cell_count)
   switch (type_obs) {
   case 1:
@@ -804,13 +813,11 @@ void observe_frame_host_into(float *output, const float *coord_frame, const floa
   }
   cudaStream_t stream = ctx->stream();
 
-  MarchingObserverBuffers bufs = run_marching_observer_frames(
-      ctx, stream, coord_frame, weight_frame, dims, spacing, /*frame_number=*/1, atomnr, cutoff,
-      type_obs, observer_number, BufferSlot::OUTPUT_GRID);
-
-  // output is caller-provided (e.g. a DLPack tensor's device buffer).
-  CUDA_CHECK(cudaMemcpyAsync(output, bufs.output_device, observer_number * sizeof(float),
-                             cudaMemcpyDeviceToDevice, stream));
+  // output is caller-provided (e.g. a DLPack tensor's device buffer): the
+  // kernel writes straight into it, no copy needed.
+  run_marching_observer_frames(ctx, stream, coord_frame, weight_frame, dims, spacing,
+                               /*frame_number=*/1, atomnr, cutoff, type_obs, observer_number,
+                               BufferSlot::OUTPUT_GRID, /*direct_output=*/output);
 
   if (!ctx->pending())
     ctx->synchronize();
