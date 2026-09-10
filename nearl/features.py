@@ -110,7 +110,7 @@ SUPPORTED_OBSERVATION = {
 }
 
 
-@numba.njit(cache=True)
+@numba.njit(cache=True, nogil=True)
 def _crop_kernel(points, lower, upper):
     n = points.shape[0]
     mask_inbox = np.empty(n, dtype=np.bool_)
@@ -129,7 +129,7 @@ def _crop_kernel(points, lower, upper):
     return mask_inbox
 
 
-@numba.njit(cache=True)
+@numba.njit(cache=True, nogil=True)
 def _gather_translate_kernel(points, mask, offset):
     n = points.shape[0]
     k = 0
