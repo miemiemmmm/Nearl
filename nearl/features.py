@@ -26,6 +26,7 @@ from . import (  # local modules   # local static methods/objects
 
 logger = logging.getLogger(__name__)
 
+
 __all__ = [
     # Base class
     "Feature",
@@ -234,6 +235,10 @@ class Feature:
     # These depend only on the topology, not on the per-feature selection, so they
     # can be computed once per trajectory and shared across all features.
     _topology_cache: ClassVar[dict] = {}
+
+    # Accumulated GPU busy time (dispatch-to-collection window), shared across all features.
+    gpu_busy_seconds = 0.0
+    gpu_busy_capture = True
 
     def __init__(
         self,
@@ -590,6 +595,8 @@ class Feature:
     def _dispatch_grid(self, command, coords, weights, *parameters):
         """Queue into the shared context; retain the pinned result until collection."""
         dims = tuple(self.dims)
+        # Kernels launch asynchronously; the busy-time window starts here.
+        t_launch = time.perf_counter() if Feature.gpu_busy_capture else None
         pending = getattr(commands.all_actions, "_dispatch_" + command)(
             np.ascontiguousarray(coords, dtype=np.float32),
             np.ascontiguousarray(weights, dtype=np.float32),
@@ -600,7 +607,11 @@ class Feature:
         )
 
         def collect():
-            result = pending.result().reshape(dims)
+            result = pending.result()
+            if Feature.gpu_busy_capture:
+                # pending.result() syncs the stream; elapsed time is the busy window.
+                Feature.gpu_busy_seconds += time.perf_counter() - t_launch
+            result = result.reshape(dims)
             if command == "density_flow" and np.isnan(result).any():
                 log.warning(
                     f"Found nan in the return: {np.count_nonzero(np.isnan(result))}"
@@ -615,6 +626,15 @@ class Feature:
         return self._dispatch_grid(
             "frame_voxelize", coords, weights, float(self.sigma), 0
         )
+
+    def _measure(self, func, *args):
+        """Run a synchronous CUDA command, accumulating the busy-time window."""
+        if Feature.gpu_busy_capture:
+            t = time.perf_counter()
+            ret = func(*args)
+            Feature.gpu_busy_seconds += time.perf_counter() - t
+            return ret
+        return func(*args)
 
     def run(self, coords, weights):
         """
@@ -639,8 +659,14 @@ class Feature:
             )
             return np.zeros(self.dims, dtype=np.float32)
         st = time.perf_counter()
-        ret = commands.frame_voxelize(
-            coords, weights, self.dims, self.spacing, self.cutoff, self.sigma
+        ret = self._measure(
+            commands.frame_voxelize,
+            coords,
+            weights,
+            self.dims,
+            self.spacing,
+            self.cutoff,
+            self.sigma,
         )
         logger.debug(
             f"Timing_STAT: {time.perf_counter() - st:.6f} seconds for {coords.shape[0]} atoms"
@@ -1712,8 +1738,15 @@ class DensityFlow(DynamicFeature):
 
         """
         st = time.perf_counter()
-        ret_arr = commands.density_flow(
-            frames, weights, self.dims, self.spacing, self.cutoff, self.sigma, self.agg
+        ret_arr = self._measure(
+            commands.density_flow,
+            frames,
+            weights,
+            self.dims,
+            self.spacing,
+            self.cutoff,
+            self.sigma,
+            self.agg,
         )
         logger.debug(
             f"Timing_PDF: {time.perf_counter() - st:.6f} seconds for {frames.shape[1]} atoms"
@@ -1824,8 +1857,15 @@ class MarchingObservers(DynamicFeature):
           The feature array with the dimensions of self.dims
         """
         st = time.perf_counter()
-        ret_arr = commands.marching_observer(
-            coords, weights, self.dims, self.spacing, self.cutoff, self.obs, self.agg
+        ret_arr = self._measure(
+            commands.marching_observer,
+            coords,
+            weights,
+            self.dims,
+            self.spacing,
+            self.cutoff,
+            self.obs,
+            self.agg,
         )
         logger.debug(
             f"Timing_OBS: {time.perf_counter() - st:.6f} seconds for {coords.shape[1]} atoms"

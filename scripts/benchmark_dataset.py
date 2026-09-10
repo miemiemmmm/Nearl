@@ -134,6 +134,19 @@ def parser():
     parser.add_argument(
         "--task_index", type=int, default=0, help="The task index to run"
     )
+    parser.add_argument(
+        "--producer_threads",
+        type=int,
+        default=2,
+        help=(
+            "Number of background CPU producer threads. Each thread owns a "
+            "private clone of the feature set and processes a disjoint subset "
+            "of the trajectories, so the CPU preprocessing (trajectory loading, "
+            "focal parsing, weight caching, coordinate cropping) runs in "
+            "parallel across trajectories. The GPU consumer stays "
+            "single-threaded. Defaults to 2 producer threads."
+        ),
+    )
     args = parser.parse_args()
     if not os.path.exists(args.output_dir):
         raise FileNotFoundError(f"Output directory {args.output_dir} does not exist")
@@ -274,6 +287,7 @@ if __name__ == "__main__":
         "cutoff": VOX_cutoff,
         "padding": VOX_cutoff,
         "frame_offset": 9,
+        "producer_threads": args.get("producer_threads", 2),
     }
 
     if args.get("trajlist_format") == "paired":
@@ -322,12 +336,13 @@ if __name__ == "__main__":
 
     feat.register_features(features)
 
-    # Time only the featurization itself (feat.run()). The CUDA kernels
+    # Time only the featurization CUDA kernels
     # synchronize internally (blocking cudaMemcpy back to host after each
-    # kernel), so the elapsed time includes all GPU work. Interpreter
-    # startup, argument parsing, trajectory-list setup and HDF5 output-file
-    # checks are excluded.
+    # kernel), so the elapsed time includes all GPU work.
+    nearl.features.Feature.gpu_busy_seconds = 0.0
     _t0 = time.perf_counter()
     feat.run()
     _t1 = time.perf_counter()
     print(f"BENCHMARK_RUN_SECONDS={(_t1 - _t0):.6f}")
+    if hasattr(feat, "gpu_busy_time"):
+        print(f"GPU_BUSY_SECONDS={feat.gpu_busy_time:.6f}")
