@@ -6,6 +6,7 @@ include src/*.cpp
 include src/*.cu
 include src/*.h
 include src/*.cuh
+include src/dlpack.NOTICE
 
 include README.rst
 include LICENSE

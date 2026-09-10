@@ -159,10 +159,9 @@ def test_the_dlpack_path_releases_the_gil():
 
     ``bind_action`` wraps the numpy-returning entry points in CommandExecution,
     and the release that matters for those lives in ``CommandExecution::result``.
-    The ``*_into`` functions behind the dlpack wrappers are bound with a plain
-    ``m.def`` and synchronize inside the call, so they need their own release and
-    do not inherit one. They shipped without it, and nothing noticed: the grids
-    are correct either way.
+    The ``*_dlpack`` functions are bound with a plain ``m.def`` and synchronize
+    inside the call, so they need their own release and do not inherit one. They
+    shipped without it, and nothing noticed: the grids are correct either way.
 
     Only the frame-slice commands are measured. The single-frame ones run in tens
     of microseconds, which is too short to separate from the controls.
@@ -226,8 +225,8 @@ def test_the_dlpack_path_releases_the_gil():
     assert released - held > 20, f"controls failed to separate -- {report}"
     for name, value in rates.items():
         assert value > held + 0.5 * (released - held), (
-            f"{name} holds the GIL for the whole call. The *_into binding for it "
-            f"needs py::gil_scoped_release around the *_host_into call "
+            f"{name} holds the GIL for the whole call. The *_dlpack binding for "
+            f"it needs py::gil_scoped_release around the *_host_into call "
             f"(src/actions_py.cpp).\n{report}\n"
             f"Extension under test: {all_actions.__file__}"
         )

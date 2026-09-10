@@ -34,6 +34,7 @@
 #include "gpuutils.cuh"
 #include "voxelize.cuh"
 #include "marching_observers.cuh"
+#include "dlpack_interop.h"
 
 
 namespace py = pybind11;
@@ -400,9 +401,54 @@ size_t do_host_buffer_capacity(const std::string &name) {
 }
 
 
-void do_voxelize_into(uint64_t output_ptr, py::array_t<float> arr_coords,
-                      py::array_t<float> arr_weights, py::array_t<int> grid_dims,
-                      const float spacing, const float cutoff, const float sigma) {
+// Where a grid is written: either the caller's own DLPack buffer, or a fresh
+// DeviceArray handed back through DLPack. One class so each command has a
+// single body instead of one per destination.
+class GridDestination {
+public:
+  GridDestination(const py::object &out, const int *dims) {
+    const int device = nearl_dlpack::current_device();
+    if (out.is_none()) {
+      allocated_ = std::unique_ptr<nearl_dlpack::DeviceArray>(
+          new nearl_dlpack::DeviceArray(std::vector<int64_t>{dims[0], dims[1], dims[2]}, device));
+      data_ = allocated_->data();
+      return;
+    }
+    DeviceContext *ctx = get_global_device_context();
+    cudaStream_t stream = (ctx && ctx->valid()) ? ctx->stream() : nullptr;
+    imported_ = nearl_dlpack::import_output(out, stream, dims, device);
+    data_ = imported_.data();
+  }
+
+  float *data() const { return data_; }
+
+  // None when the caller supplied the buffer: nearl.commands returns the
+  // caller's own object in that case, as numpy's out= does.
+  py::object result() {
+    if (allocated_)
+      return py::cast(allocated_.release(), py::return_value_policy::take_ownership);
+    return py::none();
+  }
+
+private:
+  std::unique_ptr<nearl_dlpack::DeviceArray> allocated_;
+  nearl_dlpack::ImportedTensor imported_;
+  float *data_ = nullptr;
+};
+
+
+// A wrong length here would size the grid from whatever follows in memory and
+// the kernel would write past the destination.
+const int *checked_dims(const py::buffer_info &buf) {
+  if (buf.size != 3)
+    throw py::value_error("grid_dims must have exactly 3 entries, got " + std::to_string(buf.size));
+  return static_cast<const int *>(buf.ptr);
+}
+
+
+py::object do_voxelize_dlpack(FloatInput arr_coords, FloatInput arr_weights, IntInput grid_dims,
+                              const float spacing, const float cutoff, const float sigma,
+                              py::object out) {
   py::buffer_info buf_coords = arr_coords.request();
   py::buffer_info buf_weights = arr_weights.request();
   py::buffer_info buf_dims = grid_dims.request();
@@ -411,26 +457,34 @@ void do_voxelize_into(uint64_t output_ptr, py::array_t<float> arr_coords,
     throw py::value_error("Input arrays must have the same length");
   }
 
-  int *dims = static_cast<int *>(buf_dims.ptr);
+  const int *dims = checked_dims(buf_dims);
   int atom_nr = buf_coords.shape[0];
-  float *output = reinterpret_cast<float *>(output_ptr);
 
-  // Release the GIL across the device work, as the numpy-return path does.
-  py::gil_scoped_release release;
-  voxelize_host_into(output, static_cast<float *>(buf_coords.ptr),
-                     static_cast<float *>(buf_weights.ptr), dims, spacing, atom_nr, cutoff, sigma);
+  // Destroyed after the GIL is reacquired below: releasing an imported tensor
+  // decrefs the producer's Python object.
+  GridDestination dest(out, dims);
+  {
+    py::gil_scoped_release release;
+    voxelize_host_into(dest.data(), static_cast<float *>(buf_coords.ptr),
+                       static_cast<float *>(buf_weights.ptr), dims, spacing, atom_nr, cutoff,
+                       sigma);
+  }
+  return dest.result();
 }
 
 
-void do_traj_voxelize_into(uint64_t output_ptr, py::array_t<float> arr_traj,
-                           py::array_t<float> arr_weights, py::array_t<int> grid_dims,
-                           const float spacing, const float cutoff, const float sigma,
-                           const int type_agg) {
+py::object do_traj_voxelize_dlpack(FloatInput arr_traj, FloatInput arr_weights, IntInput grid_dims,
+                                   const float spacing, const float cutoff, const float sigma,
+                                   const int type_agg, py::object out) {
   py::buffer_info buf_traj = arr_traj.request();
   py::buffer_info buf_weights = arr_weights.request();
   py::buffer_info buf_dims = grid_dims.request();
 
-  int *dims = static_cast<int *>(buf_dims.ptr);
+  if (buf_traj.ndim != 3) {
+    throw py::value_error("The trajectory must have 3 dimensions: (frame_nr, atom_nr, 3)");
+  }
+
+  const int *dims = checked_dims(buf_dims);
   int frame_nr = buf_traj.shape[0];
   int atom_nr = buf_traj.shape[1];
 
@@ -443,30 +497,31 @@ void do_traj_voxelize_into(uint64_t output_ptr, py::array_t<float> arr_traj,
     }
   }
 
-  float *output = reinterpret_cast<float *>(output_ptr);
-  // Release the GIL across the device work, as the numpy-return path does.
-  py::gil_scoped_release release;
-  trajectory_voxelization_host_into(output, static_cast<float *>(buf_traj.ptr),
-                                    static_cast<float *>(buf_weights.ptr), dims, spacing, frame_nr,
-                                    atom_nr, cutoff, sigma, type_agg);
+  GridDestination dest(out, dims);
+  {
+    py::gil_scoped_release release;
+    trajectory_voxelization_host_into(dest.data(), static_cast<float *>(buf_traj.ptr),
+                                      static_cast<float *>(buf_weights.ptr), dims, spacing,
+                                      frame_nr, atom_nr, cutoff, sigma, type_agg);
+  }
+  return dest.result();
 }
 
 
-void do_marching_observers_into(uint64_t output_ptr, py::array_t<float> arr_coord,
-                                py::array_t<float> arr_weights, py::array_t<int> arr_dims,
-                                const float spacing, const float cutoff, const int type_obs,
-                                const int type_agg) {
+py::object do_marching_observers_dlpack(FloatInput arr_coord, FloatInput arr_weights,
+                                        IntInput arr_dims, const float spacing, const float cutoff,
+                                        const int type_obs, const int type_agg, py::object out) {
   py::buffer_info buf_coord = arr_coord.request();
   py::buffer_info buf_weights = arr_weights.request();
   py::buffer_info buf_dims = arr_dims.request();
 
-  const int *dims = static_cast<int *>(buf_dims.ptr);
-  const int frame_nr = buf_coord.shape[0];
-  const int atom_nr = buf_coord.shape[1];
-
   if (buf_coord.ndim != 3) {
     throw py::value_error("Error: The input array must have 3 dimensions: (frame_nr, atom_nr, 3)");
   }
+
+  const int *dims = checked_dims(buf_dims);
+  const int frame_nr = buf_coord.shape[0];
+  const int atom_nr = buf_coord.shape[1];
 
   int supported_mode[OBSERVABLE_COUNT] = SUPPORTED_OBSERVABLES;
   for (int i = 0; i < OBSERVABLE_COUNT; i++) {
@@ -491,31 +546,39 @@ void do_marching_observers_into(uint64_t output_ptr, py::array_t<float> arr_coor
                           std::to_string(MAX_FRAME_NUMBER) + " frames.");
   }
 
-  float *output = reinterpret_cast<float *>(output_ptr);
-  // Release the GIL across the device work, as the numpy-return path does.
-  py::gil_scoped_release release;
-  marching_observer_host_into(output, static_cast<float *>(buf_coord.ptr),
-                              static_cast<float *>(buf_weights.ptr), dims, spacing, frame_nr,
-                              atom_nr, cutoff, type_obs, type_agg);
+  GridDestination dest(out, dims);
+  {
+    py::gil_scoped_release release;
+    marching_observer_host_into(dest.data(), static_cast<float *>(buf_coord.ptr),
+                                static_cast<float *>(buf_weights.ptr), dims, spacing, frame_nr,
+                                atom_nr, cutoff, type_obs, type_agg);
+  }
+  return dest.result();
 }
 
 
-void do_frame_observation_into(uint64_t output_ptr, py::array_t<float> coord_arr,
-                               py::array_t<float> weight_arr, py::array_t<int> dims_arr,
-                               const float spacing, const float cutoff, const int type_obs) {
+py::object do_frame_observation_dlpack(FloatInput coord_arr, FloatInput weight_arr,
+                                       IntInput dims_arr, const float spacing, const float cutoff,
+                                       const int type_obs, py::object out) {
   py::buffer_info buf_coords = coord_arr.request();
   py::buffer_info buf_weights = weight_arr.request();
   py::buffer_info buf_dims = dims_arr.request();
 
-  const int *dims = static_cast<int *>(buf_dims.ptr);
+  const int *dims = checked_dims(buf_dims);
   const int atom_nr = buf_coords.shape[0];
 
-  float *output = reinterpret_cast<float *>(output_ptr);
-  // Release the GIL across the device work, as the numpy-return path does.
-  py::gil_scoped_release release;
-  observe_frame_host_into(output, static_cast<float *>(buf_coords.ptr),
-                          static_cast<float *>(buf_weights.ptr), dims, spacing, atom_nr, cutoff,
-                          type_obs);
+  if (buf_coords.shape[0] != buf_weights.shape[0]) {
+    throw py::value_error("Input arrays must have the same length");
+  }
+
+  GridDestination dest(out, dims);
+  {
+    py::gil_scoped_release release;
+    observe_frame_host_into(dest.data(), static_cast<float *>(buf_coords.ptr),
+                            static_cast<float *>(buf_weights.ptr), dims, spacing, atom_nr, cutoff,
+                            type_obs);
+  }
+  return dest.result();
 }
 
 
@@ -553,23 +616,27 @@ PYBIND11_MODULE(all_actions, m) {
   m.def("_host_buffer_capacity", &do_host_buffer_capacity, py::arg("name"),
         "Return the current capacity of a named reusable pinned host buffer.");
 
-  m.def("frame_voxelize_into", &do_voxelize_into, py::arg("output_ptr"), py::arg("coords"),
-        py::arg("weights"), py::arg("grid_dims"), py::arg("spacing"), py::arg("cutoff"),
-        py::arg("sigma"),
-        "Voxelize a set of coordinates and weights into a pre-allocated CUDA buffer.");
+  nearl_dlpack::register_device_array(m);
 
-  m.def("frame_observation_into", &do_frame_observation_into, py::arg("output_ptr"),
-        py::arg("coords"), py::arg("weights"), py::arg("dims"), py::arg("spacing"),
-        py::arg("cutoff"), py::arg("type_obs"),
-        "Compute the observable for a single frame into a pre-allocated CUDA buffer.");
+  // out=None allocates a DeviceArray and returns it; passing a DLPack-capable
+  // object writes into that object's memory and returns None.
+  m.def("frame_voxelize_dlpack", &do_voxelize_dlpack, py::arg("coords"), py::arg("weights"),
+        py::arg("grid_dims"), py::arg("spacing"), py::arg("cutoff"), py::arg("sigma"),
+        py::kw_only(), py::arg("out") = py::none(),
+        "Voxelize a set of coordinates and weights into CUDA memory.");
 
-  m.def("marching_observer_into", &do_marching_observers_into, py::arg("output_ptr"),
-        py::arg("coords"), py::arg("weights"), py::arg("dims"), py::arg("spacing"),
-        py::arg("cutoff"), py::arg("type_obs"), py::arg("type_agg"),
-        "Marching observers on a frame slice into a pre-allocated CUDA buffer.");
+  m.def("frame_observation_dlpack", &do_frame_observation_dlpack, py::arg("coords"),
+        py::arg("weights"), py::arg("dims"), py::arg("spacing"), py::arg("cutoff"),
+        py::arg("type_obs"), py::kw_only(), py::arg("out") = py::none(),
+        "Compute the observable for a single frame into CUDA memory.");
 
-  m.def("density_flow_into", &do_traj_voxelize_into, py::arg("output_ptr"), py::arg("traj"),
-        py::arg("weights"), py::arg("grid_dims"), py::arg("spacing"), py::arg("cutoff"),
-        py::arg("sigma"), py::arg("type_agg"),
-        "Voxelize a trajectory into a pre-allocated CUDA buffer.");
+  m.def("marching_observer_dlpack", &do_marching_observers_dlpack, py::arg("coords"),
+        py::arg("weights"), py::arg("dims"), py::arg("spacing"), py::arg("cutoff"),
+        py::arg("type_obs"), py::arg("type_agg"), py::kw_only(), py::arg("out") = py::none(),
+        "Marching observers on a frame slice into CUDA memory.");
+
+  m.def("density_flow_dlpack", &do_traj_voxelize_dlpack, py::arg("traj"), py::arg("weights"),
+        py::arg("grid_dims"), py::arg("spacing"), py::arg("cutoff"), py::arg("sigma"),
+        py::arg("type_agg"), py::kw_only(), py::arg("out") = py::none(),
+        "Voxelize a trajectory into CUDA memory.");
 }

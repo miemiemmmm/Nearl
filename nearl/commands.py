@@ -24,6 +24,13 @@ except ImportError:
 
     all_actions = _MissingExtension()
 
+try:
+    # Re-exported so callers can isinstance()-check what the *_dlpack commands
+    # return without reaching into the extension module.
+    DeviceArray = all_actions.DeviceArray
+except ImportError:
+    DeviceArray = None
+
 __all__ = [
     # Single frame methods
     "frame_observation",
@@ -36,6 +43,7 @@ __all__ = [
     "finalize_context",
     "context_valid",
     # DLPack GPU tensor methods
+    "DeviceArray",
     "frame_voxelize_dlpack",
     "frame_observation_dlpack",
     "marching_observer_dlpack",
@@ -286,103 +294,134 @@ def context_valid():
     return all_actions.context_valid()
 
 
-def _alloc_output(grid_dims, device="cuda"):
-    """Allocate a contiguous float32 torch tensor for a Nearl grid."""
-    import torch
+def _grid_dims(grid_dims):
+    dims = np.asarray(grid_dims, dtype=np.int32)
+    if dims.shape != (3,):
+        raise ValueError(f"grid_dims must hold 3 entries, got {tuple(dims.shape)}")
+    return dims
 
-    return torch.empty(tuple(grid_dims), dtype=torch.float32, device=device)
 
-
-def frame_voxelize_dlpack(coords, weights, grid_dims, spacing, cutoff, sigma):
+def frame_voxelize_dlpack(coords, weights, grid_dims, spacing, cutoff, sigma, out=None):
     """
-    Voxelize a single frame and return the grid as a ``torch.Tensor`` on CUDA.
+    Voxelize a single frame straight into CUDA memory, skipping the
+    Device-to-Host copy that :func:`frame_voxelize` performs.
 
-    The output tensor is allocated by PyTorch and filled directly by the CUDA
-    kernel, avoiding the Device-to-Host copy performed by :func:`frame_voxelize`.
-    """
-    if coords.dtype != np.float32:
-        coords = coords.astype(np.float32)
-    if weights.dtype != np.float32:
-        weights = weights.astype(np.float32)
-    grid_dims = np.array(grid_dims, dtype=int)
-    spacing = float(spacing)
-    cutoff = float(cutoff)
-    sigma = float(sigma)
+    Parameters
+    ----------
+    out : object, optional
+      Any DLPack-capable CUDA buffer (``torch.Tensor``, ``cupy.ndarray``, ...)
+      to write into. It must be float32, C-contiguous, on this process's CUDA
+      device, and hold ``prod(grid_dims)`` elements. When omitted, a new grid is
+      allocated here.
 
-    output = _alloc_output(grid_dims, device="cuda")
-    all_actions.frame_voxelize_into(
-        output.data_ptr(), coords, weights, grid_dims, spacing, cutoff, sigma
-    )
-    return output
+    Returns
+    -------
+    object
+      ``out`` when one was given, otherwise a :class:`DeviceArray` exporting the
+      grid through DLPack.
 
-
-def frame_observation_dlpack(coords, weights, grid_dims, spacing, cutoff, type_obs):
-    """
-    Compute a single-frame marching-observer observable and return the grid as a
-    ``torch.Tensor`` on CUDA.
+    Examples
+    --------
+    >>> import torch
+    >>> from nearl import commands
+    >>> grid = commands.frame_voxelize_dlpack(coords, weights, (32, 32, 32), 0.5, 5, 2)
+    >>> tensor = torch.from_dlpack(grid)          # zero-copy
     """
     if coords.dtype != np.float32:
         coords = coords.astype(np.float32)
     if weights.dtype != np.float32:
         weights = weights.astype(np.float32)
-    grid_dims = np.array(grid_dims, dtype=int)
-    spacing = float(spacing)
-    cutoff = float(cutoff)
-    type_obs = int(type_obs)
-
-    output = _alloc_output(grid_dims, device="cuda")
-    all_actions.frame_observation_into(
-        output.data_ptr(), coords, weights, grid_dims, spacing, cutoff, type_obs
+    result = all_actions.frame_voxelize_dlpack(
+        coords,
+        weights,
+        _grid_dims(grid_dims),
+        float(spacing),
+        float(cutoff),
+        float(sigma),
+        out=out,
     )
-    return output
+    return out if out is not None else result
+
+
+def frame_observation_dlpack(
+    coords, weights, grid_dims, spacing, cutoff, type_obs, out=None
+):
+    """
+    Compute a single-frame marching-observer observable straight into CUDA
+    memory. See :func:`frame_voxelize_dlpack` for ``out`` and the return value.
+    """
+    if coords.dtype != np.float32:
+        coords = coords.astype(np.float32)
+    if weights.dtype != np.float32:
+        weights = weights.astype(np.float32)
+    result = all_actions.frame_observation_dlpack(
+        coords,
+        weights,
+        _grid_dims(grid_dims),
+        float(spacing),
+        float(cutoff),
+        int(type_obs),
+        out=out,
+    )
+    return out if out is not None else result
 
 
 def marching_observer_dlpack(
-    coords, weights, grid_dims, spacing, cutoff, type_obs, type_agg
+    coords, weights, grid_dims, spacing, cutoff, type_obs, type_agg, out=None
 ):
     """
-    Run marching observers on a frame slice and return the aggregated grid as a
-    ``torch.Tensor`` on CUDA.
+    Run marching observers on a frame slice straight into CUDA memory. See
+    :func:`frame_voxelize_dlpack` for ``out`` and the return value.
     """
     if coords.dtype != np.float32:
         coords = coords.astype(np.float32)
     if weights.dtype != np.float32:
         weights = weights.astype(np.float32)
-    grid_dims = np.asarray(grid_dims, dtype=int)
-
-    output = _alloc_output(grid_dims, device="cuda")
-    all_actions.marching_observer_into(
-        output.data_ptr(),
+    result = all_actions.marching_observer_dlpack(
         coords,
         weights,
-        grid_dims,
-        spacing,
-        cutoff,
-        type_obs,
-        type_agg,
+        _grid_dims(grid_dims),
+        float(spacing),
+        float(cutoff),
+        int(type_obs),
+        int(type_agg),
+        out=out,
     )
-    return output
+    return out if out is not None else result
 
 
-def density_flow_dlpack(traj, weights, grid_dims, spacing, cutoff, sigma, type_agg):
+def density_flow_dlpack(
+    traj, weights, grid_dims, spacing, cutoff, sigma, type_agg, out=None
+):
     """
-    Voxelize a trajectory and return the aggregated grid as a ``torch.Tensor`` on CUDA.
+    Voxelize a trajectory straight into CUDA memory. See
+    :func:`frame_voxelize_dlpack` for ``out`` and the return value.
+
+    Examples
+    --------
+    Write a batch without allocating anything per sample:
+
+    >>> batch = torch.empty((n, 32, 32, 32), dtype=torch.float32, device="cuda")
+    >>> for i, traj in enumerate(trajectories):
+    ...     commands.density_flow_dlpack(
+    ...         traj, weights, (32, 32, 32), 0.5, 5, 2, 1, out=batch[i]
+    ...     )
     """
     if traj.dtype != np.float32:
         traj = traj.astype(np.float32)
     if weights.dtype != np.float32:
         weights = weights.astype(np.float32)
-    grid_dims = np.array(grid_dims, dtype=int)
-    spacing = float(spacing)
-    cutoff = float(cutoff)
-    sigma = float(sigma)
-    type_agg = int(type_agg)
-
-    output = _alloc_output(grid_dims, device="cuda")
-    all_actions.density_flow_into(
-        output.data_ptr(), traj, weights, grid_dims, spacing, cutoff, sigma, type_agg
+    result = all_actions.density_flow_dlpack(
+        traj,
+        weights,
+        _grid_dims(grid_dims),
+        float(spacing),
+        float(cutoff),
+        float(sigma),
+        int(type_agg),
+        out=out,
     )
-    return output
+    return out if out is not None else result
 
 
 def discretize_coord(coords, weights, grid_dims, spacing):
