@@ -139,62 +139,79 @@ void copy_h2d_async(DeviceContext *ctx, void *destination, const void *source, s
 void sum_reduction_dispatch(float *array, int arr_length, float *partial_host);
 
 
-template <typename T> __device__ T max_device(const T *Arr, const int N) {
-  T max = Arr[0];
-  for (int i = 1; i < N; i++) {
-    if (Arr[i] > max) {
-      max = Arr[i];
-    }
+// Frames are launched as blockIdx.y; beyond the grid limit the launch would
+// fail with an opaque invalid-configuration error.
+inline void check_frame_count(int frame_nr) {
+  if (frame_nr > MAX_FRAME_NUMBER) {
+    std::ostringstream msg;
+    msg << "The number of frames " << frame_nr << " exceeds the maximum of " << MAX_FRAME_NUMBER
+        << " that a single launch can cover.";
+    throw std::runtime_error(msg.str());
   }
-  return max;
 }
 
 
-template <typename T> __device__ T min_device(const T *Arr, const int N) {
-  T min = Arr[0];
+// The aggregation helpers below are templated on the *sequence*, not on the
+// element type, so they accept either a plain array or a FrameSeries view of a
+// strided column. Nothing needs to be staged into a per-thread buffer first.
+struct FrameSeries {
+  float *base;
+  int stride;
+  __device__ float &operator[](int i) const { return base[i * stride]; }
+};
+
+
+template <typename Seq> __device__ float max_device(Seq arr, const int N) {
+  float value = arr[0];
   for (int i = 1; i < N; i++) {
-    if (Arr[i] < min) {
-      min = Arr[i];
+    if (arr[i] > value) {
+      value = arr[i];
     }
   }
-  return min;
+  return value;
 }
 
 
-template <typename T> __device__ T sum_device(const T *Arr, const int N) {
-  T sum = 0;
+template <typename Seq> __device__ float min_device(Seq arr, const int N) {
+  float value = arr[0];
+  for (int i = 1; i < N; i++) {
+    if (arr[i] < value) {
+      value = arr[i];
+    }
+  }
+  return value;
+}
+
+
+template <typename Seq> __device__ float sum_device(Seq arr, const int N) {
+  float sum = 0.0f;
   for (int i = 0; i < N; i++) {
-    sum += Arr[i];
+    sum += arr[i];
   }
   return sum;
 }
 
 
-template <typename T> __device__ float mean_device(const T *Arr, const int N) {
-  T thesum = sum_device(Arr, N);
-  float ret = static_cast<float>(sum_device(Arr, N)) / N;
-  return ret;
+template <typename Seq> __device__ float mean_device(Seq arr, const int N) {
+  return sum_device(arr, N) / N;
 }
 
 
-template <typename T> __device__ float standard_deviation_device(const T *Arr, const int N) {
-  float mean = mean_device(Arr, N);
-  T sum = 0;
+// Welford: one pass, and no catastrophic cancellation for series whose spread
+// is small next to their mean.
+template <typename Seq> __device__ float variance_device(Seq arr, const int N) {
+  float mean = 0.0f, m2 = 0.0f;
   for (int i = 0; i < N; i++) {
-    sum += (Arr[i] - mean) * (Arr[i] - mean);
+    const float delta = arr[i] - mean;
+    mean += delta / (i + 1);
+    m2 += delta * (arr[i] - mean);
   }
-  float ret = sqrtf(sum / N);
-  return ret;
+  return m2 / N;
 }
 
 
-template <typename T> __device__ float variance_device(const T *Arr, const int N) {
-  float mean = mean_device(Arr, N);
-  T sum = 0;
-  for (int i = 0; i < N; i++) {
-    sum += (Arr[i] - mean) * (Arr[i] - mean);
-  }
-  return sum / N;
+template <typename Seq> __device__ float standard_deviation_device(Seq arr, const int N) {
+  return sqrtf(variance_device(arr, N));
 }
 
 
@@ -262,20 +279,20 @@ template <typename T> __device__ float information_entropy_device(const T *Arr, 
  * In this function, it calculates the histogram with 16 bins based on the input array.
  * For each bin, calculate the probability and then the entropy.
  */
-template <typename T>
-__device__ float information_entropy_histogram_device(const T *Arr, const int N) {
+template <typename Seq>
+__device__ float information_entropy_histogram_device(Seq arr, const int N) {
   if (N <= 1)
     return 0.0f;
-  T min = Arr[0];
-  T max = Arr[0];
+  float min = arr[0];
+  float max = arr[0];
   for (int i = 1; i < N; ++i) {
-    if (Arr[i] < min)
-      min = Arr[i];
-    if (Arr[i] > max)
-      max = Arr[i];
+    if (arr[i] < min)
+      min = arr[i];
+    if (arr[i] > max)
+      max = arr[i];
   }
 
-  const T range = max - min;
+  const float range = max - min;
   if (range == 0)
     return 0.0f;
 
@@ -283,7 +300,7 @@ __device__ float information_entropy_histogram_device(const T *Arr, const int N)
   int bin = 0;
   float normalized = 0.0f;
   for (int i = 0; i < N; ++i) {
-    normalized = static_cast<float>(Arr[i] - min) / range;
+    normalized = static_cast<float>(arr[i] - min) / range;
     bin = static_cast<int>(normalized * INFORMATION_ENTROPY_BINS);
     if (bin >= INFORMATION_ENTROPY_BINS)
       bin = INFORMATION_ENTROPY_BINS - 1;
@@ -316,7 +333,7 @@ __device__ float information_entropy_histogram_device(const T *Arr, const int N)
  *
  * @note The function assumes that the input array contains at least two elements.
  */
-template <typename T> __device__ float slope_device(const T *arr, const int N) {
+template <typename Seq> __device__ float slope_device(Seq arr, const int N) {
   if (N <= 1)
     return 0;
 
@@ -354,22 +371,22 @@ template <typename T> __device__ float slope_device(const T *arr, const int N) {
  * and is not efficient for large arrays.
  *
  */
-template <typename T> __device__ float median_device(T *Arr, const int N) {
-  // Sort the array
+template <typename Seq> __device__ float median_device(Seq arr, const int N) {
+  // Sorts @p arr in place. Callers pass a scratch buffer that is rebuilt on the
+  // next call, so destroying the input is intentional.
   for (int i = 0; i < N; i++) {
     for (int j = i + 1; j < N; j++) {
-      if (Arr[i] > Arr[j]) {
-        T temp = Arr[i];
-        Arr[i] = Arr[j];
-        Arr[j] = temp;
+      if (arr[i] > arr[j]) {
+        const float temp = arr[i];
+        arr[i] = arr[j];
+        arr[j] = temp;
       }
     }
   }
-  // Calculate the median
   if (N % 2 == 0) {
-    return (Arr[N / 2 - 1] + Arr[N / 2]) / 2;
+    return (arr[N / 2 - 1] + arr[N / 2]) / 2;
   } else {
-    return Arr[N / 2];
+    return arr[N / 2];
   }
 }
 

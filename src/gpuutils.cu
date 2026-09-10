@@ -222,33 +222,43 @@ __global__ void voxel_addition_global(float *d_parent, float *d_add, const int N
 }
 
 
+// Aggregate the frame dimension of a (frame_nr, gridpoint_nr) buffer.
+//
+// The series for one grid point is read straight out of @p d_in. Consecutive
+// threads differ in the grid point, not the frame, so every access is
+// coalesced -- staging into a per-thread array bought nothing and was what
+// capped the slice length.
+//
+// @note type_agg 3 (median) sorts its own column of @p d_in in place. Callers
+//       pass a scratch buffer that is rewritten on the next call.
 __global__ void gridwise_aggregation_global(float *d_in, float *d_out, const int frame_nr,
                                             const int gridpoint_nr, const int type_agg) {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx >= gridpoint_nr)
     return;
-
-  float tmp_array[MAX_FRAME_NUMBER];
-  for (int i = 0; i < frame_nr; i++) {
-    tmp_array[i] = d_in[i * gridpoint_nr + idx];
+  if (frame_nr <= 0) {
+    d_out[idx] = 0.0f;
+    return;
   }
 
+  FrameSeries series{d_in + idx, gridpoint_nr};
+
   if (type_agg == 1) {
-    d_out[idx] = mean_device<float>(tmp_array, frame_nr);
+    d_out[idx] = mean_device(series, frame_nr);
   } else if (type_agg == 2) {
-    d_out[idx] = standard_deviation_device<float>(tmp_array, frame_nr);
+    d_out[idx] = standard_deviation_device(series, frame_nr);
   } else if (type_agg == 3) {
-    d_out[idx] = median_device<float>(tmp_array, frame_nr);
+    d_out[idx] = median_device(series, frame_nr);
   } else if (type_agg == 4) {
-    d_out[idx] = variance_device<float>(tmp_array, frame_nr);
+    d_out[idx] = variance_device(series, frame_nr);
   } else if (type_agg == 5) {
-    d_out[idx] = max_device<float>(tmp_array, frame_nr);
+    d_out[idx] = max_device(series, frame_nr);
   } else if (type_agg == 6) {
-    d_out[idx] = min_device<float>(tmp_array, frame_nr);
+    d_out[idx] = min_device(series, frame_nr);
   } else if (type_agg == 7) {
-    d_out[idx] = information_entropy_histogram_device(tmp_array, frame_nr);
+    d_out[idx] = information_entropy_histogram_device(series, frame_nr);
   } else if (type_agg == 8) {
-    d_out[idx] = slope_device<float>(tmp_array, frame_nr);
+    d_out[idx] = slope_device(series, frame_nr);
   } else {
     // Should throw exception in the python-end
     d_out[idx] = 0;
@@ -267,7 +277,7 @@ __global__ void gridwise_aggregation_global(float *d_in, float *d_out, const int
 void aggregate_host(float *voxel_traj, float *result_grid, const int frame_number,
                     const int grid_number, const int type_agg) {
   unsigned int grid_size = (grid_number + BLOCK_SIZE - 1) / BLOCK_SIZE;
-  unsigned int _frame_number = frame_number > MAX_FRAME_NUMBER ? MAX_FRAME_NUMBER : frame_number;
+  check_frame_count(frame_number);
 
   DeviceContext *ctx = get_global_device_context();
   const bool use_ctx = ctx && ctx->valid();
@@ -290,7 +300,7 @@ void aggregate_host(float *voxel_traj, float *result_grid, const int frame_numbe
   CUDA_CHECK(cudaMemsetAsync(tmp_grid_gpu, 0, grid_number * sizeof(float), stream));
 
   gridwise_aggregation_global<<<grid_size, BLOCK_SIZE, 0, stream>>>(
-      voxel_traj_gpu, tmp_grid_gpu, _frame_number, grid_number, type_agg);
+      voxel_traj_gpu, tmp_grid_gpu, frame_number, grid_number, type_agg);
   CUDA_CHECK_KERNEL();
   CUDA_CHECK(cudaMemcpyAsync(result_grid, tmp_grid_gpu, grid_number * sizeof(float),
                              cudaMemcpyDeviceToHost, stream));

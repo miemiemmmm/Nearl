@@ -1,9 +1,9 @@
 # Part of the following data is extracted from https://periodictable.com/
 
 # Frames per slice that the CUDA kernels can aggregate. Mirrors MAX_FRAME_NUMBER
-# in src/constants.h, which sizes a fixed stack array; the host functions clamp
-# to it, so anything beyond is silently dropped. Change both together.
-MAX_FRAME_NUMBER = 512
+# in src/constants.h. Frames map to blockIdx.y, so this is the CUDA grid limit
+# rather than a buffer size; beyond it the kernels raise instead of truncating.
+MAX_FRAME_NUMBER = 65535
 
 
 # Unit: Angstrom
