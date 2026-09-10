@@ -24,7 +24,10 @@ import sys
 import numpy as np
 import pytest
 
-torch = pytest.importorskip("torch")
+try:
+    import torch
+except ImportError as exc:  # absent, or installed but unusable
+    pytest.skip(f"torch is unavailable: {exc}", allow_module_level=True)
 
 from nearl import commands
 

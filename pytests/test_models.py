@@ -1,5 +1,9 @@
 import pytest
-import torch
+
+try:
+    import torch
+except ImportError as exc:  # absent, or installed but unusable
+    pytest.skip(f"torch is unavailable: {exc}", allow_module_level=True)
 
 from nearl.models.model_atom3d import Atom3DNetwork
 from nearl.models.model_deeprank import DeepRankNetwork

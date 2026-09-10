@@ -168,7 +168,10 @@ def test_the_dlpack_path_releases_the_gil():
     """
     import numpy as np
 
-    torch = pytest.importorskip("torch")
+    try:
+        import torch
+    except ImportError as exc:
+        pytest.skip(f"torch is unavailable: {exc}")
     from nearl import all_actions, commands
 
     frames, atoms = 40, 1500
