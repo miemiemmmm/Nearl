@@ -566,7 +566,6 @@ void marching_observer_host_into(float *output, const float *coord, const float 
   cudaStream_t stream = use_ctx ? ctx->stream() : 0;
 
   float *mobs_traj;
-  float *tmp_mobs_gpu;
   float *coords_device;
   float *weights_device;
   int *dims_device;
@@ -574,7 +573,6 @@ void marching_observer_host_into(float *output, const float *coord, const float 
   if (use_ctx) {
     mobs_traj = ctx->get_buffer_f(static_cast<size_t>(frame_number) * observer_number,
                                   static_cast<size_t>(BufferSlot::TRAJ_DYNAMICS));
-    tmp_mobs_gpu = ctx->get_buffer_f(observer_number, static_cast<size_t>(BufferSlot::TMP_GRID));
     coords_device = ctx->get_buffer_f(static_cast<size_t>(frame_number) * atom_per_frame * 3,
                                       static_cast<size_t>(BufferSlot::COORDS));
     weights_device = ctx->get_buffer_f(static_cast<size_t>(frame_number) * atom_per_frame,
@@ -582,14 +580,12 @@ void marching_observer_host_into(float *output, const float *coord, const float 
     dims_device = ctx->get_buffer_i(3, static_cast<size_t>(BufferSlot::DIMS));
   } else {
     CUDA_CHECK(cudaMalloc(&mobs_traj, frame_number * observer_number * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&tmp_mobs_gpu, observer_number * sizeof(float)));
     CUDA_CHECK(cudaMalloc(&coords_device, frame_number * atom_per_frame * 3 * sizeof(float)));
     CUDA_CHECK(cudaMalloc(&weights_device, frame_number * atom_per_frame * sizeof(float)));
     CUDA_CHECK(cudaMalloc(&dims_device, 3 * sizeof(int)));
   }
 
   CUDA_CHECK(cudaMemsetAsync(mobs_traj, 0, frame_number * observer_number * sizeof(float), stream));
-  CUDA_CHECK(cudaMemsetAsync(tmp_mobs_gpu, 0, observer_number * sizeof(float), stream));
   CUDA_CHECK(cudaMemcpyAsync(coords_device, coord,
                              frame_number * atom_per_frame * 3 * sizeof(float),
                              cudaMemcpyHostToDevice, stream));
@@ -617,7 +613,6 @@ void marching_observer_host_into(float *output, const float *coord, const float 
   } else {
     CUDA_CHECK(cudaDeviceSynchronize());
     CUDA_CHECK(cudaFree(mobs_traj));
-    CUDA_CHECK(cudaFree(tmp_mobs_gpu));
     CUDA_CHECK(cudaFree(coords_device));
     CUDA_CHECK(cudaFree(weights_device));
     CUDA_CHECK(cudaFree(dims_device));

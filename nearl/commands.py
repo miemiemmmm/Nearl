@@ -26,9 +26,10 @@ except ImportError:
 
 try:
     # Re-exported so callers can isinstance()-check what the *_dlpack commands
-    # return without reaching into the extension module.
+    # return without reaching into the extension module. A stale extension
+    # raises AttributeError here, and must not take the whole module down.
     DeviceArray = all_actions.DeviceArray
-except ImportError:
+except (ImportError, AttributeError):
     DeviceArray = None
 
 __all__ = [
