@@ -441,8 +441,9 @@ static void launch_marching_observer(const ObservableType type_obs, const unsign
   switch (type_obs) {
 #define OBSERVABLE_LAUNCH_CASE(NAME, VALUE, FN)                                                    \
   case ObservableType::NAME:                                                                       \
-    marching_observer_global<ObservableType::NAME><<<dim3(grid_size, frame_number, 1), BLOCK_SIZE, 0, stream>>>(  \
-        mobs_ret, coord_frame, weight_frame, dims, spacing, frame_number, atomnr, cutoff);         \
+    marching_observer_global<ObservableType::NAME>                                                 \
+        <<<dim3(grid_size, frame_number, 1), BLOCK_SIZE, 0, stream>>>(                             \
+            mobs_ret, coord_frame, weight_frame, dims, spacing, frame_number, atomnr, cutoff);     \
     break;
     OBSERVABLE_TYPE_LIST(OBSERVABLE_LAUNCH_CASE)
 #undef OBSERVABLE_LAUNCH_CASE
