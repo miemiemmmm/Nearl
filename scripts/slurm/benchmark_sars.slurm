@@ -28,6 +28,15 @@ PARTITION="normal"
 TIME="01:00:00"
 GPUS_PER_NODE=4
 
+# The benchmark venv (nearl_bench_env) has pytraj + numba; the default
+# nearl_env does NOT, so every job would fail without this override. sbatch
+# jobs inherit the launcher's environment, so exporting here propagates to all
+# jobs.
+export BENCH_VENV="$NEARL_DIR/../nearl_bench_env/bin/activate"
+# Number of times each job repeats the 6-feature suite (3 repeats -> 18 rows
+# per ref).
+export REPEATS=3
+
 # ---------------------------------------------------------------------------
 # Hash -> label map. Each key is a git hash (full or short) or tag; each value
 # is the human-readable label used in the CSV's git_ref column and the legend.
@@ -54,7 +63,7 @@ declare -A HASH_LABEL=(
     [c66fd0bfdb]="PR20 gil-fix"
     [c667238400]="PR21 voxelize-kernel"
     [8c986d93c2]="PR27 numba-query"
-    [a70b98aa73]="PR24 produce-worker"
+    [1ef4ac46a2]="PR24 produce-worker"
     # [WORKING]="current (working tree)"  # WORKING benchmarks the current working tree in place.
     # [<hash-or-tag>]="<label>"
 )
