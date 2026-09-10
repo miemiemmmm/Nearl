@@ -450,15 +450,6 @@ __device__ float gaussian_map_device(const T distance, const T mu, const T sigma
   }
 }
 
-template <typename T>
-__device__ double gaussian_map_nd_device(const T *x, const T *mu, const T *sigma, const int dim) {
-  // this function aims to calculate the
-  double ret = 1;
-  for (int i = 0; i < dim; i++) {
-    ret *= gaussian_map_device(x[i], mu[i], sigma[i]);
-  }
-  return ret;
-}
 
 template <typename T>
 __device__ float distance_device(const T *coord1, const T *coord2, const int dim) {

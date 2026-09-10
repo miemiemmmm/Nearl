@@ -32,7 +32,7 @@ __global__ void coordi_interp_global(const float *coord, float *interpolated, co
   }
   // Process the interpolated array with the task_index (Should not be race conditions)
   if (dist_square < cutoff * cutoff) {
-    interpolated[task_index] = gaussian_map_device(sqrt(dist_square), 0.0f, sigma);
+    interpolated[task_index] = gaussian_map_device(sqrtf(dist_square), 0.0f, sigma);
   } else {
     // Set to 0 to avoid reuse of the previous value
     interpolated[task_index] = 0.0f;
@@ -71,10 +71,11 @@ __global__ void frame_interp_global(const float *coords_frame, const float *weig
   const int buff_dims[3] = {dims[0] + buff_dim + buff_dim, dims[1] + buff_dim + buff_dim,
                             dims[2] + buff_dim + buff_dim};
   const int gridpoint_nr = dims[0] * dims[1] * dims[2];
-  const float *coord = coords_frame + (frame_idx * atom_nr + atom_idx) * 3;
+  const size_t frame_idx_w = frame_idx;
+  const float *coord = coords_frame + (frame_idx_w * atom_nr + atom_idx) * 3;
   const float cutoff_sq = cutoff * cutoff;
-  const float weight = weights_frame[frame_idx * atom_nr + atom_idx];
-  float *frame_output = interpolated_frame + frame_idx * gridpoint_nr;
+  const float weight = weights_frame[frame_idx_w * atom_nr + atom_idx];
+  float *frame_output = interpolated_frame + frame_idx_w * gridpoint_nr;
 
   if (coord[0] == DEFAULT_COORD_PLACEHOLDER && coord[1] == DEFAULT_COORD_PLACEHOLDER &&
       coord[2] == DEFAULT_COORD_PLACEHOLDER) {
@@ -130,7 +131,7 @@ __global__ void frame_interp_global(const float *coords_frame, const float *weig
     dist_sq = (coord[0] - grid_x) * (coord[0] - grid_x) +
               (coord[1] - grid_y) * (coord[1] - grid_y) + (coord[2] - grid_z) * (coord[2] - grid_z);
     if (dist_sq < cutoff_sq)
-      local_sum += gaussian_map_device(sqrt(dist_sq), 0.0f, sigma);
+      local_sum += gaussian_map_device(sqrtf(dist_sq), 0.0f, sigma);
   }
 
   // Store partial sum to shared memory
@@ -178,7 +179,7 @@ __global__ void frame_interp_global(const float *coords_frame, const float *weig
 
     if (dist_sq < cutoff_sq) {
       const int gid = x * dims[0] * dims[1] + y * dims[0] + z;
-      atomicAdd(frame_output + gid, gaussian_map_device(sqrt(dist_sq), 0.0f, sigma) * inv_sum);
+      atomicAdd(frame_output + gid, gaussian_map_device(sqrtf(dist_sq), 0.0f, sigma) * inv_sum);
     }
   }
 }
@@ -197,7 +198,7 @@ void voxelize_host_cpu(float *interpolated, const float *coord, const float *wei
   unsigned int gridpoint_nr = dims[0] * dims[1] * dims[2];
 
   int ai = 0, aj = 0, ak = 0, gix = -1;
-  int damax = ceil(cutoff / spacing);
+  int damax = ceilf(cutoff / spacing);
 
   float dvec[3], grid_spac[3], grid_llim[3] = {0.0f, 0.0f, 0.0f};
   float c2 = cutoff * cutoff, d2 = 0.0, netw = 0.0;
@@ -222,9 +223,9 @@ void voxelize_host_cpu(float *interpolated, const float *coord, const float *wei
       continue;
     }
 
-    ai = floor((coord[offset]) / grid_spac[0]);
-    aj = floor((coord[offset + 1]) / grid_spac[1]);
-    ak = floor((coord[offset + 2]) / grid_spac[2]);
+    ai = floorf((coord[offset]) / grid_spac[0]);
+    aj = floorf((coord[offset + 1]) / grid_spac[1]);
+    ak = floorf((coord[offset + 2]) / grid_spac[2]);
     netw = 0.0;
     for (int ii = ai - damax; ii <= ai + damax; ii++) {
       dvec[0] = coord[offset] - (grid_llim[0] + (ii + 0.5) * grid_spac[0]);
@@ -453,21 +454,22 @@ void trajectory_voxelization_host(float *voxelize_dynamics, const float *coord, 
                                               static_cast<size_t>(BufferSlot::TRAJ_DYNAMICS));
     dims_gpu = ctx->get_buffer_i(3, static_cast<size_t>(BufferSlot::DIMS));
   } else {
-    CUDA_CHECK(cudaMalloc(&coord_gpu, frame_nr * atom_nr * 3 * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&weight_gpu, frame_nr * atom_nr * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&coord_gpu, static_cast<size_t>(frame_nr) * atom_nr * 3 * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&weight_gpu, static_cast<size_t>(frame_nr) * atom_nr * sizeof(float)));
     CUDA_CHECK(cudaMalloc(&tmp_voxel_gpu, gridpoint_nr * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&voxelize_dynamics_gpu, frame_nr * gridpoint_nr * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&voxelize_dynamics_gpu,
+                          static_cast<size_t>(frame_nr) * gridpoint_nr * sizeof(float)));
     CUDA_CHECK(cudaMalloc(&dims_gpu, 3 * sizeof(int)));
   }
 
-  copy_h2d_async(ctx, coord_gpu, coord, frame_nr * atom_nr * 3 * sizeof(float), BufferSlot::COORDS,
-                 stream);
-  copy_h2d_async(ctx, weight_gpu, weight, frame_nr * atom_nr * sizeof(float), BufferSlot::WEIGHTS,
-                 stream);
+  copy_h2d_async(ctx, coord_gpu, coord, static_cast<size_t>(frame_nr) * atom_nr * 3 * sizeof(float),
+                 BufferSlot::COORDS, stream);
+  copy_h2d_async(ctx, weight_gpu, weight, static_cast<size_t>(frame_nr) * atom_nr * sizeof(float),
+                 BufferSlot::WEIGHTS, stream);
   copy_h2d_async(ctx, dims_gpu, dims, 3 * sizeof(int), BufferSlot::DIMS, stream);
   CUDA_CHECK(cudaMemsetAsync(tmp_voxel_gpu, 0.0f, gridpoint_nr * sizeof(float), stream));
-  CUDA_CHECK(
-      cudaMemsetAsync(voxelize_dynamics_gpu, 0, frame_nr * gridpoint_nr * sizeof(float), stream));
+  CUDA_CHECK(cudaMemsetAsync(voxelize_dynamics_gpu, 0,
+                             static_cast<size_t>(frame_nr) * gridpoint_nr * sizeof(float), stream));
 
   // Process every frame in one launch; blockIdx.y selects the frame.
   if (atom_nr > 0)
@@ -582,19 +584,22 @@ void trajectory_voxelization_host_into(float *output, const float *coord, const 
                                               static_cast<size_t>(BufferSlot::TRAJ_DYNAMICS));
     dims_gpu = ctx->get_buffer_i(3, static_cast<size_t>(BufferSlot::DIMS));
   } else {
-    CUDA_CHECK(cudaMalloc(&coord_gpu, frame_nr * atom_nr * 3 * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&weight_gpu, frame_nr * atom_nr * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&voxelize_dynamics_gpu, frame_nr * gridpoint_nr * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&coord_gpu, static_cast<size_t>(frame_nr) * atom_nr * 3 * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&weight_gpu, static_cast<size_t>(frame_nr) * atom_nr * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&voxelize_dynamics_gpu,
+                          static_cast<size_t>(frame_nr) * gridpoint_nr * sizeof(float)));
     CUDA_CHECK(cudaMalloc(&dims_gpu, 3 * sizeof(int)));
   }
 
-  CUDA_CHECK(cudaMemcpyAsync(coord_gpu, coord, frame_nr * atom_nr * 3 * sizeof(float),
+  CUDA_CHECK(cudaMemcpyAsync(coord_gpu, coord,
+                             static_cast<size_t>(frame_nr) * atom_nr * 3 * sizeof(float),
                              cudaMemcpyHostToDevice, stream));
-  CUDA_CHECK(cudaMemcpyAsync(weight_gpu, weight, frame_nr * atom_nr * sizeof(float),
+  CUDA_CHECK(cudaMemcpyAsync(weight_gpu, weight,
+                             static_cast<size_t>(frame_nr) * atom_nr * sizeof(float),
                              cudaMemcpyHostToDevice, stream));
   CUDA_CHECK(cudaMemcpyAsync(dims_gpu, dims, 3 * sizeof(int), cudaMemcpyHostToDevice, stream));
-  CUDA_CHECK(
-      cudaMemsetAsync(voxelize_dynamics_gpu, 0, frame_nr * gridpoint_nr * sizeof(float), stream));
+  CUDA_CHECK(cudaMemsetAsync(voxelize_dynamics_gpu, 0,
+                             static_cast<size_t>(frame_nr) * gridpoint_nr * sizeof(float), stream));
 
   // Process every frame in one launch; blockIdx.y selects the frame. Looping
   // here instead would issue frame_nr tiny grids that neither fill the device

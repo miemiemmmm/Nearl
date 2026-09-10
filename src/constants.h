@@ -11,6 +11,10 @@
 #define MAX_FRAME_NUMBER 512
 #define DISTINCT_LIMIT 1000
 
+// Device code must not pull in the double-precision M_PI: promoting a float
+// radius to double costs f64 instructions in the innermost observable loop.
+#define FLOAT_PI 3.14159265358979323846f
+
 // MATH
 #define SQRT_2_PI 2.5066282746310002f
 
