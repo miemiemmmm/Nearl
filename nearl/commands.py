@@ -4,25 +4,44 @@ import numpy as np
 
 from . import log, utils
 
+
+class _MissingExtension:
+    """Stands in for an unbuilt extension so use-sites fail with a clear reason."""
+
+    def __init__(self, name, build_hint):
+        self._name = name
+        self._build_hint = build_hint
+
+    def __getattr__(self, attr):
+        raise ImportError(
+            f"nearl.commands.{attr} needs the nearl.{self._name} extension, which is "
+            f"not built in this environment. {self._build_hint}"
+        )
+
+
 try:
     from . import all_actions
 except ImportError:
     log.warning(
         "Could not import all_actions submodule. Please check if the package is compiled correctly."
     )
+    all_actions = _MissingExtension(
+        "all_actions",
+        "Build it by running `make all_actions` in src/ (requires nvcc), or "
+        "reinstall Nearl where the CUDA toolkit is available.",
+    )
 
-    class _MissingExtension:
-        """Stands in for the unbuilt extension so use-sites fail with a clear reason."""
-
-        def __getattr__(self, name):
-            raise ImportError(
-                f"nearl.commands.{name} needs the nearl.all_actions CUDA extension, "
-                "which is not built in this environment. Build it by running "
-                "`make all_actions` in src/ (requires nvcc), or reinstall Nearl "
-                "where the CUDA toolkit is available."
-            )
-
-    all_actions = _MissingExtension()
+try:
+    from . import host_actions
+except ImportError:
+    log.warning(
+        "Could not import host_actions submodule. Please check if the package is compiled correctly."
+    )
+    host_actions = _MissingExtension(
+        "host_actions",
+        "Build it by running `make host_actions` in src/ (no CUDA needed), or "
+        "reinstall Nearl.",
+    )
 
 __all__ = [
     # Single frame methods
