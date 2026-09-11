@@ -45,10 +45,16 @@ PASSES = 3
 
 def describe_build():
     info = {"python": sys.version.split()[0], "platform": platform.platform()}
+    probe_dir = os.path.dirname(os.path.abspath(__file__))
     try:
         from nearl import all_actions
 
         info["extension"] = all_actions.__file__
+        # Describe the tree the *extension* came from, not the one holding this
+        # script. The intended workflow is to run one script against several
+        # builds (PYTHONPATH=<other worktree>), and labelling those with this
+        # script's commit would silently attribute every run to one version.
+        probe_dir = os.path.dirname(os.path.abspath(all_actions.__file__))
     except Exception as exc:  # pragma: no cover - reported, not raised
         info["extension"] = f"unavailable: {exc}"
     for key, cmd in (
@@ -62,9 +68,7 @@ def describe_build():
                     capture_output=True,
                     text=True,
                     timeout=10,
-                    # resolve against the script's own checkout: on a cluster
-                    # this is meant to run from outside the source tree
-                    cwd=os.path.dirname(os.path.abspath(__file__)),
+                    cwd=probe_dir,
                 ).stdout.strip()
                 or "unknown"
             )
