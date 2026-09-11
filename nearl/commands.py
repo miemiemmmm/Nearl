@@ -6,23 +6,29 @@ from . import log, utils
 
 try:
     from . import all_actions
-except ImportError:
+except ImportError as _all_actions_exc:
     log.warning(
-        "Could not import all_actions submodule. Please check if the package is compiled correctly."
+        "Could not import all_actions submodule "
+        f"({type(_all_actions_exc).__name__}: {_all_actions_exc}). Please check "
+        "if the package is compiled correctly."
     )
 
     class _MissingExtension:
         """Stands in for the unbuilt extension so use-sites fail with a clear reason."""
+
+        def __init__(self, cause):
+            self._cause = cause
 
         def __getattr__(self, name):
             raise ImportError(
                 f"nearl.commands.{name} needs the nearl.all_actions CUDA extension, "
                 "which is not built in this environment. Build it by running "
                 "`make all_actions` in src/ (requires nvcc), or reinstall Nearl "
-                "where the CUDA toolkit is available."
-            )
+                "where the CUDA toolkit is available. "
+                f"Underlying import error: {type(self._cause).__name__}: {self._cause}"
+            ) from self._cause
 
-    all_actions = _MissingExtension()
+    all_actions = _MissingExtension(_all_actions_exc)
 
 __all__ = [
     # Single frame methods

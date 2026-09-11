@@ -5,39 +5,41 @@ Split a dynamic-feature run into host time and device time.
 Exercises only DensityFlow and MarchingObservers with the ``mass`` weight, so the
 numbers reflect Nearl's own kernels rather than RDKit/OpenBabel/ChargeFW2.
 
-With Nsight Systems present the script re-executes itself under ``nsys`` and adds
-the kernel/memory/API tables plus a derived host-vs-device summary. nvprof is not
-an option: it is unsupported on compute capability 8.0+, which covers both sm_86
-and the GH200's sm_90.
+Reports host-side phase timings only (cache/query/run/dump/device-call). For
+device-side (nsys) profiling, run this script under ``nsys profile`` yourself.
 
 Usage:
-    python profiling_host_device.py [--dims 32] [--window 10] [--no-nsys]
+    python profiling_host_device.py [--dims 32] [--window 10]
 """
 
 import argparse
-import csv
 import os
-import pathlib
-import subprocess
-import sys
-import tempfile
 import time
 import warnings
 from collections import defaultdict
 
 warnings.filterwarnings("ignore")
 
+# Deliberately no sys.path surgery here: which `nearl` wins - this checkout,
+# an editable install of it, or an unrelated site-packages copy - depends on
+# how it was installed, and guessing wrong silently shadows a perfectly good
+# install with a stale or incomplete one. main() prints nearl.__file__ up
+# front instead, so a mismatch is visible rather than silently "fixed" wrong.
 import nearl
 import nearl.commands as commands
 import nearl.features
 import nearl.featurizer
 import nearl.io
 
-CHILD_ENV = "NEARL_PROFILING_CHILD"
-
 
 class PhaseTimer:
-    """Accumulate wall time per labelled phase by wrapping bound methods."""
+    """Accumulate wall time per labelled phase by wrapping bound methods.
+
+    Featurizer.run on this version is a single sequential loop (cache, query,
+    run, dump, one trajectory/frame-slice at a time on one thread) - no
+    producer/consumer threads, so phases never overlap and a plain label ->
+    seconds/calls table, summed against the wall clock, is exactly right.
+    """
 
     def __init__(self):
         self.seconds = defaultdict(float)
@@ -64,20 +66,80 @@ def parse_args():
     p.add_argument("--datadir", default="/tmp/nearl_test", help="example-data folder")
     p.add_argument("--outfile", default="/tmp/prof_dynamic.h5", help="HDF5 output")
     p.add_argument(
-        "--no-nsys", action="store_true", help="skip the Nsight Systems pass"
-    )
-    p.add_argument(
         "--cold-start",
         action="store_true",
         help="skip the warm-up, so CUDA context creation is timed too",
     )
+    p.add_argument(
+        "--trajlist",
+        default=None,
+        help="file listing one trajectory per line as '<trajectory> <topology>', "
+        "used instead of the bundled example data",
+    )
+    p.add_argument(
+        "--multi",
+        type=int,
+        default=1,
+        help="number of distinct trajectories to process (default 1). "
+        "Extra trajectories are rotated copies of the example trajectory, "
+        "so the CPU/GPU overlap benefit can be measured.",
+    )
     return p.parse_args()
 
 
+def build_multi_trajset(datadir, n):
+    """Return a list of ``(nc, pdb)`` tuples with ``n`` distinct trajectories.
+
+    The first entry is the stock example trajectory; each additional entry is a
+    copy rotated by a different angle around the z axis. Rotating keeps the
+    topology identical (so the per-topology cache still hits) while making the
+    coordinates distinct, which is exactly the multi-trajectory workload the
+    CPU/GPU pipeline is meant to overlap.
+    """
+    import numpy as np
+    import pytraj as pt
+
+    example = nearl.get_example_data(datadir)
+    nc, pdb = example["MINI_TRAJSET"][0]
+    base = pt.load(nc, pdb)
+    trajs = [(nc, pdb)]
+    if n <= 1:
+        return trajs
+
+    outdir = os.path.join(datadir, "example_data", "example_traj")
+    os.makedirs(outdir, exist_ok=True)
+    for i in range(1, n):
+        ang = np.deg2rad(360.0 * i / n)
+        c, s = np.cos(ang), np.sin(ang)
+        rot = np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]], dtype=np.float32)
+        out = os.path.join(outdir, f"example_rot_{i}.nc")
+        if not os.path.exists(out):
+            newtraj = pt.Trajectory()
+            newtraj.top = base.top
+            for f in range(base.n_frames):
+                fr = base[f].copy()
+                fr.xyz = fr.xyz @ rot.T
+                newtraj.append(fr)
+            pt.write_traj(out, newtraj, overwrite=True)
+        trajs.append((out, pdb))
+    return trajs
+
+
+def read_trajlist(path):
+    """One trajectory per line, whitespace-separated: ``<trajectory> <topology>``."""
+    with open(path) as handle:
+        return [line.split() for line in handle if line.strip()]
+
+
 def build_featurizer(args, timer):
-    loader = nearl.io.TrajectoryLoader(
-        nearl.get_example_data(args.datadir)["MINI_TRAJSET"]
-    )
+    if args.trajlist:
+        trajs = read_trajlist(args.trajlist)
+    else:
+        trajs = build_multi_trajset(args.datadir, args.multi)
+    args.n_trajectories = len(trajs)
+    loader = nearl.io.TrajectoryLoader(trajs)
+    # run() loads each trajectory via __getitem__ at the top of its loop
+    # iteration, so time that call to expose the trajectory-load cost.
     timer.wrap(nearl.io.TrajectoryLoader, "__getitem__", "trajectory load")
 
     featurizer = nearl.featurizer.Featurizer(
@@ -108,6 +170,9 @@ def build_featurizer(args, timer):
             ),
         ]
     )
+    # Featurizer.run() drives every feature's cache/query/run/dump itself, on
+    # one thread, so wrapping each instance directly is enough - no cloning to
+    # worry about.
     for feat in featurizer.FEATURESPACE:
         timer.wrap(feat, "run", "feature.run")
         timer.wrap(feat, "query", "query + crop")
@@ -119,6 +184,9 @@ def build_featurizer(args, timer):
 
 
 HOST_ROWS = ("cache", "trajectory load", "query + crop", "feature.run", "HDF5 dump")
+DEVICE_ROW = "device call"
+DEVICE_LABEL = "(device call inside)"
+WALL_LABEL = "TOTAL run()"
 
 
 def warm_up():
@@ -138,7 +206,7 @@ def warm_up():
 def run_workload(args):
     timer = PhaseTimer()
     for fn in ("density_flow", "marching_observer"):
-        timer.wrap(commands, fn, "device call")
+        timer.wrap(commands, fn, DEVICE_ROW)
     featurizer = build_featurizer(args, timer)
 
     if not args.cold_start:
@@ -152,14 +220,22 @@ def run_workload(args):
     featurizer.run()
     total = time.perf_counter() - t0
 
-    print("\n" + "=" * 62)
+    device_call = timer.seconds[DEVICE_ROW]
+    print_report(args, timer, total, device_call)
+    return total, device_call
+
+
+def print_report(args, timer, total, device_call):
+    width = 62
+    print("\n" + "=" * width)
     print(
         f"dims={args.dims}  time_window={args.window}  "
+        f"trajectories={getattr(args, 'n_trajectories', args.multi)}  "
         f"features=DensityFlow,MarchingObservers  weight=mass"
     )
-    print("=" * 62)
+    print("=" * width)
     print(f"{'HOST PHASE':<26}{'seconds':>10}{'calls':>8}{'% wall':>10}")
-    print("-" * 62)
+    print("-" * width)
     accounted = 0.0
     for row in HOST_ROWS:
         print(
@@ -167,170 +243,23 @@ def run_workload(args):
             f"{100 * timer.seconds[row] / total:>9.1f}%"
         )
         accounted += timer.seconds[row]
-    device_call = timer.seconds["device call"]
     print(
-        f"{'  (device call inside)':<26}{device_call:>10.3f}"
-        f"{timer.calls['device call']:>8}{100 * device_call / total:>9.1f}%"
+        f"{'  ' + DEVICE_LABEL:<26}{device_call:>10.3f}"
+        f"{timer.calls[DEVICE_ROW]:>8}{100 * device_call / total:>9.1f}%"
     )
     print(
         f"{'unattributed':<26}{total - accounted:>10.3f}{'':>8}"
         f"{100 * (total - accounted) / total:>9.1f}%"
     )
-    print("-" * 62)
-    print(f"{'TOTAL run()':<26}{total:>10.3f}")
-    print("=" * 62)
-    return total, device_call
-
-
-def csv_total_ns(path):
-    if not pathlib.Path(path).is_file():
-        return None
-    with open(path) as fh:
-        return sum(float(row["Total Time (ns)"]) for row in csv.DictReader(fh))
-
-
-def nsys_pass(args):
-    """Re-run this script under nsys and report the device side."""
-    with tempfile.TemporaryDirectory() as workdir:
-        report = os.path.join(workdir, "nearl_hostdev")
-        env = dict(os.environ, **{CHILD_ENV: "1"})
-        child = subprocess.run(
-            [
-                "nsys",
-                "profile",
-                "-t",
-                "cuda",
-                "-o",
-                report,
-                "--force-overwrite",
-                "true",
-                sys.executable,
-                os.path.abspath(__file__),
-                *sys.argv[1:],
-            ],
-            env=env,
-            capture_output=True,
-            text=True,
-        )
-        host_out = child.stdout
-        # nsys writes a carriage-return progress bar onto the child's stdout.
-        for line in host_out.replace("\r", "\n").splitlines():
-            if line.startswith(("[1/1]", "Collecting data", "Generating", "Generated")):
-                continue
-            if line.startswith("\t") or not line.strip():
-                continue
-            print(line)
-        if child.returncode != 0:
-            print(child.stderr[-2000:], file=sys.stderr)
-            return
-
-        rep = f"{report}.nsys-rep"
-        tables = subprocess.run(
-            [
-                "nsys",
-                "stats",
-                "--report",
-                "cuda_gpu_kern_sum",
-                "--report",
-                "cuda_gpu_mem_time_sum",
-                "--report",
-                "cuda_api_sum",
-                "--format",
-                "table",
-                rep,
-            ],
-            capture_output=True,
-            text=True,
-        ).stdout
-        print("\n================= DEVICE (Nsight Systems) =================")
-        for line in tables.splitlines():
-            if (
-                line.startswith(("Processing", "NOTICE", "Generating SQLite"))
-                or not line.strip()
-            ):
-                continue
-            if line.lstrip().startswith(("It is assumed", "Consider using")):
-                continue
-            print(line)
-
-        # --force-export: the table pass above already wrote a .sqlite, and nsys
-        # refuses to reuse one that is older than the .nsys-rep.
-        exported = subprocess.run(
-            [
-                "nsys",
-                "stats",
-                "--report",
-                "cuda_gpu_kern_sum",
-                "--report",
-                "cuda_gpu_mem_time_sum",
-                "--format",
-                "csv",
-                "--force-export=true",
-                "--output",
-                report,
-                rep,
-            ],
-            capture_output=True,
-            text=True,
-        )
-        kernel_ns = csv_total_ns(f"{report}_cuda_gpu_kern_sum.csv")
-        memory_ns = csv_total_ns(f"{report}_cuda_gpu_mem_time_sum.csv")
-        if kernel_ns is None or memory_ns is None:
-            print(f"\nnsys csv export rc={exported.returncode}", file=sys.stderr)
-            print(exported.stdout[-600:], file=sys.stderr)
-            print(exported.stderr[-600:], file=sys.stderr)
-            print(f"files: {sorted(os.listdir(workdir))}", file=sys.stderr)
-        summarize(host_out, kernel_ns, memory_ns)
-
-
-def summarize(host_out, kernel_ns, memory_ns):
-    if kernel_ns is None or memory_ns is None:
-        print("\n(could not read nsys CSV totals; skipping the derived summary)")
-        return
-    total = device_call = None
-    for line in host_out.splitlines():
-        if line.startswith("TOTAL run()"):
-            total = float(line.split()[-1])
-        elif "(device call inside)" in line:
-            device_call = float(line.split()[-3])
-    if total is None or device_call is None:
-        return
-
-    kernel, memory = kernel_ns / 1e9, memory_ns / 1e9
-    overhead = device_call - kernel - memory
-    print("\n" + "=" * 62)
-    print("HOST vs DEVICE")
-    print("-" * 62)
-    for label, value in (
-        ("wall clock of run()", total),
-        ("time inside device calls", device_call),
-        ("  GPU kernel execution", kernel),
-        ("  GPU memory operations", memory),
-        ("  host-side CUDA overhead", overhead),
-    ):
-        print(f"{label:<32}{value:>9.3f} s{100 * value / total:>8.1f}% of wall")
-    print("=" * 62)
-    print("Host-side CUDA overhead is cudaMalloc/cudaFree, the pybind11 and numpy")
-    print("marshalling, and blocking in cudaDeviceSynchronize. A warm-up call")
-    print("keeps one-off context creation out of it; --cold-start includes it.")
+    print("-" * width)
+    print(f"{WALL_LABEL:<26}{total:>10.3f}")
+    print("=" * width)
 
 
 def main():
     args = parse_args()
-    if os.environ.get(CHILD_ENV):
-        run_workload(args)
-        return
     print(f"nearl from : {nearl.__file__}")
-    use_nsys = (
-        not args.no_nsys
-        and subprocess.run(["which", "nsys"], capture_output=True).returncode == 0
-    )
-    if use_nsys:
-        nsys_pass(args)
-    else:
-        if not args.no_nsys:
-            print("nsys not found; reporting host timings only.", file=sys.stderr)
-        run_workload(args)
+    run_workload(args)
 
 
 if __name__ == "__main__":
