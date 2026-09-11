@@ -36,6 +36,7 @@ DIMS = [16, 24, 32, 48, 64, 96, 128]
 ATOM_NR = 300
 FRAME_NR = 50
 SPACING = 1.0
+LENGTHS = 16.0  # box edge (A) for the "featurizer" shape
 CUTOFF = 2.5
 SIGMA = 1.0
 REPEATS = 20
@@ -104,7 +105,7 @@ def timed(fn, sync):
     return statistics.median(passes)
 
 
-def measure(label, out_path):
+def measure(label, out_path, shape):
     from nearl import commands
 
     info = describe_build()
@@ -127,33 +128,59 @@ def measure(label, out_path):
         return None
 
     rng = np.random.default_rng(0)
-    coords = rng.normal(size=(ATOM_NR, 3), loc=5, scale=1).astype(np.float32)
     w_frame = np.full((ATOM_NR,), 1.5, dtype=np.float32)
-    traj = rng.normal(size=(FRAME_NR, ATOM_NR, 3), loc=5, scale=2).astype(np.float32)
     w_traj = np.full((FRAME_NR * ATOM_NR,), 16.0, dtype=np.float32)
 
+    def inputs(dim):
+        """Coordinates and spacing for one grid size.
+
+        The two shapes are not interchangeable: measured at 64^3 the v0.1.0 ->
+        optimised ratio is 181x for density_flow under "benchmark" and 60x
+        under "featurizer". "benchmark" holds spacing fixed, so the physical box
+        grows with dim and a fixed atom cloud fills less and less of it -- what
+        benchmarks/test_benchmark.py has always done. "featurizer" holds the box
+        at LENGTHS and shrinks spacing instead (spacing = lengths / dimensions),
+        which is what Featurizer does, so each atom's cutoff ball covers far
+        more grid points and the optimised kernels have more work to do.
+        """
+        if shape == "featurizer":
+            spacing = LENGTHS / dim
+            coords = rng.uniform(0, LENGTHS, size=(ATOM_NR, 3)).astype(np.float32)
+            traj = rng.uniform(0, LENGTHS, size=(FRAME_NR, ATOM_NR, 3)).astype(
+                np.float32
+            )
+        else:
+            spacing = SPACING
+            coords = rng.normal(size=(ATOM_NR, 3), loc=5, scale=1).astype(np.float32)
+            traj = rng.normal(size=(FRAME_NR, ATOM_NR, 3), loc=5, scale=2).astype(
+                np.float32
+            )
+        return coords, traj, spacing
+
     rows = []
+    print(f"shape     : {shape}\n")
     print(
         f"{'dim':>5} {'frame_voxelize':>16} {'density_flow':>14} {'marching_observer':>19}"
     )
     for dim in DIMS:
         grid = np.array([dim] * 3, dtype=np.int32)
-        entry = {"dim": dim}
+        coords, traj, spacing = inputs(dim)
+        entry = {"dim": dim, "spacing": spacing}
         entry["voxel"] = timed(
-            lambda g=grid: commands.frame_voxelize(
-                coords, w_frame, g, SPACING, CUTOFF, SIGMA
+            lambda g=grid, sp=spacing, c=coords: commands.frame_voxelize(
+                c, w_frame, g, sp, CUTOFF, SIGMA
             ),
             sync,
         )
         entry["flow"] = timed(
-            lambda g=grid: commands.density_flow(
-                traj, w_traj, g, SPACING, CUTOFF, SIGMA, 1
+            lambda g=grid, sp=spacing, t=traj: commands.density_flow(
+                t, w_traj, g, sp, CUTOFF, SIGMA, 1
             ),
             sync,
         )
         entry["observer"] = timed(
-            lambda g=grid: commands.marching_observer(
-                traj, w_traj, g, SPACING, CUTOFF, 1, 1
+            lambda g=grid, sp=spacing, t=traj: commands.marching_observer(
+                t, w_traj, g, sp, CUTOFF, 1, 1
             ),
             sync,
         )
@@ -167,6 +194,7 @@ def measure(label, out_path):
         commands.finalize_context()
     payload = {
         "label": label,
+        "shape": shape,
         "build": info,
         "has_context": has_context,
         "params": {
@@ -320,13 +348,21 @@ def main():
     run = sub.add_parser("run", help="measure the current build")
     run.add_argument("--label", default="current")
     run.add_argument("--out", default="kernel_versions.json")
+    run.add_argument(
+        "--shape",
+        choices=("benchmark", "featurizer"),
+        default="benchmark",
+        help="benchmark: fixed spacing, box grows with dim. featurizer: fixed "
+        "16 A box, spacing = 16/dim (what Featurizer does). The reported "
+        "speedup differs by up to 3x between them.",
+    )
     cmp_ = sub.add_parser("compare", help="compare two JSON files and plot")
     cmp_.add_argument("old")
     cmp_.add_argument("new")
     cmp_.add_argument("--plot", default="kernel_versions")
     args = parser.parse_args()
     if args.mode == "run":
-        measure(args.label, args.out)
+        measure(args.label, args.out, args.shape)
     else:
         compare(args.old, args.new, args.plot)
 
