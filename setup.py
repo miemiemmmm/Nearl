@@ -40,6 +40,20 @@ class build_ext_nearl(_build_ext):
         os.makedirs(os.path.dirname(target), exist_ok=True)
         self.copy_file(built_so, target)
 
+        # An editable install imports the package straight from the source
+        # tree (nearl/__init__.py), not from build_lib. A non-inplace
+        # build_ext run (the common case, e.g. under `pip install -e .`)
+        # only refreshes `target` above (under build_lib), leaving the
+        # source tree's copy -- the one actually imported -- stale. Always
+        # also place a copy next to the package source so a normal rebuild
+        # is what Python picks up.
+        package_dir = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), *ext.name.split(".")[:-1]
+        )
+        inplace_target = os.path.join(package_dir, os.path.basename(target))
+        if os.path.abspath(inplace_target) != os.path.abspath(target):
+            self.copy_file(built_so, inplace_target)
+
 
 setup_params = {
     "cmdclass": {"build_ext": build_ext_nearl},

@@ -15,17 +15,17 @@
  * one grid point. The result is written to interpolated[task_index]. This kernel
  * is currently only used by the old _voxelize_host_old path.
  */
-__global__ void coordi_interp_global(const float *coord, float *interpolated, const int *dims,
+__global__ void coordi_interp_global(const float *coord, float *interpolated, int3 dims,
                                      const float spacing, const float cutoff, const float sigma) {
   unsigned int task_index = blockIdx.x * blockDim.x + threadIdx.x;
-  unsigned int grid_size = dims[0] * dims[1] * dims[2];
+  unsigned int grid_size = dims.x * dims.y * dims.z;
   if (task_index >= grid_size)
     return;
 
   // Compute the grid coordinate from the grid index
-  float grid_coord[3] = {static_cast<float>(task_index / (dims[0] * dims[1])) * spacing,
-                         static_cast<float>((task_index / dims[0]) % dims[1]) * spacing,
-                         static_cast<float>(task_index % dims[0]) * spacing};
+  float grid_coord[3] = {static_cast<float>(task_index / (dims.x * dims.y)) * spacing,
+                         static_cast<float>((task_index / dims.x) % dims.y) * spacing,
+                         static_cast<float>(task_index % dims.x) * spacing};
   float dist_square = 0.0f;
   for (int i = 0; i < 3; ++i) {
     dist_square += (coord[i] - grid_coord[i]) * (coord[i] - grid_coord[i]);
@@ -62,15 +62,15 @@ __global__ void coordi_interp_global(const float *coord, float *interpolated, co
  * and not for edge ones. Clip the two boxes separately to preserve that.
  */
 __global__ void frame_interp_global(const float *coords_frame, const float *weights_frame,
-                                    float *interpolated_frame, const int *dims, const float spacing,
+                                    float *interpolated_frame, int3 dims, const float spacing,
                                     const float cutoff, const float sigma, const int atom_nr) {
   // Each block is responsible for one atom
   const int atom_idx = blockIdx.x;
   const int frame_idx = blockIdx.y;
   const int buff_dim = (cutoff + spacing) / spacing;
-  const int buff_dims[3] = {dims[0] + buff_dim + buff_dim, dims[1] + buff_dim + buff_dim,
-                            dims[2] + buff_dim + buff_dim};
-  const int gridpoint_nr = dims[0] * dims[1] * dims[2];
+  const int buff_dims[3] = {dims.x + buff_dim + buff_dim, dims.y + buff_dim + buff_dim,
+                            dims.z + buff_dim + buff_dim};
+  const int gridpoint_nr = dims.x * dims.y * dims.z;
   const float *coord = coords_frame + (frame_idx * atom_nr + atom_idx) * 3;
   const float cutoff_sq = cutoff * cutoff;
   const float weight = weights_frame[frame_idx * atom_nr + atom_idx];
@@ -153,11 +153,11 @@ __global__ void frame_interp_global(const float *coords_frame, const float *weig
   // gid = x * dims[0] * dims[1] + y * dims[0] + z inverts the decoding the
   // kernel used before, so a point keeps the array slot it always had.
   const int slo_x = max(ball_lo[0], 0);
-  const int shi_x = min(ball_hi[0], dims[2] - 1);
+  const int shi_x = min(ball_hi[0], dims.z - 1);
   const int slo_y = max(ball_lo[1], 0);
-  const int shi_y = min(ball_hi[1], dims[1] - 1);
+  const int shi_y = min(ball_hi[1], dims.y - 1);
   const int slo_z = max(ball_lo[2], 0);
-  const int shi_z = min(ball_hi[2], dims[0] - 1);
+  const int shi_z = min(ball_hi[2], dims.x - 1);
 
   const int s_nx = shi_x - slo_x + 1;
   const int s_ny = shi_y - slo_y + 1;
@@ -177,7 +177,7 @@ __global__ void frame_interp_global(const float *coords_frame, const float *weig
               (coord[1] - grid_y) * (coord[1] - grid_y) + (coord[2] - grid_z) * (coord[2] - grid_z);
 
     if (dist_sq < cutoff_sq) {
-      const int gid = x * dims[0] * dims[1] + y * dims[0] + z;
+      const int gid = x * dims.x * dims.y + y * dims.x + z;
       atomicAdd(frame_output + gid, gaussian_map_device(sqrt(dist_sq), 0.0f, sigma) * inv_sum);
     }
   }
@@ -288,9 +288,7 @@ void _voxelize_host_old(float *interpolated, const float *coord, const float *we
   CUDA_CHECK(cudaMemset(interp_gpu, 0, gridpoint_nr * sizeof(float)));
   float *partial_sums;
   CUDA_CHECK(cudaMalloc(&partial_sums, grid_size * sizeof(float)));
-  int *dims_gpu;
-  CUDA_CHECK(cudaMalloc(&dims_gpu, 3 * sizeof(int)));
-  CUDA_CHECK(cudaMemcpy(dims_gpu, dims, 3 * sizeof(int), cudaMemcpyHostToDevice));
+  int3 dims3 = make_int3(dims[0], dims[1], dims[2]);
 
   for (int atm_idx = 0; atm_idx < atom_nr; ++atm_idx) {
     // Copy the coordinates of the atom to the GPU and do interpolation on this atom
@@ -308,7 +306,7 @@ void _voxelize_host_old(float *interpolated, const float *coord, const float *we
       continue;
     }
 
-    coordi_interp_global<<<grid_size, BLOCK_SIZE>>>(coord_gpu + offset, tmp_interp_gpu, dims_gpu,
+    coordi_interp_global<<<grid_size, BLOCK_SIZE>>>(coord_gpu + offset, tmp_interp_gpu, dims3,
                                                     spacing, cutoff, sigma);
     CUDA_CHECK_KERNEL();
     CUDA_CHECK(cudaDeviceSynchronize());
@@ -345,7 +343,6 @@ void _voxelize_host_old(float *interpolated, const float *coord, const float *we
   CUDA_CHECK(cudaFree(coord_gpu));
   CUDA_CHECK(cudaFree(tmp_interp_gpu));
   CUDA_CHECK(cudaFree(interp_gpu));
-  CUDA_CHECK(cudaFree(dims_gpu));
   CUDA_CHECK(cudaFree(partial_sums));
 }
 
@@ -367,28 +364,25 @@ void voxelize_host(float *interpolated, const float *coord, const float *weight,
 
   float *coord_gpu;
   float *weight_gpu;
-  int *dims_gpu;
   float *tmp_voxel_gpu;
   if (use_ctx) {
     coord_gpu = ctx->get_buffer_f(atom_nr * 3, static_cast<size_t>(BufferSlot::COORDS));
     weight_gpu = ctx->get_buffer_f(atom_nr, static_cast<size_t>(BufferSlot::WEIGHTS));
-    dims_gpu = ctx->get_buffer_i(3, static_cast<size_t>(BufferSlot::DIMS));
     tmp_voxel_gpu = ctx->get_buffer_f(gridpoint_nr, static_cast<size_t>(BufferSlot::OUTPUT_GRID));
   } else {
     CUDA_CHECK(cudaMalloc(&coord_gpu, atom_nr * 3 * sizeof(float)));
     CUDA_CHECK(cudaMalloc(&weight_gpu, atom_nr * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&dims_gpu, 3 * sizeof(int)));
     CUDA_CHECK(cudaMalloc(&tmp_voxel_gpu, gridpoint_nr * sizeof(float)));
   }
 
   copy_h2d_async(ctx, coord_gpu, coord, atom_nr * 3 * sizeof(float), BufferSlot::COORDS, stream);
   copy_h2d_async(ctx, weight_gpu, weight, atom_nr * sizeof(float), BufferSlot::WEIGHTS, stream);
-  copy_h2d_async(ctx, dims_gpu, dims, 3 * sizeof(int), BufferSlot::DIMS, stream);
+  int3 dims3 = make_int3(dims[0], dims[1], dims[2]);
   CUDA_CHECK(cudaMemsetAsync(tmp_voxel_gpu, 0.0f, gridpoint_nr * sizeof(float), stream));
 
   if (atom_nr > 0) {
     frame_interp_global<<<atom_nr, BLOCK_SIZE, BLOCK_SIZE * sizeof(float), stream>>>(
-        coord_gpu, weight_gpu, tmp_voxel_gpu, dims_gpu, spacing, cutoff, sigma, atom_nr);
+        coord_gpu, weight_gpu, tmp_voxel_gpu, dims3, spacing, cutoff, sigma, atom_nr);
     CUDA_CHECK_KERNEL();
   }
   CUDA_CHECK(cudaMemcpyAsync(interpolated, tmp_voxel_gpu, gridpoint_nr * sizeof(float),
@@ -401,7 +395,6 @@ void voxelize_host(float *interpolated, const float *coord, const float *weight,
     CUDA_CHECK(cudaDeviceSynchronize());
     CUDA_CHECK(cudaFree(coord_gpu));
     CUDA_CHECK(cudaFree(weight_gpu));
-    CUDA_CHECK(cudaFree(dims_gpu));
     CUDA_CHECK(cudaFree(tmp_voxel_gpu));
   }
 }
@@ -442,7 +435,6 @@ void trajectory_voxelization_host(float *voxelize_dynamics, const float *coord, 
   float *weight_gpu;
   float *tmp_voxel_gpu;
   float *voxelize_dynamics_gpu;
-  int *dims_gpu;
 
   if (use_ctx) {
     coord_gpu = ctx->get_buffer_f(static_cast<size_t>(frame_nr) * atom_nr * 3,
@@ -452,20 +444,18 @@ void trajectory_voxelization_host(float *voxelize_dynamics, const float *coord, 
     tmp_voxel_gpu = ctx->get_buffer_f(gridpoint_nr, static_cast<size_t>(BufferSlot::TMP_GRID));
     voxelize_dynamics_gpu = ctx->get_buffer_f(static_cast<size_t>(frame_nr) * gridpoint_nr,
                                               static_cast<size_t>(BufferSlot::TRAJ_DYNAMICS));
-    dims_gpu = ctx->get_buffer_i(3, static_cast<size_t>(BufferSlot::DIMS));
   } else {
     CUDA_CHECK(cudaMalloc(&coord_gpu, frame_nr * atom_nr * 3 * sizeof(float)));
     CUDA_CHECK(cudaMalloc(&weight_gpu, frame_nr * atom_nr * sizeof(float)));
     CUDA_CHECK(cudaMalloc(&tmp_voxel_gpu, gridpoint_nr * sizeof(float)));
     CUDA_CHECK(cudaMalloc(&voxelize_dynamics_gpu, frame_nr * gridpoint_nr * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&dims_gpu, 3 * sizeof(int)));
   }
 
   copy_h2d_async(ctx, coord_gpu, coord, frame_nr * atom_nr * 3 * sizeof(float), BufferSlot::COORDS,
                  stream);
   copy_h2d_async(ctx, weight_gpu, weight, frame_nr * atom_nr * sizeof(float), BufferSlot::WEIGHTS,
                  stream);
-  copy_h2d_async(ctx, dims_gpu, dims, 3 * sizeof(int), BufferSlot::DIMS, stream);
+  int3 dims3 = make_int3(dims[0], dims[1], dims[2]);
   CUDA_CHECK(cudaMemsetAsync(tmp_voxel_gpu, 0.0f, gridpoint_nr * sizeof(float), stream));
   CUDA_CHECK(
       cudaMemsetAsync(voxelize_dynamics_gpu, 0, frame_nr * gridpoint_nr * sizeof(float), stream));
@@ -473,7 +463,7 @@ void trajectory_voxelization_host(float *voxelize_dynamics, const float *coord, 
   // Process every frame in one launch; blockIdx.y selects the frame.
   if (atom_nr > 0)
     frame_interp_global<<<dim3(atom_nr, frame_nr, 1), BLOCK_SIZE, BLOCK_SIZE * sizeof(float),
-                          stream>>>(coord_gpu, weight_gpu, voxelize_dynamics_gpu, dims_gpu, spacing,
+                          stream>>>(coord_gpu, weight_gpu, voxelize_dynamics_gpu, dims3, spacing,
                                     cutoff, sigma, atom_nr);
   CUDA_CHECK_KERNEL();
 
@@ -494,7 +484,6 @@ void trajectory_voxelization_host(float *voxelize_dynamics, const float *coord, 
     CUDA_CHECK(cudaFree(weight_gpu));
     CUDA_CHECK(cudaFree(tmp_voxel_gpu));
     CUDA_CHECK(cudaFree(voxelize_dynamics_gpu));
-    CUDA_CHECK(cudaFree(dims_gpu));
   }
 }
 
@@ -516,27 +505,24 @@ void voxelize_host_into(float *output, const float *coord, const float *weight, 
 
   float *coord_gpu;
   float *weight_gpu;
-  int *dims_gpu;
 
   if (use_ctx) {
     coord_gpu = ctx->get_buffer_f(atom_nr * 3, static_cast<size_t>(BufferSlot::COORDS));
     weight_gpu = ctx->get_buffer_f(atom_nr, static_cast<size_t>(BufferSlot::WEIGHTS));
-    dims_gpu = ctx->get_buffer_i(3, static_cast<size_t>(BufferSlot::DIMS));
   } else {
     CUDA_CHECK(cudaMalloc(&coord_gpu, atom_nr * 3 * sizeof(float)));
     CUDA_CHECK(cudaMalloc(&weight_gpu, atom_nr * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&dims_gpu, 3 * sizeof(int)));
   }
 
   CUDA_CHECK(cudaMemcpyAsync(coord_gpu, coord, atom_nr * 3 * sizeof(float), cudaMemcpyHostToDevice,
                              stream));
   CUDA_CHECK(
       cudaMemcpyAsync(weight_gpu, weight, atom_nr * sizeof(float), cudaMemcpyHostToDevice, stream));
-  CUDA_CHECK(cudaMemcpyAsync(dims_gpu, dims, 3 * sizeof(int), cudaMemcpyHostToDevice, stream));
+  int3 dims3 = make_int3(dims[0], dims[1], dims[2]);
   CUDA_CHECK(cudaMemsetAsync(output, 0.0f, gridpoint_nr * sizeof(float), stream));
 
   frame_interp_global<<<atom_nr, BLOCK_SIZE, BLOCK_SIZE * sizeof(float), stream>>>(
-      coord_gpu, weight_gpu, output, dims_gpu, spacing, cutoff, sigma, atom_nr);
+      coord_gpu, weight_gpu, output, dims3, spacing, cutoff, sigma, atom_nr);
   CUDA_CHECK_KERNEL();
 
   if (use_ctx) {
@@ -545,7 +531,6 @@ void voxelize_host_into(float *output, const float *coord, const float *weight, 
     CUDA_CHECK(cudaDeviceSynchronize());
     CUDA_CHECK(cudaFree(coord_gpu));
     CUDA_CHECK(cudaFree(weight_gpu));
-    CUDA_CHECK(cudaFree(dims_gpu));
   }
 }
 
@@ -572,7 +557,6 @@ void trajectory_voxelization_host_into(float *output, const float *coord, const 
   float *coord_gpu;
   float *weight_gpu;
   float *voxelize_dynamics_gpu;
-  int *dims_gpu;
 
   if (use_ctx) {
     coord_gpu = ctx->get_buffer_f(static_cast<size_t>(frame_nr) * atom_nr * 3,
@@ -581,19 +565,17 @@ void trajectory_voxelization_host_into(float *output, const float *coord, const 
                                    static_cast<size_t>(BufferSlot::WEIGHTS));
     voxelize_dynamics_gpu = ctx->get_buffer_f(static_cast<size_t>(frame_nr) * gridpoint_nr,
                                               static_cast<size_t>(BufferSlot::TRAJ_DYNAMICS));
-    dims_gpu = ctx->get_buffer_i(3, static_cast<size_t>(BufferSlot::DIMS));
   } else {
     CUDA_CHECK(cudaMalloc(&coord_gpu, frame_nr * atom_nr * 3 * sizeof(float)));
     CUDA_CHECK(cudaMalloc(&weight_gpu, frame_nr * atom_nr * sizeof(float)));
     CUDA_CHECK(cudaMalloc(&voxelize_dynamics_gpu, frame_nr * gridpoint_nr * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&dims_gpu, 3 * sizeof(int)));
   }
 
   CUDA_CHECK(cudaMemcpyAsync(coord_gpu, coord, frame_nr * atom_nr * 3 * sizeof(float),
                              cudaMemcpyHostToDevice, stream));
   CUDA_CHECK(cudaMemcpyAsync(weight_gpu, weight, frame_nr * atom_nr * sizeof(float),
                              cudaMemcpyHostToDevice, stream));
-  CUDA_CHECK(cudaMemcpyAsync(dims_gpu, dims, 3 * sizeof(int), cudaMemcpyHostToDevice, stream));
+  int3 dims3 = make_int3(dims[0], dims[1], dims[2]);
   CUDA_CHECK(
       cudaMemsetAsync(voxelize_dynamics_gpu, 0, frame_nr * gridpoint_nr * sizeof(float), stream));
 
@@ -602,7 +584,7 @@ void trajectory_voxelization_host_into(float *output, const float *coord, const 
   // nor amortise the launch cost.
   if (atom_nr > 0 && frame_nr > 0)
     frame_interp_global<<<dim3(atom_nr, frame_nr, 1), BLOCK_SIZE, BLOCK_SIZE * sizeof(float),
-                          stream>>>(coord_gpu, weight_gpu, voxelize_dynamics_gpu, dims_gpu, spacing,
+                          stream>>>(coord_gpu, weight_gpu, voxelize_dynamics_gpu, dims3, spacing,
                                     cutoff, sigma, atom_nr);
   CUDA_CHECK_KERNEL();
 
@@ -617,7 +599,6 @@ void trajectory_voxelization_host_into(float *output, const float *coord, const 
     CUDA_CHECK(cudaFree(coord_gpu));
     CUDA_CHECK(cudaFree(weight_gpu));
     CUDA_CHECK(cudaFree(voxelize_dynamics_gpu));
-    CUDA_CHECK(cudaFree(dims_gpu));
   }
 }
 
