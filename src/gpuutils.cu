@@ -291,11 +291,13 @@ void aggregate_host(float *voxel_traj, float *result_grid, const int frame_numbe
                                        static_cast<size_t>(BufferSlot::TRAJ_DYNAMICS));
     tmp_grid_gpu = ctx->get_buffer_f(grid_number, static_cast<size_t>(BufferSlot::OUTPUT_GRID));
   } else {
-    CUDA_CHECK(cudaMalloc(&voxel_traj_gpu, frame_number * grid_number * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&voxel_traj_gpu,
+                          static_cast<size_t>(frame_number) * grid_number * sizeof(float)));
     CUDA_CHECK(cudaMalloc(&tmp_grid_gpu, grid_number * sizeof(float)));
   }
 
-  copy_h2d_async(ctx, voxel_traj_gpu, voxel_traj, frame_number * grid_number * sizeof(float),
+  copy_h2d_async(ctx, voxel_traj_gpu, voxel_traj,
+                 static_cast<size_t>(frame_number) * grid_number * sizeof(float),
                  BufferSlot::TRAJ_DYNAMICS, stream);
   CUDA_CHECK(cudaMemsetAsync(tmp_grid_gpu, 0, grid_number * sizeof(float), stream));
 
