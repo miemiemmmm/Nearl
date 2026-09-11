@@ -1,0 +1,65 @@
+{
+  "label": "optimized",
+  "build": {
+    "python": "3.12.14",
+    "platform": "Linux-6.18.7-76061807-generic-x86_64-with-glibc2.39",
+    "extension": "/home/yzhang/MyRepos/Nearl/nearl/all_actions.cpython-312-x86_64-linux-gnu.so",
+    "commit": "unknown",
+    "describe": "unknown",
+    "gpu": "NVIDIA GeForce RTX 3070, 8.6"
+  },
+  "has_context": true,
+  "params": {
+    "atoms": 300,
+    "frames": 50,
+    "spacing": 1.0,
+    "cutoff": 2.5,
+    "sigma": 1.0,
+    "repeats": 20,
+    "passes": 3
+  },
+  "rows": [
+    {
+      "dim": 16,
+      "voxel": 0.02937230747193098,
+      "flow": 0.2146004932001233,
+      "observer": 0.15133419074118137
+    },
+    {
+      "dim": 24,
+      "voxel": 0.030191894620656967,
+      "flow": 0.22059150505810976,
+      "observer": 0.19718508701771498
+    },
+    {
+      "dim": 32,
+      "voxel": 0.039279297925531864,
+      "flow": 0.25583754759281874,
+      "observer": 0.27842139825224876
+    },
+    {
+      "dim": 48,
+      "voxel": 0.058501167222857475,
+      "flow": 0.3550152527168393,
+      "observer": 0.5991528509184718
+    },
+    {
+      "dim": 64,
+      "voxel": 0.11454715859144926,
+      "flow": 0.5592929432168603,
+      "observer": 1.2085664318874478
+    },
+    {
+      "dim": 96,
+      "voxel": 0.26835305616259575,
+      "flow": 1.3425773940980434,
+      "observer": 3.5238511161878705
+    },
+    {
+      "dim": 128,
+      "voxel": 0.5876673618331552,
+      "flow": 2.9065143084153533,
+      "observer": 8.248400990851223
+    }
+  ]
+}

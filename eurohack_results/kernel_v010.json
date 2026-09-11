@@ -1,0 +1,65 @@
+{
+  "label": "v0.1.0",
+  "build": {
+    "python": "3.12.14",
+    "platform": "Linux-6.18.7-76061807-generic-x86_64-with-glibc2.39",
+    "extension": "/tmp/claude-1000/-home-yzhang-MyRepos-Nearl/df08db46-4d8c-4518-bf8e-b0dc70d4bdc2/scratchpad/wt-old/nearl/all_actions.cpython-312-x86_64-linux-gnu.so",
+    "commit": "c18f046",
+    "describe": "v0.0.2-7-gc18f046",
+    "gpu": "NVIDIA GeForce RTX 3070, 8.6"
+  },
+  "has_context": false,
+  "params": {
+    "atoms": 300,
+    "frames": 50,
+    "spacing": 1.0,
+    "cutoff": 2.5,
+    "sigma": 1.0,
+    "repeats": 20,
+    "passes": 3
+  },
+  "rows": [
+    {
+      "dim": 16,
+      "voxel": 0.2763043390586972,
+      "flow": 4.27971554454416,
+      "observer": 2.1096372976899147
+    },
+    {
+      "dim": 24,
+      "voxel": 0.5237919045612216,
+      "flow": 7.603845652192831,
+      "observer": 2.6705313473939896
+    },
+    {
+      "dim": 32,
+      "voxel": 1.0484735015779734,
+      "flow": 14.837969350628555,
+      "observer": 3.8477191468700767
+    },
+    {
+      "dim": 48,
+      "voxel": 3.0970947351306677,
+      "flow": 43.734717345796525,
+      "observer": 7.984622800722717
+    },
+    {
+      "dim": 64,
+      "voxel": 7.142798067070544,
+      "flow": 98.13056930433959,
+      "observer": 17.075203801505268
+    },
+    {
+      "dim": 96,
+      "voxel": 23.483735346235335,
+      "flow": 312.4679157976061,
+      "observer": 53.59571871813387
+    },
+    {
+      "dim": 128,
+      "voxel": 55.788437789306045,
+      "flow": 752.7919537387788,
+      "observer": 122.93257573619485
+    }
+  ]
+}

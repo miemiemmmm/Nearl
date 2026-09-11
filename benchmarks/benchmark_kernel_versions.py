@@ -274,7 +274,9 @@ def compare(old_path, new_path, stem):
         )
     ax1.set_yscale("log")
     ax1.set_ylabel("mean call time  (ms, log)", fontsize=9.5, color=INK2)
-    ax1.set_title("Kernel cost", fontsize=11, color=INK, loc="left", fontweight="bold")
+    ax1.set_title(
+        "Kernel cost", fontsize=11, color=INK, loc="left", pad=15, fontweight="bold"
+    )
     ax1.text(
         0,
         1.015,
@@ -287,7 +289,9 @@ def compare(old_path, new_path, stem):
     ax2.set_yscale("log")
     ax2.axhline(1.0, color=INK3, lw=1.0, ls=(0, (2, 2)), zorder=2)
     ax2.set_ylabel("speedup (log)", fontsize=9.5, color=INK2)
-    ax2.set_title("Speedup", fontsize=11, color=INK, loc="left", fontweight="bold")
+    ax2.set_title(
+        "Speedup", fontsize=11, color=INK, loc="left", pad=15, fontweight="bold"
+    )
     ax2.text(
         0,
         1.015,
