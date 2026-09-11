@@ -8,7 +8,10 @@
 #define BLOCK_SIZE 256
 #define DEFAULT_COORD_PLACEHOLDER 99999.0f
 #define DEFAULT_PLACEHOLDER 99999.0f
-#define MAX_FRAME_NUMBER 512
+// Frames map to blockIdx.y, so the launch grid caps the slice length. This is
+// a CUDA hardware limit, not a buffer size: nothing on the device holds a
+// per-frame array any more.
+#define MAX_FRAME_NUMBER 65535
 #define DISTINCT_LIMIT 1000
 
 // MATH

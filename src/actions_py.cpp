@@ -239,8 +239,8 @@ CommandExecution do_marching_observers(FloatInput arr_coord, FloatInput arr_weig
   // TODO: Eliminate this constraint in the future
   if (frame_nr > MAX_FRAME_NUMBER) {
     throw py::value_error("The number of frames " + std::to_string(frame_nr) +
-                          " exceeds the maximum number of frames allowed " +
-                          std::to_string(MAX_FRAME_NUMBER) + " frames.");
+                          " exceeds the maximum of " + std::to_string(MAX_FRAME_NUMBER) +
+                          " that a single launch can cover.");
   }
 
   // Current hard coded to 0, 0 for type_obs and type_agg
@@ -289,6 +289,12 @@ CommandExecution do_traj_voxelize(FloatInput arr_traj, FloatInput arr_weights, I
   const int atom_nr = buf_traj.shape[1];
 
   // Check the validity of the input data before launching the kernel
+  if (frame_nr > MAX_FRAME_NUMBER) {
+    throw py::value_error("The number of frames " + std::to_string(frame_nr) +
+                          " exceeds the maximum of " + std::to_string(MAX_FRAME_NUMBER) +
+                          " that a single launch can cover.");
+  }
+
   int supported_agg[AGGREGATION_COUNT] = SUPPORTED_AGGREGATIONS;
   for (int i = 0; i < AGGREGATION_COUNT; i++) {
     if (type_agg == supported_agg[i]) {
@@ -488,6 +494,12 @@ py::object do_traj_voxelize_dlpack(FloatInput arr_traj, FloatInput arr_weights, 
   int frame_nr = buf_traj.shape[0];
   int atom_nr = buf_traj.shape[1];
 
+  if (frame_nr > MAX_FRAME_NUMBER) {
+    throw py::value_error("The number of frames " + std::to_string(frame_nr) +
+                          " exceeds the maximum of " + std::to_string(MAX_FRAME_NUMBER) +
+                          " that a single launch can cover.");
+  }
+
   int supported_agg[AGGREGATION_COUNT] = SUPPORTED_AGGREGATIONS;
   for (int i = 0; i < AGGREGATION_COUNT; i++) {
     if (type_agg == supported_agg[i]) {
@@ -542,8 +554,8 @@ py::object do_marching_observers_dlpack(FloatInput arr_coord, FloatInput arr_wei
 
   if (frame_nr > MAX_FRAME_NUMBER) {
     throw py::value_error("The number of frames " + std::to_string(frame_nr) +
-                          " exceeds the maximum number of frames allowed " +
-                          std::to_string(MAX_FRAME_NUMBER) + " frames.");
+                          " exceeds the maximum of " + std::to_string(MAX_FRAME_NUMBER) +
+                          " that a single launch can cover.");
   }
 
   GridDestination dest(out, dims);
