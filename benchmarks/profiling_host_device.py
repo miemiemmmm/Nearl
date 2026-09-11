@@ -141,6 +141,13 @@ def parse_args():
     p.add_argument("--datadir", default="/tmp/nearl_test", help="example-data folder")
     p.add_argument("--outfile", default="/tmp/prof_dynamic.h5", help="HDF5 output")
     p.add_argument(
+        "--producer-threads",
+        type=int,
+        default=None,
+        help="override the featurizer's producer_threads (default: the "
+        "featurizer's own, currently 2)",
+    )
+    p.add_argument(
         "--no-nsys", action="store_true", help="skip the Nsight Systems pass"
     )
     p.add_argument(
@@ -238,16 +245,17 @@ def build_featurizer(args, timer):
     # so time that call to expose the trajectory-load cost.
     timer.wrap(nearl.io.TrajectoryLoader, "__getitem__", "trajectory load")
 
-    featurizer = nearl.featurizer.Featurizer(
-        {
-            "dimensions": args.dims,
-            "lengths": 16,
-            "time_window": args.window,
-            "sigma": 1.5,
-            "cutoff": 3.5,
-            "outfile": args.outfile,
-        }
-    )
+    parms = {
+        "dimensions": args.dims,
+        "lengths": 16,
+        "time_window": args.window,
+        "sigma": 1.5,
+        "cutoff": 3.5,
+        "outfile": args.outfile,
+    }
+    if args.producer_threads is not None:
+        parms["producer_threads"] = args.producer_threads
+    featurizer = nearl.featurizer.Featurizer(parms)
     # Only the two dynamic features, weighted by mass: no external toolkit involved.
     featurizer.register_features(
         [
